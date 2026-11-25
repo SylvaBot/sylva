@@ -443,18 +443,30 @@ await check('the overlay editor saves drafts, publishes versions and pushes the 
   assert.equal(restored.published.version, 2, 'restoring does not publish');
   assert.equal((await post('/restore/99')).status, 404);
 
-  // A cheer updates top labels on screen.
-  await admin(`/v1/channels/${key}/test-event`, { kind: 'cheer', name: 'Topfan', amount: 900000 });
-  const top = await widget.next((f) => f.type === 'top' && f.top.some((t) => t.name === 'Topfan'));
-  assert.deepEqual(top.top.find((t) => t.kind === 'cheer'), { kind: 'cheer', name: 'Topfan', amount: 900000 });
   await widget.close();
 
-  // A new widget socket gets the published scene and the top list straight away.
+  // A new widget socket gets the published scene straight away.
   const again = new Client(key, 'widget', 0, { token: overlayToken });
   await again.opened;
-  const data = await again.next((f) => f.type === 'widgets');
-  assert.equal(data.scene.version, 2);
-  assert.equal(data.top.find((t) => t.kind === 'cheer').name, 'Topfan');
+  assert.equal((await again.next((f) => f.type === 'widgets')).scene.version, 2);
+  await again.close();
+});
+
+await check('a cheer updates top labels on screen', async () => {
+  // Its own channel, so the cheer's alert does not join this channel's queue.
+  const tkey = `twitch:${randomChannelId()}`;
+  const widget = new Client(tkey, 'widget', 0);
+  await widget.opened;
+  assert.deepEqual((await widget.next((f) => f.type === 'widgets')).top, []);
+  await admin(`/v1/channels/${tkey}/test-event`, { kind: 'cheer', name: 'Small', amount: 100 });
+  await admin(`/v1/channels/${tkey}/test-event`, { kind: 'cheer', name: 'Topfan', amount: 500 });
+  await admin(`/v1/channels/${tkey}/test-event`, { kind: 'cheer', name: 'Topfan', amount: 600 });
+  const top = await widget.next((f) => f.type === 'top' && f.top.some((t) => t.name === 'Topfan' && t.amount === 1100));
+  assert.deepEqual(top.top, [{ kind: 'cheer', name: 'Topfan', amount: 1100 }], 'cheers add up per viewer');
+  await widget.close();
+  const again = new Client(tkey, 'widget', 0);
+  await again.opened;
+  assert.deepEqual((await again.next((f) => f.type === 'widgets')).top, top.top);
   await again.close();
 });
 

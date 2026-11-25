@@ -34,6 +34,7 @@ A sidebar with the pages, the live connection and the signed in channel. On phon
 | Chat | `/app/chat` | Chat, live and read only. |
 | Chat bot | `/app/bot` | Turn the bot on, edit its commands, timers, counters and quotes, and a test chat that shows what it would answer. |
 | Moderation | `/app/moderation` | How strict chat rules are (Off, Relaxed, Standard, Strict or Custom), each rule with its limits, banned words and allowed sites, a box to try a message, and the log of what Sylva did with Lift timeout. |
+| Loyalty | `/app/loyalty` | Turn points on, name them, set what each way of earning pays, the chat commands, and every viewer with their balance, history and a way to add or take away points. |
 | Settings | `/app/settings` | The account and Sign out, the theme (Dark, Light or System), connected apps, which Twitch events reach Sylva, and Delete account. |
 
 ![Overview](site/overview.png)
@@ -50,12 +51,12 @@ The look takes Cortex's ideas, not its layout: neutral grays, one color per kind
 
 ## How it was checked
 
-* Accessibility: axe finds no WCAG 2.1 AA issues on 60 page states (every page in both themes, the alert editor, the overlay editor with each menu open and a widget selected, the chat bot with a command open, a new command, the test chat, a timer open and a new timer, a new counter and a new quote, moderation with unsaved changes and a tried message, and moderation off, search, device approval, the phone drawer, privacy and the delete form). Text contrast is at least 4.5 to 1. The phone drawer moves focus in and back out and makes the page behind it inert.
+* Accessibility: axe finds no WCAG 2.1 AA issues on 64 page states (every page in both themes, the alert editor, the overlay editor with each menu open and a widget selected, the chat bot with a command open, a new command, the test chat, a timer open and a new timer, a new counter and a new quote, moderation with unsaved changes and a tried message, and moderation off, loyalty with unsaved changes and a viewer open, search, device approval, the phone drawer, privacy and the delete form). Text contrast is at least 4.5 to 1. The phone drawer moves focus in and back out and makes the page behind it inert.
 * Security headers: the website sends a Content-Security-Policy with its one inline script allowed by hash, `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`. `app.js` and `index.css` are linked with a content hash and cached for a year.
 
 * Every page driven in Chromium with Playwright at 1440 px and at 390 px (phone), in both themes: sign in through the fake Twitch, live events, search, theme change, the phone drawer, and sign out. No page scrolls sideways on a phone.
 * `npm run test:e2e` adds a check for history search: names and messages match regardless of case, and `%` and `_` are taken literally.
-* It checks the chat bot against the fake Twitch: off by default, levels, cooldowns, moderators skipping them, aliases, counts a save cannot change, echoes ignored, the test chat sending nothing, moderation (permission missing, allowing it, refreshing an expired token, keeping it after a plain sign in, delete then timeout, who is skipped, spaced notices, lifting a timeout, and refusing to undo a removed message), counters and quotes (only moderators change them, values a save cannot reset, numbers never reused, Undo restoring a quote's number, the test chat changing nothing, quotes turned off), and timers (refused variables, waiting for chat lines and for going live, going live restarting them, Send now, the bot's own posts not counting as chat, and Send now refused while the bot is off). When a timer is due is covered by unit tests.
+* It checks the chat bot against the fake Twitch: off by default, levels, cooldowns, moderators skipping them, aliases, counts a save cannot change, echoes ignored, the test chat sending nothing, moderation (permission missing, allowing it, refreshing an expired token, keeping it after a plain sign in, delete then timeout, who is skipped, spaced notices, lifting a timeout, and refusing to undo a removed message), counters and quotes (only moderators change them, values a save cannot reset, numbers never reused, Undo restoring a quote's number, the test chat changing nothing, quotes turned off), and timers (refused variables, waiting for chat lines and for going live, going live restarting them, Send now, the bot's own posts not counting as chat, and Send now refused while the bot is off), and loyalty points (one follow bonus however often someone follows, subs, gifts and cheers, watch and chat points paid only while live, viewers who only watch paid once the chat list is allowed, the streamer never paid, `!points`, `!top`, `!give` with too few points, `!addpoints` for moderators only and for viewers Sylva has not seen yet, balances stopping at zero, the dashboard's search, changes and history, and turning points off). When a timer is due is covered by unit tests.
 * It also checks the overlay editor (bad layouts are refused, drafts are tidied, publishing pushes the layout to overlays on screen, versions and restore work) and top labels (cheers add up per viewer and reach widgets live).
 
 ## Alert types
@@ -127,6 +128,19 @@ Off until the streamer picks a preset. Each chat line is checked in the channel'
 `GET` and `POST /v1/channels/{key}/moderation` hold the settings, `POST .../moderation/try` checks a message, `GET .../moderation/log` and `POST .../moderation/log/{id}/undo` are the log.
 
 ![Moderation](site/moderation.png)
+
+## Loyalty
+
+Off until the streamer turns it on. Viewers earn points, named whatever the streamer likes (leaves, acorns), and check them in chat.
+
+* **Earning.** Every 5 minutes while live, each viewer in chat earns the watch amount (10 by default), and those who chatted in that time earn the chat amount on top (5). A follow pays once per viewer (50), a sub or resub pays the subscriber (250), each gifted sub pays the gifter (100), and every 100 bits pay 50. Each amount can be set from 0 to 100,000. The streamer and the bot never earn, and a line removed by moderation earns nothing.
+* **Who is watching.** Twitch only shows viewers who do not chat through its chatter list, which needs `moderator:read:chatters`. Until the streamer allows it (Allow chat list, kept as its own encrypted grant like moderation), only viewers who chatted are paid. The list is read up to 5,000 viewers.
+* **Chat commands**, answered while the chat bot is on: `!points` (or the points' own name) shows a balance and rank, with `@name` for someone else's; `!top` lists the five with the most; `!give @name 100` passes points to another viewer when the streamer allows it; `!addpoints @name 100` (or `-100`) is for moderators and finds viewers by their Twitch name even before they have earned anything. Viewers wait 5 seconds between checks.
+* **History.** Every change is kept with its reason, such as Followed, Cheered or Gift from Hazel. Watch payments in a row add up into one line. A balance never drops below zero. The dashboard lists every viewer, most first, with search, their history and a way to add or take away points with a reason.
+
+`GET` and `POST /v1/channels/{key}/loyalty` hold the settings; `GET .../loyalty/viewers?q=` lists viewers, `POST .../loyalty/viewers/{id}/adjust` changes a balance and `GET .../loyalty/viewers/{id}/ledger` is the history.
+
+![Loyalty](site/loyalty.png)
 
 ## Widgets
 

@@ -14,9 +14,10 @@
 //! `start?next=/device?code=...` returns to that page after signing in, for
 //! approving an app. Only Sylva's own `/app` and `/device` pages are allowed.
 //!
-//! `start?scopes=moderation` also asks for the moderation scopes. Those
-//! tokens are kept as a separate grant (see `account::Grant`), so a later
-//! plain sign in does not take moderation away.
+//! `start?scopes=moderation` (or `loyalty`, or both with a comma) also asks
+//! for that feature's scopes (`sylva_core::auth::GRANTS`). Those tokens are
+//! kept as a separate grant (see `account::Grant`), so a later plain sign in
+//! does not take the feature away.
 //!
 //! Apps such as Cortex authenticate with an API token instead of the cookie
 //! (`Authorization: Bearer sylva_...`, see `sylva_core::apps`).
@@ -242,16 +243,23 @@ async fn bot_finish(req: &Request, env: &Env, code: &str) -> Result<Response> {
 
 pub async fn start(req: &Request, env: &Env) -> Result<Response> {
     let state = random_hex(16)?;
-    let moderation = req
+    let asked: Vec<String> = req
         .url()?
         .query_pairs()
-        .any(|(k, v)| k == "scopes" && v == "moderation");
+        .filter(|(k, _)| k == "scopes")
+        .flat_map(|(_, v)| v.split(',').map(str::to_string).collect::<Vec<_>>())
+        .collect();
+    let extra: Vec<&str> = sylva_core::auth::GRANTS
+        .iter()
+        .map(|(p, _)| *p)
+        .filter(|p| asked.iter().any(|a| a == p))
+        .collect();
     let url = twitch_authorize_url(
         &twitch_api::auth_base(env)?,
         &env.var("TWITCH_CLIENT_ID")?.to_string(),
         &format!("{}/auth/twitch/callback", origin(req)?),
         &state,
-        moderation,
+        &extra,
     );
     let next = req
         .url()?

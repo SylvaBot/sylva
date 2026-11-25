@@ -954,3 +954,38 @@ h1, h2, h3, p { margin: 0; }
   .counters-card .type-main { flex-basis: 100%; }
   .counters-card .stepper { margin-right: auto; }
 }
+
+/* Loyalty */
+.points-switch { height: auto; align-self: center; color: var(--text-2); }
+.points-settings { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 14px 24px; align-items: end; border-bottom: 1px solid var(--border); }
+.points-settings .field.inline { justify-content: flex-start; color: var(--text-2); }
+.points-sub { margin: 0; padding: 16px 20px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); }
+.points-amount { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.points-amount .num-input { width: 88px; }
+.points-foot { border-top: 1px solid var(--border); padding-top: 12px; margin: 0; }
+.type-main b .points-alt { display: inline; margin-left: 8px; font-weight: 400; color: var(--muted); font-size: 12.5px; }
+.type.off .type-main b { color: var(--muted); }
+.points-search { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--border); }
+.points-search .field { flex: 1 1 auto; max-width: 360px; }
+.points-rank { min-width: 28px; font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; text-align: right; }
+.points-balance { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.points-detail { padding: 4px 20px 16px 60px; }
+.points-detail .points-sub { padding: 16px 0 8px; }
+.points-adjust { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.points-adjust-actions { display: flex; gap: 8px; }
+.points-ledger { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.points-ledger li { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.points-ledger li:first-child { border-top: 0; }
+.points-delta { font-weight: 600; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--ok) 55%, var(--text)); }
+.points-delta.minus { color: var(--danger); }
+.points-reason { color: var(--text-2); overflow-wrap: anywhere; }
+.points-ledger time { color: var(--faint); font-size: 12px; white-space: nowrap; }
+@media (max-width: 700px) {
+  .points-settings { grid-template-columns: minmax(0, 1fr); }
+  .points-detail { padding-left: 16px; padding-right: 16px; }
+  .points-adjust { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .points-adjust-actions { grid-column: 1 / -1; justify-content: flex-end; }
+  .points-rules .type-row { flex-wrap: wrap; }
+  .points-ledger li { grid-template-columns: 70px minmax(0, 1fr); }
+  .points-ledger time { grid-column: 2; }
+}

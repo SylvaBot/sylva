@@ -20,6 +20,7 @@ const CLIENT_SECRET = 'local-dev-client-secret';
 const SCOPES = ['moderator:read:followers', 'channel:read:subscriptions', 'bits:read',
                 'user:read:chat', 'user:bot', 'channel:bot'];
 export const MOD_SCOPES = ['moderator:manage:chat_messages', 'moderator:manage:banned_users'];
+export const LOYALTY_SCOPES = ['moderator:read:chatters'];
 
 export function startFakeTwitch(port = FAKE_PORT) {
   const state = {
@@ -36,13 +37,17 @@ export function startFakeTwitch(port = FAKE_PORT) {
     chatSent: [],
     // Scopes authorize may grant: what was asked for, limited to these.
     // Tests narrow it to check "scopes".
-    grant: [...SCOPES, ...MOD_SCOPES],
+    grant: [...SCOPES, ...MOD_SCOPES, ...LOYALTY_SCOPES],
     refreshTokens: new Map(), // refresh token -> scopes
     // Seconds new user tokens last. A test sets 0 to make Sylva refresh.
     tokenTtl: 14000,
     // Deletes, timeouts and unbans, as Sylva asked for them.
     modActions: [],
     banned: new Set(),
+    // Who is in each channel's chat: broadcaster id -> [{ user_id, user_login, user_name }].
+    chatters: new Map(),
+    // Twitch users besides FAKE_USER, found by login: login -> { id, login, display_name }.
+    users: new Map(),
   };
 
   const json = (res, status, body) => {
@@ -133,8 +138,23 @@ export function startFakeTwitch(port = FAKE_PORT) {
       const path = url.pathname.slice('/helix'.length);
 
       if (req.method === 'GET' && path === '/users') {
-        if (isApp && !url.searchParams.get('login')) return json(res, 400, { message: 'login required' });
-        return json(res, 200, { data: [FAKE_USER] });
+        const login = url.searchParams.get('login');
+        if (isApp && !login) return json(res, 400, { message: 'login required' });
+        if (!login || login === FAKE_USER.login) return json(res, 200, { data: [FAKE_USER] });
+        const u = state.users.get(login.toLowerCase());
+        return json(res, 200, { data: u ? [u] : [] });
+      }
+      if (req.method === 'GET' && path === '/chat/chatters') {
+        if (isApp) return json(res, 401, { message: 'user token required' });
+        if (!state.userTokens.get(token).includes(LOYALTY_SCOPES[0])) return json(res, 401, { message: 'missing scope ' + LOYALTY_SCOPES[0] });
+        const q = Object.fromEntries(url.searchParams);
+        if (!q.broadcaster_id || !q.moderator_id) return json(res, 400, { message: 'missing ids' });
+        const all = state.chatters.get(q.broadcaster_id) || [];
+        const first = Number(q.first || 100);
+        const from = Number(q.after || 0);
+        const data = all.slice(from, from + first);
+        const next = from + first < all.length ? String(from + first) : undefined;
+        return json(res, 200, { data, pagination: next ? { cursor: next } : {}, total: all.length });
       }
       if (req.method === 'GET' && path === '/eventsub/conduits') {
         return json(res, 200, { data: [{ id: 'fake-conduit', shard_count: 1 }] });

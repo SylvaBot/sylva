@@ -246,7 +246,7 @@ impl ChannelDo {
         Ok(true)
     }
 
-    fn cooled(&self, key: &str, level: UserLevel, now: i64, dry: bool) -> Result<bool> {
+    pub(crate) fn cooled(&self, key: &str, level: UserLevel, now: i64, dry: bool) -> Result<bool> {
         if dry || level >= UserLevel::Moderator {
             return Ok(true);
         }

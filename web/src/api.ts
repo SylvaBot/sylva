@@ -126,6 +126,17 @@ export interface ModEntry {
 }
 export interface ModTry { rule?: ModRule; skipped: boolean; steps: [number, number, number] }
 
+export interface LoyaltySettings {
+  enabled: boolean; name: string; watch: number; active: number; follow: number; sub: number;
+  gift: number; cheer: number; give: boolean;
+}
+export interface LoyaltyView {
+  settings: LoyaltySettings; permission: 'ok' | 'missing' | 'expired'; live: boolean; botOn: boolean;
+  viewers: number; everyMinutes: number;
+}
+export interface PointsViewer { id: string; login: string; name: string; balance: number; earned: number }
+export interface PointsEntry { id: number; delta: number; reason: string; at: number }
+
 export interface AppToken { id: string; name: string; createdAt: number; lastUsedAt?: number | null }
 
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
@@ -208,6 +219,16 @@ export const api = {
   deleteQuote: (key: string, id: number) => request<Quote>('POST', `${ch(key)}/bot/quotes/${id}/delete`),
   tryBot: (key: string, message: string, level: UserLevel, extra: { settings?: BotSettings; user?: string; channel?: string } = {}) =>
     request<BotTry>('POST', `${ch(key)}/bot/try`, { message, level, ...extra }),
+  loyalty: (key: string) => request<LoyaltyView>('GET', `${ch(key)}/loyalty`),
+  saveLoyalty: (key: string, s: LoyaltySettings) => request<LoyaltyView>('POST', `${ch(key)}/loyalty`, s),
+  pointsViewers: (key: string, q: string, offset: number, limit = 50) => {
+    const p = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
+    return request<{ viewers: PointsViewer[]; total: number }>('GET', `${ch(key)}/loyalty/viewers?${p}`);
+  },
+  adjustPoints: (key: string, id: string, delta: number, reason: string) =>
+    request<PointsViewer>('POST', `${ch(key)}/loyalty/viewers/${encodeURIComponent(id)}/adjust`, { delta, reason }),
+  pointsLedger: (key: string, id: string) =>
+    request<{ entries: PointsEntry[] }>('GET', `${ch(key)}/loyalty/viewers/${encodeURIComponent(id)}/ledger`),
   scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),
   saveScene: (key: string, scene: Scene) => request<SceneState>('POST', `${ch(key)}/scene`, scene),
   publishScene: (key: string) => request<SceneState>('POST', `${ch(key)}/scene/publish`),

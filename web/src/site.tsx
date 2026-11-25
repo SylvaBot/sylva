@@ -63,6 +63,10 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             messages and time out chatters, encrypted the same way and used only for the moderation rules you turn on.
           </li>
           <li>
+            <b>Chat list permission, if you allow it:</b> a Twitch token that may read who is in your chat,
+            encrypted the same way and used only to pay loyalty points to viewers who watch without chatting.
+          </li>
+          <li>
             <b>Your channel's activity:</b> follows, subs, gifted subs, cheers, raids, chat messages, and
             when your stream starts, ends or changes title, with the viewer names Twitch sends. This is your
             Activity feed and history.
@@ -72,6 +76,10 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
           <li>
             <b>Moderation:</b> your rules and word lists, and a log of the last 500 actions with the message
             that broke a rule and who sent it. Strikes against a chatter are forgotten after an hour.
+          </li>
+          <li>
+            <b>Loyalty points, if you turn them on:</b> for each viewer who earns them, their Twitch id, name,
+            balance and total earned, and a history of why their balance changed (the newest 20,000 changes in your channel).
           </li>
           <li>
             <b>Sign ins:</b> for each browser session and each connected app (such as Cortex), a one way hash

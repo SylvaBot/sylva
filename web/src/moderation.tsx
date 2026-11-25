@@ -254,7 +254,7 @@ function RuleRow({ name, desc, on, onToggle, children }: {
   );
 }
 
-function NumberField({ label, value, min, max, onChange }: {
+export function NumberField({ label, value, min, max, onChange }: {
   label: string; value: number; min: number; max: number; onChange(n: number): void;
 }) {
   const [text, setText] = useState(String(value));

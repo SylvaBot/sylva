@@ -41,6 +41,35 @@ pub struct Sender {
 pub struct BotView {
     pub settings: BotSettings,
     pub sender: Sender,
+    /// When each timer posts next, in the same order as `settings.timers`.
+    pub timers: Vec<TimerStatus>,
+    pub live: bool,
+}
+
+/// When a timer posts next, or what it waits for.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimerStatus {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_at: Option<i64>,
+    /// `off`, `bot` (the bot is off), `live` (waits for the stream) or `chat`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<&'static str>,
+    /// Chat lines still needed, when waiting for chat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lines_needed: Option<u32>,
+}
+
+/// Timer messages are at least this far apart, so several due at once do not
+/// arrive as a burst.
+const TIMER_GAP_MS: i64 = 30_000;
+
+#[derive(Deserialize)]
+struct TimerRow {
+    id: String,
+    last: f64,
+    lines: f64,
 }
 
 /// `POST /bot/try`: run a chat line through the bot without sending anything.
@@ -140,15 +169,193 @@ impl ChannelDo {
     pub(crate) fn save_bot_settings(&self, s: &BotSettings) -> Result<()> {
         self.set_config("bot", &serde_json::to_string(s)?)?;
         self.bot.replace(Some(s.clone()));
+        // Keep one row per timer: a new timer starts counting from now.
+        let now = Date::now().as_millis() as i64;
+        let ids: Vec<&str> = s.timers.iter().map(|t| t.id.as_str()).collect();
+        for row in self.timer_rows()? {
+            if !ids.contains(&row.id.as_str()) {
+                self.sql
+                    .exec("DELETE FROM timer_state WHERE id = ?", vec![row.id.into()])?;
+            }
+        }
+        for id in ids {
+            self.sql.exec(
+                "INSERT INTO timer_state (id, last, lines) VALUES (?, ?, 0)
+                 ON CONFLICT(id) DO NOTHING",
+                vec![id.into(), now.into()],
+            )?;
+        }
         Ok(())
+    }
+
+    fn timer_rows(&self) -> Result<Vec<TimerRow>> {
+        self.sql
+            .exec("SELECT id, last, lines FROM timer_state", None)?
+            .to_array::<TimerRow>()
     }
 
     pub(crate) fn bot_view(&self) -> Result<BotView> {
         let id = self.broadcaster_id().unwrap_or_default();
+        let settings = self.bot_settings()?;
+        let live = self.uptime_ms()?.is_some();
+        let rows = self.timer_rows()?;
+        let timers = settings
+            .timers
+            .iter()
+            .map(|t| {
+                let (last, lines) = rows
+                    .iter()
+                    .find(|r| r.id == t.id)
+                    .map_or((0, 0), |r| (r.last as i64, r.lines as u32));
+                let wait = |w: &'static str| TimerStatus {
+                    id: t.id.clone(),
+                    next_at: None,
+                    waiting: Some(w),
+                    lines_needed: (w == "chat").then(|| t.lines.saturating_sub(lines)),
+                };
+                if !t.enabled {
+                    wait("off")
+                } else if !settings.enabled {
+                    wait("bot")
+                } else if t.live_only && !live {
+                    wait("live")
+                } else if lines < t.lines {
+                    wait("chat")
+                } else {
+                    TimerStatus {
+                        id: t.id.clone(),
+                        next_at: t.due_at(last, lines, live),
+                        waiting: None,
+                        lines_needed: None,
+                    }
+                }
+            })
+            .collect();
         Ok(BotView {
-            settings: self.bot_settings()?,
+            settings,
             sender: sender(&self.env, &id),
+            timers,
+            live,
         })
+    }
+
+    /// The earliest time a timer may post, for the channel's alarm.
+    pub(crate) fn next_timer_at(&self, now: i64) -> Result<Option<i64>> {
+        let settings = self.bot_settings()?;
+        if !settings.enabled || settings.timers.is_empty() {
+            return Ok(None);
+        }
+        let live = self.uptime_ms()?.is_some();
+        let rows = self.timer_rows()?;
+        let last_any = rows.iter().map(|r| r.last as i64).max().unwrap_or(0);
+        Ok(settings
+            .timers
+            .iter()
+            .filter_map(|t| {
+                let r = rows.iter().find(|r| r.id == t.id)?;
+                t.due_at(r.last as i64, r.lines as u32, live)
+            })
+            .min()
+            .map(|due| due.max(last_any + TIMER_GAP_MS).max(now + 1_000)))
+    }
+
+    /// Post the timer that is most overdue, if any. One per call, so timers
+    /// due together are spaced by the alarm.
+    pub(crate) async fn run_timers(&self, now: i64) -> Result<()> {
+        let settings = self.bot_settings()?;
+        if !settings.enabled || settings.timers.is_empty() {
+            return Ok(());
+        }
+        let Some(broadcaster) = self.broadcaster_id() else {
+            return Ok(());
+        };
+        let uptime = self.uptime_ms()?;
+        let rows = self.timer_rows()?;
+        let last_any = rows.iter().map(|r| r.last as i64).max().unwrap_or(0);
+        if now - last_any < TIMER_GAP_MS {
+            return Ok(());
+        }
+        let due = settings
+            .timers
+            .iter()
+            .filter_map(|t| {
+                let r = rows.iter().find(|r| r.id == t.id)?;
+                let at = t.due_at(r.last as i64, r.lines as u32, uptime.is_some())?;
+                (at <= now).then_some((at, t))
+            })
+            .min_by_key(|(at, _)| *at);
+        let Some((_, t)) = due else {
+            return Ok(());
+        };
+        self.sql.exec(
+            "UPDATE timer_state SET last = ?, lines = 0 WHERE id = ?",
+            vec![now.into(), t.id.as_str().into()],
+        )?;
+        let text = bot::render(
+            &t.message,
+            &ReplyContext {
+                user: "",
+                args: &[],
+                channel: &self.channel_name()?,
+                count: 0,
+                uptime_ms: uptime,
+                commands: &settings.commands,
+                random: js_sys::Math::random(),
+            },
+        );
+        if text.is_empty() {
+            return Ok(());
+        }
+        let from = sender(&self.env, &broadcaster);
+        self.say(&broadcaster, &from, &text, now).await
+    }
+
+    /// "Send now" on the dashboard: post a timer's message at once, and start
+    /// its wait again.
+    pub(crate) async fn send_timer_now(
+        &self,
+        id: &str,
+    ) -> Result<std::result::Result<(), (u16, &'static str)>> {
+        let settings = self.bot_settings()?;
+        let Some(t) = settings.timers.iter().find(|t| t.id == id) else {
+            return Ok(Err((404, "That timer no longer exists")));
+        };
+        if !settings.enabled {
+            return Ok(Err((409, "Turn the bot on first")));
+        }
+        let Some(broadcaster) = self.broadcaster_id() else {
+            return Ok(Err((409, "Sylva has not heard from this channel yet")));
+        };
+        let now = Date::now().as_millis() as i64;
+        self.sql.exec(
+            "UPDATE timer_state SET last = ?, lines = 0 WHERE id = ?",
+            vec![now.into(), id.into()],
+        )?;
+        let text = bot::render(
+            &t.message,
+            &ReplyContext {
+                user: "",
+                args: &[],
+                channel: &self.channel_name()?,
+                count: 0,
+                uptime_ms: self.uptime_ms()?,
+                commands: &settings.commands,
+                random: js_sys::Math::random(),
+            },
+        );
+        let from = sender(&self.env, &broadcaster);
+        self.say(&broadcaster, &from, &text, now).await?;
+        self.schedule().await?;
+        Ok(Ok(()))
+    }
+
+    /// The stream went live: every timer starts counting again.
+    pub(crate) fn restart_timers(&self, now: i64) -> Result<()> {
+        self.sql.exec(
+            "UPDATE timer_state SET last = ?, lines = 0",
+            vec![now.into()],
+        )?;
+        Ok(())
     }
 
     /// Milliseconds since the stream went live, or `None` when it is offline.
@@ -268,6 +475,10 @@ impl ChannelDo {
         if let Err(e) = self.run_bot_inner(line).await {
             console_error!("The bot could not answer: {e}");
         }
+        let now = Date::now().as_millis() as i64;
+        if let Err(e) = self.run_timers(now).await {
+            console_error!("A timer could not post: {e}");
+        }
     }
 
     async fn run_bot_inner(&self, line: &StoredEvent) -> Result<()> {
@@ -278,13 +489,16 @@ impl ChannelDo {
         let Some(broadcaster) = self.broadcaster_id() else {
             return Ok(());
         };
-        let mut settings = self.bot_settings()?;
-        if !settings.enabled {
-            return Ok(());
-        }
         let from = sender(&self.env, &broadcaster);
         let now = Date::now().as_millis() as i64;
         if actor.id == from.id && self.is_echo(text, now)? {
+            return Ok(());
+        }
+        // Timers count what viewers say, not what the bot says.
+        self.sql
+            .exec("UPDATE timer_state SET lines = lines + 1", None)?;
+        let mut settings = self.bot_settings()?;
+        if !settings.enabled {
             return Ok(());
         }
         let Some((trigger, args)) = bot::parse(text) else {

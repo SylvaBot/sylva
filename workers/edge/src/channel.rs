@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS bot_cooldowns (
     key TEXT PRIMARY KEY,
     at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS timer_state (
+    id    TEXT PRIMARY KEY,
+    last  INTEGER NOT NULL,
+    lines INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS bot_sent (
     at   INTEGER NOT NULL,
     text TEXT NOT NULL
@@ -357,11 +362,16 @@ impl DurableObject for ChannelDo {
                 match body.validated(&self.bot_settings()?) {
                     Ok(s) => {
                         self.save_bot_settings(&s)?;
+                        self.schedule().await?;
                         Response::from_json(&self.bot_view()?)
                     }
                     Err(Invalid(message)) => Response::error(message, 400),
                 }
             }
+            (Method::Post, ["bot", "timers", id, "send"]) => match self.send_timer_now(id).await? {
+                Ok(()) => Response::from_json(&self.bot_view()?),
+                Err((status, message)) => Response::error(message, status),
+            },
             (Method::Post, ["bot", "try"]) => {
                 let Ok(body) = req.json::<crate::bot::TryRequest>().await else {
                     return Response::error("That test could not be read", 400);
@@ -436,6 +446,7 @@ impl DurableObject for ChannelDo {
                     "scene_versions",
                     "bot_cooldowns",
                     "bot_sent",
+                    "timer_state",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
@@ -513,18 +524,15 @@ impl DurableObject for ChannelDo {
                 } else {
                     self.finish(p.id as u64, "timeout")?;
                 }
-            } else {
-                let left = (started + ALERT_TIMEOUT_MS - now).max(1) as u64;
-                self.state
-                    .storage()
-                    .set_alarm(Duration::from_millis(left))
-                    .await?;
-                return Response::ok("waiting");
+                if self.dispatch().await?.is_none() {
+                    self.broadcast_state()?;
+                }
             }
         }
-        if self.dispatch().await?.is_none() {
-            self.broadcast_state()?;
+        if let Err(e) = self.run_timers(now).await {
+            console_error!("A timer could not post: {e}");
         }
+        self.schedule().await?;
         Response::ok("ok")
     }
 
@@ -723,8 +731,17 @@ impl ChannelDo {
             // Feeds show the queue length, so tell them it grew.
             self.broadcast_state()?;
         }
+        if stored_raw == "stream.online" {
+            self.restart_timers(received_at)?;
+            self.schedule().await?;
+        }
         if is_chat {
             self.run_bot(&stored).await;
+            // Chat can make a timer due; only then does the alarm need moving.
+            let bot = self.bot_settings()?;
+            if bot.enabled && !bot.timers.is_empty() {
+                self.schedule().await?;
+            }
         }
         Ok(IngestResult {
             seq,
@@ -1259,13 +1276,30 @@ impl ChannelDo {
     async fn dispatch(&self) -> Result<Option<u64>> {
         let started = self.start_next()?;
         if started.is_some() {
-            self.state
-                .storage()
-                // Careful: an i64 here is an offset from now, not a timestamp.
-                .set_alarm(Duration::from_millis(ALERT_TIMEOUT_MS as u64))
-                .await?;
+            self.schedule().await?;
         }
         Ok(started)
+    }
+
+    /// Set the one alarm a Durable Object has to the earliest thing waiting:
+    /// the timeout of the alert on screen, or the next timer message.
+    pub(crate) async fn schedule(&self) -> Result<()> {
+        let now = Date::now().as_millis() as i64;
+        let alert = self
+            .playing()?
+            .map(|p| p.started_at.unwrap_or(0.0) as i64 + ALERT_TIMEOUT_MS);
+        let timer = self.next_timer_at(now)?;
+        let storage = self.state.storage();
+        match alert.into_iter().chain(timer).min() {
+            // Careful: a Duration here is an offset from now, not a timestamp.
+            Some(at) => {
+                storage
+                    .set_alarm(Duration::from_millis((at - now).max(1) as u64))
+                    .await?
+            }
+            None => storage.delete_alarm().await?,
+        }
+        Ok(())
     }
 
     fn start_next(&self) -> Result<Option<u64>> {

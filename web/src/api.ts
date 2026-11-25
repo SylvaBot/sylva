@@ -85,8 +85,17 @@ export interface BotCommand {
   name: string; aliases: string[]; reply: string; level: UserLevel;
   cooldown: number; userCooldown: number; enabled: boolean; count: number;
 }
-export interface BotSettings { enabled: boolean; commands: BotCommand[] }
-export interface BotView { settings: BotSettings; sender: { kind: 'sylva' | 'streamer'; id: string; login?: string } }
+export interface BotTimer {
+  id: string; name: string; message: string; interval: number; lines: number; liveOnly: boolean; enabled: boolean;
+}
+export interface BotSettings { enabled: boolean; commands: BotCommand[]; timers: BotTimer[] }
+export interface TimerStatus { id: string; nextAt?: number; waiting?: 'off' | 'bot' | 'live' | 'chat'; linesNeeded?: number }
+export interface BotView {
+  settings: BotSettings;
+  sender: { kind: 'sylva' | 'streamer'; id: string; login?: string };
+  timers: TimerStatus[];
+  live: boolean;
+}
 export type BotSkip = 'notACommand' | 'unknown' | 'off' | 'level' | 'cooldown';
 export interface BotTry { reply?: string; skip?: BotSkip; command?: string }
 
@@ -154,6 +163,7 @@ export const api = {
   revokeApp: (id: string) => request<unknown>('POST', `/v1/apps/${encodeURIComponent(id)}/revoke`),
   bot: (key: string) => request<BotView>('GET', `${ch(key)}/bot`),
   saveBot: (key: string, s: BotSettings) => request<BotView>('POST', `${ch(key)}/bot`, s),
+  sendTimer: (key: string, id: string) => request<BotView>('POST', `${ch(key)}/bot/timers/${encodeURIComponent(id)}/send`),
   tryBot: (key: string, message: string, level: UserLevel, extra: { settings?: BotSettings; user?: string; channel?: string } = {}) =>
     request<BotTry>('POST', `${ch(key)}/bot/try`, { message, level, ...extra }),
   scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),

@@ -3,7 +3,7 @@
 // crates/sylva-core/src/bot.rs, which checks every save again.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, type BotCommand, type BotSettings, type BotView, type UserLevel } from './api';
+import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, type TimerStatus, type UserLevel } from './api';
 import { useChannel } from './channel';
 import { Card, PageHead } from './pages';
 import { errorText, Icon, num, useToast } from './ui';
@@ -183,6 +183,8 @@ export function BotPage() {
               })}
             </ul>
           </Card>
+
+          <Timers view={view!} onSave={save} onView={setView} />
 
           <TestChat settings={settings} />
         </div>
@@ -383,5 +385,233 @@ function TestChat({ settings }: { settings: BotSettings }) {
         <button className="btn primary" type="submit" disabled={!text.trim()}><Icon id="send" />Send</button>
       </form>
     </Card>
+  );
+}
+
+/* ---------------------------------------------------------------- Timers */
+
+const INTERVALS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180];
+const LINES = [0, 1, 2, 3, 5, 10, 20, 50, 100];
+const TIMER_VARIABLES = VARIABLES.filter((v) => ['${channel}', '${uptime}', '${commands}', '${random.1-100}'].includes(v.v));
+
+function minutes(n: number): string {
+  if (n < 60) return `${n} minutes`;
+  if (n === 60) return '1 hour';
+  return n % 60 === 0 ? `${n / 60} hours` : `${Math.floor(n / 60)} h ${n % 60} min`;
+}
+
+function when(at: number, now: number): string {
+  const m = Math.round((at - now) / 60_000);
+  if (m <= 0) return 'Next with the next chat line';
+  if (m === 1) return 'Next in about 1 minute';
+  if (m < 60) return `Next in about ${m} minutes`;
+  return `Next at ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+function statusText(st: TimerStatus | undefined, now: number): string {
+  if (!st) return '';
+  switch (st.waiting) {
+    case 'off': return 'Off';
+    case 'bot': return 'Waits for the bot to be on';
+    case 'live': return 'Waits for you to go live';
+    case 'chat': return st.linesNeeded === 1 ? 'Waits for 1 more chat line' : `Waits for ${st.linesNeeded} more chat lines`;
+    default: return st.nextAt ? when(st.nextAt, now) : '';
+  }
+}
+
+const blankTimer = (): BotTimer => ({ id: '', name: '', message: '', interval: 15, lines: 5, liveOnly: true, enabled: true });
+
+function Timers({ view, onSave, onView }: {
+  view: BotView;
+  onSave(next: BotSettings, done?: string, undo?: BotSettings): Promise<boolean>;
+  onView(v: BotView): void;
+}) {
+  const ch = useChannel();
+  const toast = useToast();
+  const [open, setOpen] = useState<number | 'new' | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const settings = view.settings;
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const sendNow = async (t: BotTimer) => {
+    try {
+      onView(await api.sendTimer(ch.key, t.id));
+      toast(`${t.name} posted in your chat`);
+    } catch (x) {
+      toast(errorText(x), true);
+    }
+  };
+
+  return (
+    <Card
+      id="timers"
+      className="timers-card"
+      title="Timers"
+      desc="Messages the bot posts on a schedule. A timer can wait for chat to be active, so the bot never talks to an empty room."
+      action={
+        <button className="btn sm" type="button" onClick={() => setOpen('new')} disabled={open === 'new' || settings.timers.length >= 20}>
+          <Icon id="plus" />New timer
+        </button>
+      }
+    >
+      <ul className="types">
+        {open === 'new' && (
+          <li className="type open">
+            <TimerEditor
+              timer={blankTimer()}
+              isNew
+              onCancel={() => setOpen(null)}
+              onSave={async (t) => {
+                if (await onSave({ ...settings, timers: [...settings.timers, t] }, `${t.name.trim()} added`)) setOpen(null);
+              }}
+            />
+          </li>
+        )}
+        {settings.timers.length === 0 && open !== 'new' && (
+          <li className="empty">No timers yet. Add one to remind viewers to follow, or to share your Discord every half hour.</li>
+        )}
+        {settings.timers.map((t, i) => {
+          const isOpen = open === i;
+          const st = view.timers.find((x) => x.id === t.id);
+          const rule = [`Every ${minutes(t.interval)}`];
+          if (t.lines > 0) rule.push(t.lines === 1 ? 'after a chat line' : `after ${t.lines} chat lines`);
+          if (t.liveOnly) rule.push('only while live');
+          return (
+            <li key={t.id} className={'type cmd' + (isOpen ? ' open' : '') + (t.enabled ? '' : ' off')}>
+              <div className="type-row">
+                <div className="type-main">
+                  <b className="timer-name">{t.name}</b>
+                  <span className="cmd-reply">{t.message}</span>
+                  <span className="cmd-meta">{rule.join(' · ')}</span>
+                  <span className={'timer-status' + (st?.nextAt && !st.waiting ? ' due' : '')}>{statusText(st, now)}</span>
+                </div>
+                <button className="btn sm ghost" type="button" disabled={!settings.enabled || !t.enabled} title={settings.enabled ? 'Post it in your chat now' : 'Turn the bot on first'} onClick={() => sendNow(t)}>
+                  Send now
+                </button>
+                <button className="btn sm ghost" type="button" aria-expanded={isOpen} aria-controls={`timer-edit-${i}`} onClick={() => setOpen(isOpen ? null : i)}>
+                  {isOpen ? 'Close' : 'Edit'}
+                </button>
+                <button
+                  className="switch"
+                  type="button"
+                  role="switch"
+                  aria-checked={t.enabled}
+                  aria-label={t.name}
+                  onClick={() => onSave(
+                    { ...settings, timers: settings.timers.map((x, j) => (j === i ? { ...x, enabled: !x.enabled } : x)) },
+                    `${t.name} ${t.enabled ? 'off' : 'on'}`,
+                  )}
+                />
+              </div>
+              {isOpen && (
+                <TimerEditor
+                  id={`timer-edit-${i}`}
+                  timer={t}
+                  onCancel={() => setOpen(null)}
+                  onDelete={async () => {
+                    if (await onSave({ ...settings, timers: settings.timers.filter((_, j) => j !== i) }, `${t.name} deleted`, settings)) setOpen(null);
+                  }}
+                  onSave={async (next) => {
+                    if (await onSave({ ...settings, timers: settings.timers.map((x, j) => (j === i ? next : x)) }, `${next.name.trim()} saved`)) setOpen(null);
+                  }}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
+function TimerEditor({ id, timer, isNew, onSave, onCancel, onDelete }: {
+  id?: string; timer: BotTimer; isNew?: boolean;
+  onSave(t: BotTimer): Promise<void>; onCancel(): void; onDelete?(): Promise<void>;
+}) {
+  const [draft, setDraft] = useState(timer);
+  const [busy, setBusy] = useState(false);
+  const message = useRef<HTMLTextAreaElement>(null);
+  const set = (patch: Partial<BotTimer>) => setDraft((d) => ({ ...d, ...patch }));
+  const f = (name: string) => `${id ?? 'timer-new'}-${name}`;
+  const changed = isNew || JSON.stringify(draft) !== JSON.stringify(timer);
+  const options = (list: number[], n: number) => (list.includes(n) ? list : [...list, n].sort((a, b) => a - b));
+
+  const insert = (v: string) => {
+    const el = message.current;
+    const at = el ? el.selectionStart : draft.message.length;
+    const end = el ? el.selectionEnd : at;
+    set({ message: (draft.message.slice(0, at) + v + draft.message.slice(end)).slice(0, MAX_REPLY) });
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(at + v.length, at + v.length);
+    });
+  };
+
+  return (
+    <form
+      className="cmd-edit timer-edit"
+      id={id}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        try { await onSave(draft); } finally { setBusy(false); }
+      }}
+    >
+      <div className="cmd-fields">
+        <label className="field wide" htmlFor={f('name')}>
+          Name
+          <input id={f('name')} className="input" maxLength={40} required autoFocus={isNew} placeholder="Follow reminder"
+            value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+          <span className="field-hint">Only you see this.</span>
+        </label>
+        <label className="field wide" htmlFor={f('message')}>
+          <span className="field-row">Message<span className="field-hint">{draft.message.length} / {MAX_REPLY}</span></span>
+          <textarea id={f('message')} ref={message} className="input textarea" rows={3} maxLength={MAX_REPLY} required
+            placeholder="Enjoying the stream? Hit follow so you know when I am live." value={draft.message} onChange={(e) => set({ message: e.target.value })} />
+        </label>
+        <div className="field wide">
+          <span id={f('vars')}>Add to the message</span>
+          <div className="chips" role="group" aria-labelledby={f('vars')}>
+            {TIMER_VARIABLES.map((v) => (
+              <button key={v.v} type="button" className="chip" title={v.what} onClick={() => insert(v.v)}>{v.v}</button>
+            ))}
+          </div>
+        </div>
+        <label className="field" htmlFor={f('interval')}>
+          Post every
+          <select id={f('interval')} className="select" value={draft.interval} onChange={(e) => set({ interval: Number(e.target.value) })}>
+            {options(INTERVALS, draft.interval).map((n) => <option key={n} value={n}>{minutes(n)}</option>)}
+          </select>
+        </label>
+        <label className="field" htmlFor={f('lines')}>
+          Chat lines in between
+          <select id={f('lines')} className="select" value={draft.lines} onChange={(e) => set({ lines: Number(e.target.value) })}>
+            {options(LINES, draft.lines).map((n) => <option key={n} value={n}>{n === 0 ? 'None needed' : `At least ${n}`}</option>)}
+          </select>
+        </label>
+        <div className="field inline wide">
+          <span>Only while you are live</span>
+          <button className="switch" type="button" role="switch" aria-checked={draft.liveOnly} aria-label="Only while you are live"
+            onClick={() => set({ liveOnly: !draft.liveOnly })} />
+        </div>
+      </div>
+      <div className="cmd-preview">
+        <span className="cmd-preview-label">How it runs</span>
+        <p className="bubble">
+          {draft.liveOnly ? 'While you are live, ' : ''}the bot posts this every {minutes(draft.interval)}
+          {draft.lines > 0 ? `, once at least ${draft.lines} chat ${draft.lines === 1 ? 'line has' : 'lines have'} been sent since the last time` : ''}.
+          Timers are spaced at least 30 seconds apart.
+        </p>
+      </div>
+      <div className="type-actions">
+        {onDelete && <button className="btn ghost danger push-left" type="button" onClick={() => onDelete()}><Icon id="trash" />Delete</button>}
+        <button className="btn ghost" type="button" onClick={onCancel}>Cancel</button>
+        <button className="btn primary" type="submit" disabled={busy || !changed || !draft.name.trim() || !draft.message.trim()}>{busy ? 'Saving' : isNew ? 'Add timer' : 'Save'}</button>
+      </div>
+    </form>
   );
 }

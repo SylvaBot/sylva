@@ -35,6 +35,7 @@ A sidebar with the pages, the live connection and the signed in channel. On phon
 | Chat bot | `/app/bot` | Turn the bot on, edit its commands, timers, counters and quotes, and a test chat that shows what it would answer. |
 | Moderation | `/app/moderation` | How strict chat rules are (Off, Relaxed, Standard, Strict or Custom), each rule with its limits, banned words and allowed sites, a box to try a message, and the log of what Sylva did with Lift timeout. |
 | Loyalty | `/app/loyalty` | Turn points on, name them, set what each way of earning pays, the chat commands, and every viewer with their balance, history and a way to add or take away points. |
+| Store | `/app/store` | The queue of redemptions waiting (Done, Refund, and History with Not done), the rewards with their cost, stock, wait and message, opening the store, and the public page's link. |
 | Settings | `/app/settings` | The account and Sign out, the theme (Dark, Light or System), connected apps, which Twitch events reach Sylva, and Delete account. |
 
 ![Overview](site/overview.png)
@@ -51,12 +52,12 @@ The look takes Cortex's ideas, not its layout: neutral grays, one color per kind
 
 ## How it was checked
 
-* Accessibility: axe finds no WCAG 2.1 AA issues on 64 page states (every page in both themes, the alert editor, the overlay editor with each menu open and a widget selected, the chat bot with a command open, a new command, the test chat, a timer open and a new timer, a new counter and a new quote, moderation with unsaved changes and a tried message, and moderation off, loyalty with unsaved changes and a viewer open, search, device approval, the phone drawer, privacy and the delete form). Text contrast is at least 4.5 to 1. The phone drawer moves focus in and back out and makes the page behind it inert.
+* Accessibility: axe finds no WCAG 2.1 AA issues on 74 page states (every page in both themes, the alert editor, the overlay editor with each menu open and a widget selected, the chat bot with a command open, a new command, the test chat, a timer open and a new timer, a new counter and a new quote, moderation with unsaved changes and a tried message, and moderation off, loyalty with unsaved changes and a viewer open, the store with a new reward open and its history, the public points page and its not found page, search, device approval, the phone drawer, privacy and the delete form). Text contrast is at least 4.5 to 1. The phone drawer moves focus in and back out and makes the page behind it inert.
 * Security headers: the website sends a Content-Security-Policy with its one inline script allowed by hash, `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`. `app.js` and `index.css` are linked with a content hash and cached for a year.
 
 * Every page driven in Chromium with Playwright at 1440 px and at 390 px (phone), in both themes: sign in through the fake Twitch, live events, search, theme change, the phone drawer, and sign out. No page scrolls sideways on a phone.
 * `npm run test:e2e` adds a check for history search: names and messages match regardless of case, and `%` and `_` are taken literally.
-* It checks the chat bot against the fake Twitch: off by default, levels, cooldowns, moderators skipping them, aliases, counts a save cannot change, echoes ignored, the test chat sending nothing, moderation (permission missing, allowing it, refreshing an expired token, keeping it after a plain sign in, delete then timeout, who is skipped, spaced notices, lifting a timeout, and refusing to undo a removed message), counters and quotes (only moderators change them, values a save cannot reset, numbers never reused, Undo restoring a quote's number, the test chat changing nothing, quotes turned off), and timers (refused variables, waiting for chat lines and for going live, going live restarting them, Send now, the bot's own posts not counting as chat, and Send now refused while the bot is off), and loyalty points (one follow bonus however often someone follows, subs, gifts and cheers, watch and chat points paid only while live, viewers who only watch paid once the chat list is allowed, the streamer never paid, `!points`, `!top`, `!give` with too few points, `!addpoints` for moderators only and for viewers Sylva has not seen yet, balances stopping at zero, the dashboard's search, changes and history, and turning points off). When a timer is due is covered by unit tests.
+* It checks the chat bot against the fake Twitch: off by default, levels, cooldowns, moderators skipping them, aliases, counts a save cannot change, echoes ignored, the test chat sending nothing, moderation (permission missing, allowing it, refreshing an expired token, keeping it after a plain sign in, delete then timeout, who is skipped, spaced notices, lifting a timeout, and refusing to undo a removed message), counters and quotes (only moderators change them, values a save cannot reset, numbers never reused, Undo restoring a quote's number, the test chat changing nothing, quotes turned off), and timers (refused variables, waiting for chat lines and for going live, going live restarting them, Send now, the bot's own posts not counting as chat, and Send now refused while the bot is off), and loyalty points (one follow bonus however often someone follows, subs, gifts and cheers, watch and chat points paid only while live, viewers who only watch paid once the chat list is allowed, the streamer never paid, `!points`, `!top`, `!give` with too few points, `!addpoints` for moderators only and for viewers Sylva has not seen yet, balances stopping at zero, the dashboard's search, changes and history, and turning points off), and the points store (names chat would misread refused, `!store` with the public link, a reward that needs a message, the wait between buys, sold out, too few points, an unknown reward, done, not done and refund with the points and stock given back, the public page and its viewer lookup, the test chat, and closing the store). When a timer is due is covered by unit tests.
 * It also checks the overlay editor (bad layouts are refused, drafts are tidied, publishing pushes the layout to overlays on screen, versions and restore work) and top labels (cheers add up per viewer and reach widgets live).
 
 ## Alert types
@@ -141,6 +142,20 @@ Off until the streamer turns it on. Viewers earn points, named whatever the stre
 `GET` and `POST /v1/channels/{key}/loyalty` hold the settings; `GET .../loyalty/viewers?q=` lists viewers, `POST .../loyalty/viewers/{id}/adjust` changes a balance and `GET .../loyalty/viewers/{id}/ledger` is the history.
 
 ![Loyalty](site/loyalty.png)
+
+## Points store
+
+Rewards viewers buy with loyalty points. Closed until the streamer opens it, and it needs points on.
+
+* **Rewards** have a name, a cost (1 to 10,000,000), an optional description, an optional limited stock, a wait per viewer between buys (none up to a week), and optionally a message the viewer must add, such as a song name. A reward can be hidden without deleting it. Names cannot start with a number, since chat reads that as a reward's place in the list.
+* **In chat**, `!store` (or `!rewards`) lists them with their numbers and the public page's link; `!redeem 2` or `!redeem song request` buys one, with the message after it. Sylva answers when the reward is sold out, the viewer must still wait, the message is missing, or the viewer has too few points, and otherwise takes the points and says so.
+* **The queue** on the Store page lists what is waiting, oldest first, with the viewer's message. Done moves it to History (with Undo), and Refund gives the points back and returns a limited reward to the stock.
+* **The public page** at `/s/{twitch name}` shows the rewards, the top ten, and lets a viewer look up their points. It works for any channel with points on, and says so plainly otherwise.
+
+`GET` and `POST /v1/channels/{key}/loyalty/store` hold the rewards, `GET .../loyalty/redemptions?status=pending|done` is the queue and history, and `POST .../loyalty/redemptions/{id}/done`, `.../reopen` and `.../refund` settle one. `GET /v1/public/{login}` is the public page's data and needs no sign in.
+
+![The Store page](site/store.png)
+![The public points page](site/public-store.png)
 
 ## Widgets
 

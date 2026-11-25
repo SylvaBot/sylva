@@ -39,6 +39,7 @@ mod delete;
 mod grants;
 mod loyalty;
 mod moderation;
+mod store;
 mod twitch_admin;
 mod twitch_api;
 mod util;
@@ -123,6 +124,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 _ => Response::error("Not found", 404),
             }
         }
+        (Method::Get, ["v1", "public", login]) => public_store(&req, &env, login).await,
         (Method::Get, ["overlay", key]) => {
             if !valid_key(key) {
                 return Response::error("Not found", 404);
@@ -305,6 +307,60 @@ async fn overlay_link(req: &Request, env: &Env, key: &str, rotate: bool) -> Resu
     no_store(Response::from_json(&json!({
         "url": format!("{}/overlay/{key}?token={token}", auth::origin(req)?),
     }))?)
+}
+
+/// The public points page's data, for anyone: the channel's rewards and
+/// leaderboard. Twitch turns the login into the channel.
+async fn public_store(req: &Request, env: &Env, login: &str) -> Result<Response> {
+    let Some(login) = sylva_core::loyalty::login_arg(login).filter(|l| l.len() <= 25) else {
+        return Response::error("No such channel", 404);
+    };
+    let app = twitch_api::App::new(env).await?;
+    let (status, v) = app
+        .helix(Method::Get, &format!("/users?login={login}"), None)
+        .await?;
+    let Some(id) = v["data"][0]["id"].as_str().filter(|_| status == 200) else {
+        return Response::error("No such channel", 404);
+    };
+    let key = format!("twitch:{id}");
+    if !valid_key(&key) {
+        return Response::error("No such channel", 404);
+    }
+    // Only channels with a Sylva account, so a lookup never makes a new object.
+    let dir = env.durable_object("DIRECTORY")?.get_by_name("directory")?;
+    let known = auth::post(
+        &dir,
+        "/lookup",
+        &account::Lookup {
+            platform: "twitch".into(),
+            platform_user_id: id.into(),
+        },
+    )
+    .await?;
+    if known.status_code() != 200 {
+        return Response::error("This channel does not use Sylva", 404);
+    }
+    let viewer: String = req
+        .url()?
+        .query_pairs()
+        .find(|(k, _)| k == "viewer")
+        .map(|(_, v)| v.chars().take(25).collect())
+        .unwrap_or_default();
+    let mut res = stub(env, &key)?
+        .fetch_with_str(&format!(
+            "https://channel/public?viewer={}",
+            sylva_core::auth::encode(&viewer)
+        ))
+        .await?;
+    if res.status_code() != 200 {
+        return Response::error("This channel has no points", 404);
+    }
+    let body = res.text().await?;
+    let mut out = Response::ok(body)?;
+    out.headers_mut().set("Content-Type", "application/json")?;
+    out.headers_mut()
+        .set("Cache-Control", "public, max-age=15")?;
+    Ok(out)
 }
 
 fn broadcaster_id(key: &str) -> &str {

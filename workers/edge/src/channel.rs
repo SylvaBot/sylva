@@ -132,6 +132,21 @@ CREATE TABLE IF NOT EXISTS points_active (
     name    TEXT NOT NULL,
     at      INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS redemptions (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id   TEXT NOT NULL,
+    item_name TEXT NOT NULL,
+    cost      INTEGER NOT NULL,
+    user_id   TEXT NOT NULL,
+    login     TEXT NOT NULL,
+    name      TEXT NOT NULL,
+    input     TEXT NOT NULL,
+    at        INTEGER NOT NULL,
+    status    TEXT NOT NULL,
+    done_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS redemptions_status ON redemptions(status, id);
+CREATE INDEX IF NOT EXISTS redemptions_user ON redemptions(item_id, user_id, id);
 CREATE INDEX IF NOT EXISTS events_kind ON events(kind, seq);
 CREATE INDEX IF NOT EXISTS events_received ON events(received_at);
 ";
@@ -308,7 +323,7 @@ impl DurableObject for ChannelDo {
         let q: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
         // Ingest comes from the Worker's webhook route only; clients never
         // reach it because the Worker forwards a fixed list of routes.
-        let internal = matches!(segs.as_slice(), ["ingest"] | ["ingest-batch"]);
+        let internal = matches!(segs.as_slice(), ["ingest"] | ["ingest-batch"] | ["public"]);
         let access = self.access(&req)?;
         if let Some(k) = req.headers().get(CHANNEL_HEADER)? {
             self.remember_key(&k)?;
@@ -538,6 +553,44 @@ impl DurableObject for ChannelDo {
                     Err(message) => Response::error(message, 400),
                 }
             }
+            (Method::Get, ["public"]) => {
+                match self.public_store(q.get("viewer").map(String::as_str))? {
+                    Some(p) => Response::from_json(&p),
+                    None => Response::error("This channel has no points", 404),
+                }
+            }
+            (Method::Get, ["loyalty", "store"]) => {
+                self.remember_site(&url)?;
+                Response::from_json(&self.store_view()?)
+            }
+            (Method::Post, ["loyalty", "store"]) => {
+                self.remember_site(&url)?;
+                let Ok(body) = req.json::<sylva_core::store::StoreSettings>().await else {
+                    return Response::error("Those store settings could not be read", 400);
+                };
+                match self.save_store_settings(body)? {
+                    Ok(()) => Response::from_json(&self.store_view()?),
+                    Err(message) => Response::error(message, 400),
+                }
+            }
+            (Method::Get, ["loyalty", "redemptions"]) => {
+                let num =
+                    |k: &str, d: i64| q.get(k).and_then(|v| v.parse::<i64>().ok()).unwrap_or(d);
+                Response::from_json(&serde_json::json!({ "redemptions": self.redemptions(
+                    q.get("status").map_or("pending", String::as_str),
+                    num("before", i64::MAX),
+                    num("limit", 50).clamp(1, 200),
+                )? }))
+            }
+            (Method::Post, ["loyalty", "redemptions", id, action]) => {
+                let Ok(id) = id.parse::<i64>() else {
+                    return Response::error("That redemption is no longer kept", 404);
+                };
+                match self.settle(id, action)? {
+                    Ok(r) => Response::from_json(&r),
+                    Err((status, message)) => Response::error(message, status),
+                }
+            }
             (Method::Get, ["loyalty", "viewers"]) => {
                 let num =
                     |k: &str, d: i64| q.get(k).and_then(|v| v.parse::<i64>().ok()).unwrap_or(d);
@@ -631,6 +684,7 @@ impl DurableObject for ChannelDo {
                     "points",
                     "points_ledger",
                     "points_active",
+                    "redemptions",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }

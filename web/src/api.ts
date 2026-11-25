@@ -137,6 +137,25 @@ export interface LoyaltyView {
 export interface PointsViewer { id: string; login: string; name: string; balance: number; earned: number }
 export interface PointsEntry { id: number; delta: number; reason: string; at: number }
 
+export interface StoreItem {
+  id: string; name: string; description: string; cost: number; enabled: boolean;
+  stock: number | null; cooldown: number; input: boolean;
+}
+export interface StoreSettings { enabled: boolean; items: StoreItem[] }
+export interface StoreView {
+  settings: StoreSettings; pointsOn: boolean; pointsName: string; botOn: boolean; login?: string; pending: number;
+}
+export interface Redemption {
+  id: number; itemId: string; itemName: string; cost: number; userId: string; login: string; name: string;
+  input: string; at: number; status: 'pending' | 'done' | 'refunded'; doneAt?: number;
+}
+export interface PublicViewer { name: string; balance: number; rank: number }
+export interface PublicStore {
+  channel: string; pointsName: string; storeOn: boolean;
+  items: { number: number; name: string; description: string; cost: number; stock?: number | null; cooldown: number; input: boolean }[];
+  top: PublicViewer[]; viewer?: PublicViewer;
+}
+
 export interface AppToken { id: string; name: string; createdAt: number; lastUsedAt?: number | null }
 
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
@@ -229,6 +248,14 @@ export const api = {
     request<PointsViewer>('POST', `${ch(key)}/loyalty/viewers/${encodeURIComponent(id)}/adjust`, { delta, reason }),
   pointsLedger: (key: string, id: string) =>
     request<{ entries: PointsEntry[] }>('GET', `${ch(key)}/loyalty/viewers/${encodeURIComponent(id)}/ledger`),
+  store: (key: string) => request<StoreView>('GET', `${ch(key)}/loyalty/store`),
+  saveStore: (key: string, s: StoreSettings) => request<StoreView>('POST', `${ch(key)}/loyalty/store`, s),
+  redemptions: (key: string, status: 'pending' | 'done', before?: number) =>
+    request<{ redemptions: Redemption[] }>('GET', `${ch(key)}/loyalty/redemptions?status=${status}&limit=${status === 'pending' ? 200 : 50}${before ? `&before=${before}` : ''}`),
+  settle: (key: string, id: number, action: 'done' | 'reopen' | 'refund') =>
+    request<Redemption>('POST', `${ch(key)}/loyalty/redemptions/${id}/${action}`),
+  publicStore: (login: string, viewer?: string) =>
+    request<PublicStore>('GET', `/v1/public/${encodeURIComponent(login)}${viewer ? `?viewer=${encodeURIComponent(viewer)}` : ''}`),
   scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),
   saveScene: (key: string, scene: Scene) => request<SceneState>('POST', `${ch(key)}/scene`, scene),
   publishScene: (key: string) => request<SceneState>('POST', `${ch(key)}/scene/publish`),

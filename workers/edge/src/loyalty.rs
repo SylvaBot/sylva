@@ -167,7 +167,7 @@ impl ChannelDo {
         })
     }
 
-    fn count(&self, sql: &str, args: Vec<SqlStorageValue>) -> Result<i64> {
+    pub(crate) fn count(&self, sql: &str, args: Vec<SqlStorageValue>) -> Result<i64> {
         Ok(self
             .sql
             .exec(sql, args)?
@@ -193,7 +193,7 @@ impl ChannelDo {
         Ok(())
     }
 
-    fn viewer(&self, user_id: &str) -> Result<Option<Viewer>> {
+    pub(crate) fn viewer(&self, user_id: &str) -> Result<Option<Viewer>> {
         Ok(self
             .sql
             .exec(
@@ -206,7 +206,7 @@ impl ChannelDo {
             .map(Viewer::from))
     }
 
-    fn viewer_by_login(&self, login: &str) -> Result<Option<Viewer>> {
+    pub(crate) fn viewer_by_login(&self, login: &str) -> Result<Option<Viewer>> {
         Ok(self
             .sql
             .exec(
@@ -222,7 +222,7 @@ impl ChannelDo {
 
     /// Change a balance and write why. A balance never goes below zero, so
     /// the change made can be smaller than asked. Returns the change made.
-    fn credit(&self, who: &Actor, delta: i64, reason: &str, now: i64) -> Result<i64> {
+    pub(crate) fn credit(&self, who: &Actor, delta: i64, reason: &str, now: i64) -> Result<i64> {
         let balance = self.viewer(&who.id)?.map_or(0, |v| v.balance);
         let delta = delta.max(-balance);
         if delta == 0 {
@@ -283,7 +283,7 @@ impl ChannelDo {
     }
 
     /// The broadcaster and the bot never earn.
-    fn earns(&self, user_id: &str) -> bool {
+    pub(crate) fn earns(&self, user_id: &str) -> bool {
         let Some(broadcaster) = self.broadcaster_id() else {
             return false;
         };
@@ -444,7 +444,7 @@ impl ChannelDo {
     }
 
     /// A viewer by login: from the points table, or else from Twitch.
-    async fn find_viewer(&self, login: &str) -> Result<Option<Actor>> {
+    pub(crate) async fn find_viewer(&self, login: &str) -> Result<Option<Actor>> {
         if let Some(v) = self.viewer_by_login(login)? {
             return Ok(Some(Actor {
                 id: v.id,
@@ -474,7 +474,7 @@ impl ChannelDo {
         })
     }
 
-    fn rank(&self, balance: i64) -> Result<i64> {
+    pub(crate) fn rank(&self, balance: i64) -> Result<i64> {
         Ok(self.count(
             "SELECT COUNT(*) AS n FROM points WHERE balance > ?",
             vec![balance.into()],

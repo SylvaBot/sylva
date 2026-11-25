@@ -876,3 +876,12 @@ h1, h2, h3, p { margin: 0; }
   .cmd-edit { padding-left: 16px; padding-right: 16px; }
 }
 .placeholder { color: var(--text); font-weight: 600; text-decoration: underline dashed color-mix(in srgb, var(--warn) 80%, transparent); text-underline-offset: 3px; }
+.timer-edit .field.inline { height: auto; padding-top: 4px; }
+.type-main .timer-status { font-size: 12px; font-weight: 500; color: var(--muted); }
+.type-main .timer-status.due { color: color-mix(in srgb, var(--follow) 60%, var(--text)); }
+.cmd.off .timer-name, .cmd.off .timer-status { color: var(--faint); }
+@media (max-width: 560px) {
+  .timers-card .type-row { flex-wrap: wrap; row-gap: 8px; }
+  .timers-card .type-main { flex-basis: 100%; }
+  .timers-card .type-row > .btn:first-of-type { margin-left: -8px; margin-right: auto; }
+}

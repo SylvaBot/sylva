@@ -32,7 +32,7 @@ A sidebar with the pages, the live connection and the signed in channel. On phon
 | Alerts | `/app/alerts` | Mute, pause and skip; alert types (on or off, minimum amount, time on screen, label and message, with a live preview); a test alert for each kind; Replay on recent alerts. |
 | Overlay | `/app/overlay` | The overlay editor (every widget on one canvas, published to one link), the goal, single widget links for anyone who prefers one source per widget, New links, and the steps for OBS. |
 | Chat | `/app/chat` | Chat, live and read only. |
-| Chat bot | `/app/bot` | Turn the bot on, edit its commands, and a test chat that shows what it would answer. |
+| Chat bot | `/app/bot` | Turn the bot on, edit its commands and timers, and a test chat that shows what it would answer. |
 | Settings | `/app/settings` | The account and Sign out, the theme (Dark, Light or System), connected apps, which Twitch events reach Sylva, and Delete account. |
 
 ![Overview](site/overview.png)
@@ -49,12 +49,12 @@ The look takes Cortex's ideas, not its layout: neutral grays, one color per kind
 
 ## How it was checked
 
-* Accessibility: axe finds no WCAG 2.1 AA issues on 48 page states (every page in both themes, the alert editor, the overlay editor with each menu open and a widget selected, the chat bot with a command open, a new command and the test chat, search, device approval, the phone drawer, privacy and the delete form). Text contrast is at least 4.5 to 1. The phone drawer moves focus in and back out and makes the page behind it inert.
+* Accessibility: axe finds no WCAG 2.1 AA issues on 52 page states (every page in both themes, the alert editor, the overlay editor with each menu open and a widget selected, the chat bot with a command open, a new command, the test chat, and a timer open and a new timer, search, device approval, the phone drawer, privacy and the delete form). Text contrast is at least 4.5 to 1. The phone drawer moves focus in and back out and makes the page behind it inert.
 * Security headers: the website sends a Content-Security-Policy with its one inline script allowed by hash, `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`. `app.js` and `index.css` are linked with a content hash and cached for a year.
 
 * Every page driven in Chromium with Playwright at 1440 px and at 390 px (phone), in both themes: sign in through the fake Twitch, live events, search, theme change, the phone drawer, and sign out. No page scrolls sideways on a phone.
 * `npm run test:e2e` adds a check for history search: names and messages match regardless of case, and `%` and `_` are taken literally.
-* It checks the chat bot against the fake Twitch: off by default, levels, cooldowns, moderators skipping them, aliases, counts a save cannot change, echoes ignored, and the test chat sending nothing.
+* It checks the chat bot against the fake Twitch: off by default, levels, cooldowns, moderators skipping them, aliases, counts a save cannot change, echoes ignored, the test chat sending nothing, and timers (refused variables, waiting for chat lines and for going live, going live restarting them, Send now, the bot's own posts not counting as chat, and Send now refused while the bot is off). When a timer is due is covered by unit tests.
 * It also checks the overlay editor (bad layouts are refused, drafts are tidied, publishing pushes the layout to overlays on screen, versions and restore work) and top labels (cheers add up per viewer and reach widgets live).
 
 ## Alert types
@@ -91,9 +91,18 @@ Off until the streamer turns it on. When a chat line starts with `!` and names a
 * **Variables** use StreamElements' style so imported commands keep working: `${user}`, `${touser}`, `${1}` to `${9}`, `${args}`, `${channel}`, `${count}`, `${uptime}`, `${random.1-100}` and `${commands}`. A reply with `${uptime}` while offline says the channel is offline. Unknown variables are refused when saving.
 * **Test chat** runs a line through the same code on the server without sending it, as a viewer, subscriber, VIP, moderator or the streamer. The editor's preview uses it too, with the unsaved command.
 * **Echoes.** The bot remembers what it sent for a minute, so its own reply coming back through chat is never read as a command.
-* Deleting a command offers Undo.
+* Deleting a command or a timer offers Undo.
 
-`GET` and `POST /v1/channels/{key}/bot` hold the settings (use counts are the server's and a save cannot change them); `POST .../bot/try` is the test chat.
+### Timers
+
+Messages the bot posts on a schedule, such as a follow reminder or a Discord link. Up to 20.
+
+* **When.** Every 5 minutes to 3 hours, and only once at least a set number of chat lines (0 to 100) have been sent since the last post, so the bot never talks to an empty room. Lines the bot sent itself do not count. A timer can post only while live (the default) or at any time.
+* **How.** The channel's Durable Object keeps one alarm for both alerts and timers, set for whichever is due first. Due timers post one at a time, at least 30 seconds apart. Going live restarts every timer's clock, so nothing fires the moment a stream starts.
+* **Variables.** `${channel}`, `${uptime}`, `${commands}` and `${random.1-100}`. Variables about a viewer are refused, because no viewer started the message.
+* **The list** shows each timer's rule and what it waits for: the next post time, more chat lines, going live, or the bot being turned on. Send now posts it at once and restarts its clock.
+
+`GET` and `POST /v1/channels/{key}/bot` hold the settings (use counts are the server's and a save cannot change them); `POST .../bot/try` is the test chat; `POST .../bot/timers/{id}/send` is Send now.
 
 ![The chat bot](site/bot.png)
 

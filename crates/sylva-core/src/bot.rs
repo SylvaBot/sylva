@@ -109,6 +109,8 @@ pub struct BotSettings {
     pub enabled: bool,
     #[serde(default)]
     pub commands: Vec<Command>,
+    #[serde(default)]
+    pub timers: Vec<Timer>,
 }
 
 impl Default for BotSettings {
@@ -116,7 +118,53 @@ impl Default for BotSettings {
         BotSettings {
             enabled: false,
             commands: default_commands(),
+            timers: Vec::new(),
         }
+    }
+}
+
+pub const MAX_TIMERS: usize = 20;
+pub const MAX_TIMER_NAME: usize = 40;
+pub const MIN_INTERVAL_MIN: u32 = 5;
+pub const MAX_INTERVAL_MIN: u32 = 180;
+pub const MAX_TIMER_LINES: u32 = 100;
+
+/// A message the bot posts on a schedule, such as a reminder to follow.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Timer {
+    /// Given by the server: `t1`, `t2`, ...
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    pub message: String,
+    /// Minutes between messages.
+    pub interval: u32,
+    /// Chat lines needed since the last message, so the bot never talks to
+    /// an empty room. 0 posts on time whatever chat does.
+    #[serde(default)]
+    pub lines: u32,
+    /// Only post while the stream is live.
+    #[serde(default = "yes")]
+    pub live_only: bool,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+/// Variables a timer may use: there is no viewer behind a timer.
+fn timer_variable(name: &str) -> bool {
+    matches!(name, "channel" | "uptime" | "commands") || parse_random(name).is_some()
+}
+
+impl Timer {
+    /// When it may post next, given when it last posted, the chat lines since
+    /// and whether the stream is live. `None` while it waits for something
+    /// other than time (chat lines, going live, being turned on).
+    pub fn due_at(&self, last: i64, lines: u32, live: bool) -> Option<i64> {
+        if !self.enabled || (self.live_only && !live) || lines < self.lines {
+            return None;
+        }
+        Some(last + self.interval as i64 * 60_000)
     }
 }
 
@@ -267,7 +315,62 @@ impl BotSettings {
                 .find(|s| s.name == c.name)
                 .map_or(0, |s| s.count);
         }
+        self.validate_timers(stored)?;
         Ok(self)
+    }
+
+    fn validate_timers(&mut self, stored: &BotSettings) -> Result<(), Invalid> {
+        if self.timers.len() > MAX_TIMERS {
+            return Err(Invalid(format!(
+                "A channel can have up to {MAX_TIMERS} timers"
+            )));
+        }
+        // Ids are the server's: keep the stored ones, number new ones after them.
+        let number = |id: &str| id.strip_prefix('t').and_then(|n| n.parse::<u32>().ok());
+        let mut next = stored
+            .timers
+            .iter()
+            .chain(self.timers.iter())
+            .filter_map(|t| number(&t.id))
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let mut ids: Vec<String> = Vec::new();
+        for t in &mut self.timers {
+            let known = stored.timers.iter().any(|s| s.id == t.id);
+            if !known || ids.contains(&t.id) {
+                t.id = format!("t{next}");
+                next += 1;
+            }
+            ids.push(t.id.clone());
+            t.name = t.name.split_whitespace().collect::<Vec<_>>().join(" ");
+            if t.name.is_empty() || t.name.chars().count() > MAX_TIMER_NAME {
+                return Err(Invalid(format!(
+                    "Each timer needs a name of up to {MAX_TIMER_NAME} characters"
+                )));
+            }
+            t.message = t.message.trim().to_string();
+            if t.message.is_empty() {
+                return Err(Invalid(format!("The timer \"{}\" needs a message", t.name)));
+            }
+            if t.message.chars().count() > MAX_REPLY {
+                return Err(Invalid(format!(
+                    "The message for \"{}\" is longer than {MAX_REPLY} characters",
+                    t.name
+                )));
+            }
+            for v in variables(&t.message)? {
+                if !timer_variable(v) {
+                    return Err(Invalid(format!(
+                        "The timer \"{}\" uses ${{{v}}}, which a timer cannot fill in. Timers can use ${{channel}}, ${{uptime}}, ${{commands}} and ${{random.1-100}}.",
+                        t.name
+                    )));
+                }
+            }
+            t.interval = t.interval.clamp(MIN_INTERVAL_MIN, MAX_INTERVAL_MIN);
+            t.lines = t.lines.min(MAX_TIMER_LINES);
+        }
+        Ok(())
     }
 
     /// The command a trigger names, enabled or not.
@@ -545,6 +648,66 @@ mod tests {
         assert!(bad(&|s| s.commands[0].reply = "${user".into()));
         assert!(bad(&|s| s.commands[0].reply = "x".repeat(501)));
         assert!(!bad(&|s| s.commands[0].reply = "${random.5-9} ${9}".into()));
+    }
+
+    fn timer(id: &str) -> Timer {
+        Timer {
+            id: id.into(),
+            name: " Follow   reminder ".into(),
+            message: "Enjoying ${channel}? Follow!".into(),
+            interval: 2,
+            lines: 500,
+            live_only: true,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn timers_are_checked_and_numbered() {
+        let stored = BotSettings {
+            timers: vec![timer("t3")],
+            ..Default::default()
+        };
+        let s = BotSettings {
+            timers: vec![timer("t3"), timer("forged"), timer("t3")],
+            ..Default::default()
+        };
+        let ok = s.validated(&stored).unwrap();
+        let ids: Vec<&str> = ok.timers.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["t3", "t4", "t5"]);
+        assert_eq!(ok.timers[0].name, "Follow reminder");
+        assert_eq!(ok.timers[0].interval, MIN_INTERVAL_MIN);
+        assert_eq!(ok.timers[0].lines, MAX_TIMER_LINES);
+
+        let bad = |f: &dyn Fn(&mut Timer)| {
+            let mut t = timer("");
+            f(&mut t);
+            let s = BotSettings {
+                timers: vec![t],
+                ..BotSettings::default()
+            };
+            s.validated(&stored).is_err()
+        };
+        assert!(bad(&|t| t.message = "Hi ${user}".into()));
+        assert!(bad(&|t| t.message = " ".into()));
+        assert!(bad(&|t| t.name = "".into()));
+        assert!(!bad(
+            &|t| t.message = "${uptime} ${random.1-3} ${commands}".into()
+        ));
+    }
+
+    #[test]
+    fn timers_wait_for_time_chat_and_going_live() {
+        let mut t = timer("t1");
+        t.interval = 10;
+        t.lines = 5;
+        assert_eq!(t.due_at(1_000, 5, true), Some(1_000 + 600_000));
+        assert_eq!(t.due_at(1_000, 4, true), None, "needs chat");
+        assert_eq!(t.due_at(1_000, 9, false), None, "offline");
+        t.live_only = false;
+        assert_eq!(t.due_at(1_000, 9, false), Some(601_000));
+        t.enabled = false;
+        assert_eq!(t.due_at(1_000, 9, true), None);
     }
 
     #[test]

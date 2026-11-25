@@ -620,6 +620,60 @@ if (!fake || !usesFake) {
     assert.equal(sent().length, 4);
   });
 
+  await check('timers wait for chat and going live, and Send now posts at once', async () => {
+    const tid = randomChannelId();
+    const path = `/v1/channels/twitch:${tid}/bot`;
+    const post = (p, body) => fetch(`${BASE}${p}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    const sent = () => fake.state.chatSent.filter((m) => m.broadcaster_id === tid);
+    const status = async (id) => (await getJson(path)).timers.find((t) => t.id === id);
+
+    const base = (await getJson(path)).settings;
+    assert.deepEqual(base.timers, []);
+    const bad = await post(path, { ...base, enabled: true, timers: [{ name: 'Hi', message: 'Hi ${user}', interval: 10 }] });
+    assert.equal(bad.status, 400);
+    assert.match(await bad.text(), /cannot fill in/);
+
+    const follow = { name: 'Follow reminder', message: 'Enjoying the stream? Follow ${channel}!', interval: 1, lines: 3, liveOnly: false };
+    const discord = { name: 'Discord', message: 'Join the Discord', interval: 30, lines: 0 };
+    const saved = await (await post(path, { ...base, enabled: true, timers: [follow, discord] })).json();
+    assert.deepEqual(saved.settings.timers.map((t) => [t.id, t.interval, t.liveOnly]), [['t1', 5, false], ['t2', 30, true]]);
+    assert.deepEqual(saved.timers, [
+      { id: 't1', waiting: 'chat', linesNeeded: 3 },
+      { id: 't2', waiting: 'live' },
+    ]);
+
+    await sendEventSub(chatLine(tid, { text: 'hello' }));
+    await sendEventSub(chatLine(tid, { text: 'hi', id: '7002', name: 'Hazel' }));
+    assert.deepEqual(await status('t1'), { id: 't1', waiting: 'chat', linesNeeded: 1 });
+    await sendEventSub(chatLine(tid, { text: 'gg' }));
+    const ready = await status('t1');
+    assert.ok(ready.nextAt > Date.now() + 4 * 60_000 && ready.nextAt < Date.now() + 5 * 60_000 + 5_000, 'five minutes after it was saved');
+
+    await sendEventSub({
+      subType: 'stream.online', condition: { broadcaster_user_id: tid },
+      event: { id: randomUUID(), broadcaster_user_id: tid, broadcaster_user_login: 'timertester',
+               broadcaster_user_name: 'TimerTester', type: 'live', started_at: new Date().toISOString() },
+    });
+    const live = await getJson(path);
+    assert.equal(live.live, true);
+    assert.ok(live.timers.find((t) => t.id === 't2').nextAt > Date.now() + 29 * 60_000);
+    assert.deepEqual(live.timers.find((t) => t.id === 't1'), { id: 't1', waiting: 'chat', linesNeeded: 3 }, 'going live starts every timer again');
+
+    const now = await (await post(`${path}/timers/t1/send`)).json();
+    assert.deepEqual(sent().map((m) => m.message), ['Enjoying the stream? Follow TimerTester!']);
+    assert.deepEqual(now.timers.find((t) => t.id === 't1'), { id: 't1', waiting: 'chat', linesNeeded: 3 });
+    // The bot's own message coming back is not a viewer's line.
+    await sendEventSub(chatLine(tid, { text: 'Enjoying the stream? Follow TimerTester!', id: tid, name: 'TimerTester' }));
+    assert.equal((await status('t1')).linesNeeded, 3);
+    assert.equal((await post(`${path}/timers/t9/send`)).status, 404);
+    await post(path, { ...saved.settings, enabled: false });
+    assert.equal((await post(`${path}/timers/t1/send`)).status, 409);
+    assert.equal((await status('t1')).waiting, 'bot');
+  });
+
   await check('signing in makes an account, subscribes the channel and starts a session', async () => {
     const res = await signIn();
     assert.equal(res.status, 302);

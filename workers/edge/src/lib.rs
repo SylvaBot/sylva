@@ -34,6 +34,7 @@ mod apps;
 mod auth;
 mod bot;
 mod channel;
+mod community;
 mod delete;
 mod moderation;
 mod twitch_admin;
@@ -178,6 +179,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["widget-settings"])
                 | (Method::Post, ["alert-settings"])
                 | (Method::Get, ["bot"])
+                | (Method::Get, ["bot", "quotes"])
                 | (Method::Post, ["bot", ..])
                 | (Method::Get, ["moderation", ..])
                 | (Method::Post, ["moderation", ..])

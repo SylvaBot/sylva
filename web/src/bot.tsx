@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, type TimerStatus, type UserLevel } from './api';
 import { useChannel } from './channel';
+import { Counters, Quotes } from './community';
 import { Card, PageHead } from './pages';
 import { errorText, Icon, num, useToast } from './ui';
 
@@ -77,7 +78,7 @@ export function BotPage() {
 
   return (
     <div className="page">
-      <PageHead title="Chat bot" desc="Commands that answer in your chat. Try them here before your viewers do." />
+      <PageHead title="Chat bot" desc="Commands, timers, counters and quotes for your chat. Try them here before your viewers do." />
       {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load your bot. Refresh to try again.</p></div></Card>}
       {!view && !failed && <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>}
       {settings && (
@@ -185,6 +186,10 @@ export function BotPage() {
           </Card>
 
           <Timers view={view!} onSave={save} onView={setView} />
+
+          <Counters view={view!} onSave={save} onView={setView} />
+
+          <Quotes view={view!} onSave={save} />
 
           <TestChat settings={settings} />
         </div>

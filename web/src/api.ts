@@ -88,7 +88,12 @@ export interface BotCommand {
 export interface BotTimer {
   id: string; name: string; message: string; interval: number; lines: number; liveOnly: boolean; enabled: boolean;
 }
-export interface BotSettings { enabled: boolean; commands: BotCommand[]; timers: BotTimer[] }
+export interface BotCounter { name: string; label: string; value: number; enabled: boolean }
+export interface QuoteSettings { enabled: boolean; addLevel: UserLevel }
+export interface BotSettings {
+  enabled: boolean; commands: BotCommand[]; timers: BotTimer[]; counters: BotCounter[]; quotes: QuoteSettings;
+}
+export interface Quote { id: number; text: string; by: string; game: string; at: number }
 export interface TimerStatus { id: string; nextAt?: number; waiting?: 'off' | 'bot' | 'live' | 'chat'; linesNeeded?: number }
 export interface BotView {
   settings: BotSettings;
@@ -193,6 +198,14 @@ export const api = {
   modLog: (key: string, before?: number) =>
     request<{ entries: ModEntry[] }>('GET', `${ch(key)}/moderation/log${before ? `?before=${before}` : ''}`),
   undoModAction: (key: string, id: number) => request<ModEntry>('POST', `${ch(key)}/moderation/log/${id}/undo`),
+  setCounter: (key: string, name: string, value: number) =>
+    request<BotView>('POST', `${ch(key)}/bot/counters/${encodeURIComponent(name)}/set`, { value }),
+  quotes: (key: string) => request<{ quotes: Quote[] }>('GET', `${ch(key)}/bot/quotes`),
+  addQuote: (key: string, q: { text: string; by: string; game: string; id?: number; at?: number }) =>
+    request<Quote>('POST', `${ch(key)}/bot/quotes`, q),
+  editQuote: (key: string, id: number, q: { text: string; by: string; game: string }) =>
+    request<Quote>('POST', `${ch(key)}/bot/quotes/${id}`, q),
+  deleteQuote: (key: string, id: number) => request<Quote>('POST', `${ch(key)}/bot/quotes/${id}/delete`),
   tryBot: (key: string, message: string, level: UserLevel, extra: { settings?: BotSettings; user?: string; channel?: string } = {}) =>
     request<BotTry>('POST', `${ch(key)}/bot/try`, { message, level, ...extra }),
   scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),

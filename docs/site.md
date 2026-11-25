@@ -32,7 +32,7 @@ A sidebar with the pages, the live connection and the signed in channel. On phon
 | Alerts | `/app/alerts` | Mute, pause and skip; alert types (on or off, minimum amount, time on screen, label and message, with a live preview); a test alert for each kind; Replay on recent alerts. |
 | Overlay | `/app/overlay` | The overlay editor (every widget on one canvas, published to one link), the goal, single widget links for anyone who prefers one source per widget, New links, and the steps for OBS. |
 | Chat | `/app/chat` | Chat, live and read only. |
-| Chat bot | `/app/bot` | Turn the bot on, edit its commands and timers, and a test chat that shows what it would answer. |
+| Chat bot | `/app/bot` | Turn the bot on, edit its commands, timers, counters and quotes, and a test chat that shows what it would answer. |
 | Moderation | `/app/moderation` | How strict chat rules are (Off, Relaxed, Standard, Strict or Custom), each rule with its limits, banned words and allowed sites, a box to try a message, and the log of what Sylva did with Lift timeout. |
 | Settings | `/app/settings` | The account and Sign out, the theme (Dark, Light or System), connected apps, which Twitch events reach Sylva, and Delete account. |
 
@@ -50,12 +50,12 @@ The look takes Cortex's ideas, not its layout: neutral grays, one color per kind
 
 ## How it was checked
 
-* Accessibility: axe finds no WCAG 2.1 AA issues on 58 page states (every page in both themes, the alert editor, the overlay editor with each menu open and a widget selected, the chat bot with a command open, a new command, the test chat, a timer open and a new timer, moderation with unsaved changes and a tried message, and moderation off, search, device approval, the phone drawer, privacy and the delete form). Text contrast is at least 4.5 to 1. The phone drawer moves focus in and back out and makes the page behind it inert.
+* Accessibility: axe finds no WCAG 2.1 AA issues on 60 page states (every page in both themes, the alert editor, the overlay editor with each menu open and a widget selected, the chat bot with a command open, a new command, the test chat, a timer open and a new timer, a new counter and a new quote, moderation with unsaved changes and a tried message, and moderation off, search, device approval, the phone drawer, privacy and the delete form). Text contrast is at least 4.5 to 1. The phone drawer moves focus in and back out and makes the page behind it inert.
 * Security headers: the website sends a Content-Security-Policy with its one inline script allowed by hash, `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`. `app.js` and `index.css` are linked with a content hash and cached for a year.
 
 * Every page driven in Chromium with Playwright at 1440 px and at 390 px (phone), in both themes: sign in through the fake Twitch, live events, search, theme change, the phone drawer, and sign out. No page scrolls sideways on a phone.
 * `npm run test:e2e` adds a check for history search: names and messages match regardless of case, and `%` and `_` are taken literally.
-* It checks the chat bot against the fake Twitch: off by default, levels, cooldowns, moderators skipping them, aliases, counts a save cannot change, echoes ignored, the test chat sending nothing, moderation (permission missing, allowing it, refreshing an expired token, keeping it after a plain sign in, delete then timeout, who is skipped, spaced notices, lifting a timeout, and refusing to undo a removed message), and timers (refused variables, waiting for chat lines and for going live, going live restarting them, Send now, the bot's own posts not counting as chat, and Send now refused while the bot is off). When a timer is due is covered by unit tests.
+* It checks the chat bot against the fake Twitch: off by default, levels, cooldowns, moderators skipping them, aliases, counts a save cannot change, echoes ignored, the test chat sending nothing, moderation (permission missing, allowing it, refreshing an expired token, keeping it after a plain sign in, delete then timeout, who is skipped, spaced notices, lifting a timeout, and refusing to undo a removed message), counters and quotes (only moderators change them, values a save cannot reset, numbers never reused, Undo restoring a quote's number, the test chat changing nothing, quotes turned off), and timers (refused variables, waiting for chat lines and for going live, going live restarting them, Send now, the bot's own posts not counting as chat, and Send now refused while the bot is off). When a timer is due is covered by unit tests.
 * It also checks the overlay editor (bad layouts are refused, drafts are tidied, publishing pushes the layout to overlays on screen, versions and restore work) and top labels (cheers add up per viewer and reach widgets live).
 
 ## Alert types
@@ -103,7 +103,13 @@ Messages the bot posts on a schedule, such as a follow reminder or a Discord lin
 * **Variables.** `${channel}`, `${uptime}`, `${commands}` and `${random.1-100}`. Variables about a viewer are refused, because no viewer started the message.
 * **The list** shows each timer's rule and what it waits for: the next post time, more chat lines, going live, or the bot being turned on. Send now posts it at once and restarts its clock.
 
-`GET` and `POST /v1/channels/{key}/bot` hold the settings (use counts are the server's and a save cannot change them); `POST .../bot/try` is the test chat; `POST .../bot/timers/{id}/send` is Send now.
+### Counters and quotes
+
+* **Counters** are numbers chat can see, such as deaths. `!deaths` shows `Deaths: 6` (at most every 5 seconds, except for moderators). Moderators change it with `!deaths +`, `!deaths -2`, `!deaths = 10` or `!deaths reset`; the dashboard has minus and plus buttons and the number itself. Up to 30. The value is the server's, so a settings save cannot reset it.
+* **Quotes** are numbered: `!quote` picks one at random, `!quote 12` shows that one, `!quote word` picks among the quotes that mention the word, the speaker or the game. `!addquote words` adds one (with the game Twitch last reported) and `!delquote 12` removes one; moderators may by default, and the page can change that. Numbers are never reused. The dashboard lists, searches, adds, edits and removes quotes, with Undo putting a quote back under its number. Up to 2,000.
+* A counter or quotes cannot share a name with a command; the save says which to rename.
+
+`GET` and `POST /v1/channels/{key}/bot` hold the settings (use counts and counter values are the server's and a save cannot change them); `POST .../bot/try` is the test chat; `POST .../bot/timers/{id}/send` is Send now.
 
 ![The chat bot](site/bot.png)
 

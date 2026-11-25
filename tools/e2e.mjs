@@ -620,6 +620,78 @@ if (!fake || !usesFake) {
     assert.equal(sent().length, 4);
   });
 
+  await check('counters and quotes answer in chat, and only moderators change them', async () => {
+    const cid = randomChannelId();
+    const path = `/v1/channels/twitch:${cid}/bot`;
+    const post = (p, body) => fetch(`${BASE}${p}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    const sent = () => fake.state.chatSent.filter((m) => m.broadcaster_id === cid).map((m) => m.message);
+    const say = (text, who = {}) => sendEventSub(chatLine(cid, { text, ...who }));
+    const mod = { id: '7101', name: 'Modly', badges: ['moderator'] };
+
+    const base = (await getJson(path)).settings;
+    assert.deepEqual(base.quotes, { enabled: true, addLevel: 'moderator' });
+    assert.match(await (await post(path, { ...base, counters: [{ name: 'lurk' }] })).text(), /both a command and a counter/);
+    assert.match(await (await post(path, { ...base, commands: [...base.commands, { name: 'quote', reply: 'x' }] })).text(), /used by quotes/);
+    const saved = await (await post(path, { ...base, enabled: true, counters: [{ name: '!Deaths' }] })).json();
+    assert.deepEqual(saved.settings.counters, [{ name: 'deaths', label: 'Deaths', value: 0, enabled: true }]);
+
+    await say('!deaths');
+    await say('!deaths +');
+    assert.deepEqual(sent(), ['Deaths: 0'], 'viewers only see it, and not twice in 5 seconds');
+    await say('!deaths +', mod);
+    await say('!deaths = 10', mod);
+    assert.deepEqual(sent().slice(1), ['Deaths: 1', 'Deaths: 10']);
+    const now = await getJson(path);
+    assert.equal(now.settings.counters[0].value, 10);
+    const forged = await (await post(path, { ...now.settings, counters: [{ ...now.settings.counters[0], value: 999 }] })).json();
+    assert.equal(forged.settings.counters[0].value, 10, 'a settings save keeps the value');
+    const set = await (await post(`${path}/counters/deaths/set`, { value: 3 })).json();
+    assert.equal(set.settings.counters[0].value, 3);
+    assert.equal((await post(`${path}/counters/nope/set`, { value: 3 })).status, 404);
+
+    await say('!quote');
+    assert.equal(sent().at(-1), 'No quotes yet. Moderators can add one with !addquote.');
+    const before = sent().length;
+    await say('!addquote I am not a moderator');
+    assert.equal(sent().length, before, 'viewers cannot add quotes');
+    await say('!addquote "Never again"', mod);
+    assert.equal(sent().at(-1), 'Added quote #1.');
+    await say('!quote 1', mod);
+    assert.match(sent().at(-1), /^#1: "Never again" \(This channel, \d{4}-\d{2}-\d{2}\)$/);
+    await say('!quote 7', mod);
+    assert.equal(sent().at(-1), 'There is no quote #7.');
+
+    const second = await (await post(`${path}/quotes`, { text: 'Second', by: 'Rowan', game: 'Celeste' })).json();
+    assert.equal(second.id, 2);
+    assert.equal((await post(`${path}/quotes`, { text: '  ' })).status, 400);
+    const edited = await (await post(`${path}/quotes/2`, { text: 'Second, edited', by: 'Rowan', game: 'Celeste' })).json();
+    assert.equal(edited.text, 'Second, edited');
+    assert.equal((await post(`${path}/quotes/2/delete`)).status, 200);
+    await say('!addquote third', mod);
+    assert.equal(sent().at(-1), 'Added quote #3.', 'numbers are never reused');
+    const back = await (await post(`${path}/quotes`, { ...edited, id: 2 })).json();
+    assert.equal(back.id, 2, 'Undo puts a quote back under its number');
+    await say('!quote celeste', mod);
+    assert.match(sent().at(-1), /^#2: "Second, edited" \(Rowan, Celeste, /);
+    assert.deepEqual((await getJson(`${path}/quotes`)).quotes.map((q) => q.id), [1, 2, 3]);
+
+    const tryIt = async (body) => (await post(`${path}/try`, body)).json();
+    assert.deepEqual(await tryIt({ message: '!deaths +', level: 'moderator' }), { reply: 'Deaths: 4', command: 'deaths' });
+    assert.equal((await getJson(path)).settings.counters[0].value, 3, 'the test chat changes nothing');
+    assert.deepEqual(await tryIt({ message: '!addquote x', level: 'everyone' }), { skip: 'level', command: 'addquote' });
+    assert.deepEqual(await tryIt({ message: '!addquote x', level: 'moderator' }), { reply: 'Added quote #4.', command: 'addquote' });
+
+    await say('!delquote 1', mod);
+    assert.equal(sent().at(-1), 'Quote #1 removed.');
+    await post(path, { ...(await getJson(path)).settings, quotes: { enabled: false, addLevel: 'moderator' } });
+    const quiet = sent().length;
+    await say('!quote', mod);
+    assert.equal(sent().length, quiet, 'quotes can be turned off');
+  });
+
   await check('timers wait for chat and going live, and Send now posts at once', async () => {
     const tid = randomChannelId();
     const path = `/v1/channels/twitch:${tid}/bot`;

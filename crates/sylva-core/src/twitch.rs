@@ -68,6 +68,8 @@ pub enum WebhookMessage {
 
 #[derive(Deserialize)]
 struct Envelope {
+    /// A conduit shard's verification message may carry no subscription.
+    #[serde(default)]
     subscription: Subscription,
     #[serde(default)]
     event: Option<Value>,
@@ -75,9 +77,9 @@ struct Envelope {
     challenge: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct Subscription {
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default)]
     kind: String,
     #[serde(default)]
     status: String,
@@ -387,6 +389,18 @@ mod tests {
             handle_webhook(SECRET, &h, &b, now_ms()).unwrap(),
             WebhookMessage::Verification {
                 challenge: "pogchamp-kappa-360noscope".into()
+            }
+        );
+    }
+
+    #[test]
+    fn conduit_shard_verification_without_subscription() {
+        let body = json!({"challenge": "shard-check"});
+        let (h, b) = signed("webhook_callback_verification", &body);
+        assert_eq!(
+            handle_webhook(SECRET, &h, &b, now_ms()).unwrap(),
+            WebhookMessage::Verification {
+                challenge: "shard-check".into()
             }
         );
     }

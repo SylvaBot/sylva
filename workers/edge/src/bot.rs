@@ -137,7 +137,7 @@ pub fn sender(env: &Env, broadcaster_id: &str) -> Sender {
 }
 
 /// The chatter's badge set ids from a `channel.chat.message` payload.
-fn badges(raw: &serde_json::Value) -> Vec<String> {
+pub(crate) fn badges(raw: &serde_json::Value) -> Vec<String> {
     raw["badges"]
         .as_array()
         .map(|a| {

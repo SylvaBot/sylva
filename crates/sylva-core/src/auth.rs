@@ -29,6 +29,26 @@ pub const TWITCH_SCOPES: &[(&str, &str)] = &[
     ("channel:bot", "Read your chat"),
 ];
 
+/// Scopes asked for only when the streamer turns on moderation, so signing in
+/// asks for no more than the basics.
+pub const MOD_SCOPES: &[(&str, &str)] = &[
+    (
+        "moderator:manage:chat_messages",
+        "Delete messages that break your chat rules",
+    ),
+    (
+        "moderator:manage:banned_users",
+        "Time out chatters who keep breaking them",
+    ),
+];
+
+/// True when `granted` holds every moderation scope.
+pub fn can_moderate(granted: &[String]) -> bool {
+    MOD_SCOPES
+        .iter()
+        .all(|(s, _)| granted.iter().any(|g| g == s))
+}
+
 /// How long a web session lasts.
 pub const SESSION_DAYS: i64 = 30;
 /// Name of the session cookie.
@@ -72,21 +92,23 @@ pub fn encode(value: &str) -> String {
 }
 
 /// The Twitch page that asks the streamer to approve Sylva.
-/// `auth_base` is `https://id.twitch.tv/oauth2` in production.
+/// `auth_base` is `https://id.twitch.tv/oauth2` in production. With
+/// `moderation`, it also asks for [`MOD_SCOPES`].
 pub fn twitch_authorize_url(
     auth_base: &str,
     client_id: &str,
     redirect_uri: &str,
     state: &str,
+    moderation: bool,
 ) -> String {
-    authorize_url(
-        auth_base,
-        client_id,
-        redirect_uri,
-        state,
-        &scope_string(),
-        false,
-    )
+    let mut scopes = scope_string();
+    if moderation {
+        for (s, _) in MOD_SCOPES {
+            scopes.push(' ');
+            scopes.push_str(s);
+        }
+    }
+    authorize_url(auth_base, client_id, redirect_uri, state, &scopes, false)
 }
 
 /// The Twitch approval page for the shared bot account: only `user:bot`, and
@@ -240,6 +262,7 @@ mod tests {
             "abc",
             "https://x.dev/auth/twitch/callback",
             "s t",
+            false,
         );
         assert!(url.starts_with(
             "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=abc&"
@@ -247,6 +270,23 @@ mod tests {
         assert!(url.contains("redirect_uri=https%3A%2F%2Fx.dev%2Fauth%2Ftwitch%2Fcallback"));
         assert!(url.contains("scope=moderator%3Aread%3Afollowers%20channel%3Aread%3Asubscriptions"));
         assert!(url.ends_with("state=s%20t"));
+        assert!(!url.contains("manage"));
+        let m = twitch_authorize_url("https://a", "abc", "https://x", "s", true);
+        assert!(m.contains(
+            "%20moderator%3Amanage%3Achat_messages%20moderator%3Amanage%3Abanned_users&"
+        ));
+    }
+
+    #[test]
+    fn moderation_needs_both_scopes() {
+        let one = vec!["moderator:manage:chat_messages".to_string()];
+        assert!(!can_moderate(&one));
+        let both = vec![
+            "user:bot".to_string(),
+            "moderator:manage:banned_users".to_string(),
+            "moderator:manage:chat_messages".to_string(),
+        ];
+        assert!(can_moderate(&both));
     }
 
     #[test]

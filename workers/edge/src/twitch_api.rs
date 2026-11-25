@@ -192,6 +192,31 @@ pub async fn exchange_code(env: &Env, code: &str, redirect_uri: &str) -> Result<
     Ok(serde_json::from_value(v)?)
 }
 
+/// A fresh user token from a refresh token. `Ok(None)` when Twitch no longer
+/// accepts the refresh token (the streamer disconnected Sylva or changed their
+/// password), which means they have to approve again.
+pub async fn refresh(env: &Env, refresh_token: &str) -> Result<Option<UserTokens>> {
+    let client_id = env.var("TWITCH_CLIENT_ID")?.to_string();
+    let secret = env.secret("TWITCH_CLIENT_SECRET")?.to_string();
+    let (status, v) = post_form(
+        &format!("{}/token", auth_base(env)?),
+        &[
+            ("client_id", &client_id),
+            ("client_secret", &secret),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ],
+    )
+    .await?;
+    match status {
+        200 => Ok(Some(serde_json::from_value(v)?)),
+        400 | 401 => Ok(None),
+        _ => Err(Error::RustError(format!(
+            "Twitch could not refresh a token ({status}): {v}"
+        ))),
+    }
+}
+
 pub async fn validate(env: &Env, user_token: &str) -> Result<Validated> {
     let headers = Headers::new();
     headers.set("Authorization", &format!("OAuth {user_token}"))?;

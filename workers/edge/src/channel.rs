@@ -73,6 +73,24 @@ CREATE TABLE IF NOT EXISTS bot_cooldowns (
     key TEXT PRIMARY KEY,
     at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mod_strikes (
+    user_id TEXT PRIMARY KEY,
+    count   INTEGER NOT NULL,
+    last_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mod_log (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    at        INTEGER NOT NULL,
+    user_id   TEXT NOT NULL,
+    user      TEXT NOT NULL,
+    rule      TEXT NOT NULL,
+    message   TEXT NOT NULL,
+    action    TEXT NOT NULL,
+    seconds   INTEGER NOT NULL,
+    result    TEXT NOT NULL,
+    detail    TEXT,
+    undone_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS timer_state (
     id    TEXT PRIMARY KEY,
     last  INTEGER NOT NULL,
@@ -214,6 +232,10 @@ pub struct ChannelDo {
     pub(crate) env: Env,
     /// The bot settings, read once and kept while the object is awake.
     pub(crate) bot: RefCell<Option<sylva_core::bot::BotSettings>>,
+    /// The streamer's moderation token and when to stop using it. Memory only.
+    pub(crate) mod_token: RefCell<Option<(String, i64)>>,
+    /// When the last moderation notice went to chat.
+    pub(crate) last_notice: Cell<i64>,
     /// Highest seq in the log. Kept in memory so assigning the next one needs no read.
     head: Cell<u64>,
     /// The alert settings, read once and kept while the object is awake.
@@ -242,6 +264,8 @@ impl DurableObject for ChannelDo {
             alert_settings: RefCell::new(None),
             env,
             bot: RefCell::new(None),
+            mod_token: RefCell::new(None),
+            last_notice: Cell::new(0),
         }
     }
 
@@ -381,6 +405,49 @@ impl DurableObject for ChannelDo {
                     Err(message) => Response::error(message, 400),
                 }
             }
+            (Method::Get, ["moderation"]) => Response::from_json(&self.mod_view().await?),
+            (Method::Post, ["moderation"]) => {
+                let Ok(body) = req.json::<sylva_core::moderation::ModSettings>().await else {
+                    return Response::error("Those moderation settings could not be read", 400);
+                };
+                match body.validated() {
+                    Ok(s) => {
+                        self.save_mod_settings(&s)?;
+                        Response::from_json(&self.mod_view().await?)
+                    }
+                    Err(Invalid(message)) => Response::error(message, 400),
+                }
+            }
+            (Method::Post, ["moderation", "try"]) => {
+                let Ok(body) = req.json::<crate::moderation::TryRequest>().await else {
+                    return Response::error("That test could not be read", 400);
+                };
+                match self.try_moderation(body)? {
+                    Ok(r) => Response::from_json(&r),
+                    Err(message) => Response::error(message, 400),
+                }
+            }
+            (Method::Get, ["moderation", "log"]) => {
+                let before = q
+                    .get("before")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(i64::MAX);
+                let limit = q
+                    .get("limit")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(50i64)
+                    .clamp(1, 200);
+                Response::from_json(&serde_json::json!({ "entries": self.mod_log(before, limit)? }))
+            }
+            (Method::Post, ["moderation", "log", id, "undo"]) => {
+                let Ok(id) = id.parse::<i64>() else {
+                    return Response::error("That entry is no longer in the log", 404);
+                };
+                match self.undo_mod_action(id).await? {
+                    Ok(entry) => Response::from_json(&entry),
+                    Err((status, message)) => Response::error(message, status),
+                }
+            }
             (Method::Get, ["scene"]) => Response::from_json(&self.scene_state()?),
             (Method::Post, ["scene"]) => {
                 let Ok(body) = req.json::<Scene>().await else {
@@ -447,6 +514,8 @@ impl DurableObject for ChannelDo {
                     "bot_cooldowns",
                     "bot_sent",
                     "timer_state",
+                    "mod_strikes",
+                    "mod_log",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
@@ -454,6 +523,8 @@ impl DurableObject for ChannelDo {
                 self.head.set(0);
                 *self.alert_settings.borrow_mut() = None;
                 *self.bot.borrow_mut() = None;
+                *self.mod_token.borrow_mut() = None;
+                self.last_notice.set(0);
                 Response::empty().map(|r| r.with_status(204))
             }
             (Method::Get, ["overlay-token"]) => {
@@ -736,7 +807,10 @@ impl ChannelDo {
             self.schedule().await?;
         }
         if is_chat {
-            self.run_bot(&stored).await;
+            // A line that breaks the chat rules gets no answer from the bot.
+            if !self.run_moderation(&stored).await {
+                self.run_bot(&stored).await;
+            }
             // Chat can make a timer due; only then does the alarm need moving.
             let bot = self.bot_settings()?;
             if bot.enabled && !bot.timers.is_empty() {

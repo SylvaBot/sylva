@@ -19,6 +19,7 @@ const CLIENT_ID = 't9z14i1qdp044der47bq7lpu5w0eru';
 const CLIENT_SECRET = 'local-dev-client-secret';
 const SCOPES = ['moderator:read:followers', 'channel:read:subscriptions', 'bits:read',
                 'user:read:chat', 'user:bot', 'channel:bot'];
+export const MOD_SCOPES = ['moderator:manage:chat_messages', 'moderator:manage:banned_users'];
 
 export function startFakeTwitch(port = FAKE_PORT) {
   const state = {
@@ -33,8 +34,15 @@ export function startFakeTwitch(port = FAKE_PORT) {
     revoked: [],
     // Chat lines Sylva's bot sent.
     chatSent: [],
-    // Scopes the next authorize grants. Tests narrow it to check "scopes".
-    grant: SCOPES,
+    // Scopes authorize may grant: what was asked for, limited to these.
+    // Tests narrow it to check "scopes".
+    grant: [...SCOPES, ...MOD_SCOPES],
+    refreshTokens: new Map(), // refresh token -> scopes
+    // Seconds new user tokens last. A test sets 0 to make Sylva refresh.
+    tokenTtl: 14000,
+    // Deletes, timeouts and unbans, as Sylva asked for them.
+    modActions: [],
+    banned: new Set(),
   };
 
   const json = (res, status, body) => {
@@ -47,6 +55,15 @@ export function startFakeTwitch(port = FAKE_PORT) {
     req.on('end', () => resolve(b));
   });
 
+  const issue = (scopes) => {
+    const token = 'user-' + randomUUID();
+    const refresh = 'refresh-' + randomUUID();
+    state.userTokens.set(token, scopes);
+    state.refreshTokens.set(refresh, scopes);
+    return { access_token: token, refresh_token: refresh, expires_in: state.tokenTtl,
+             scope: scopes, token_type: 'bearer' };
+  };
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${port}`);
     const auth = req.headers.authorization || '';
@@ -56,10 +73,11 @@ export function startFakeTwitch(port = FAKE_PORT) {
       const redirect = new URL(url.searchParams.get('redirect_uri'));
       if (url.searchParams.get('client_id') !== CLIENT_ID) return json(res, 400, { message: 'bad client id' });
       const code = 'code-' + randomUUID();
-      state.codes.set(code, state.grant);
+      const asked = (url.searchParams.get('scope') || '').split(' ').filter(Boolean);
+      state.codes.set(code, asked.filter((s) => state.grant.includes(s)));
       state.lastAuthorize = Object.fromEntries(url.searchParams);
       redirect.searchParams.set('code', code);
-      redirect.searchParams.set('scope', state.grant.join(' '));
+      redirect.searchParams.set('scope', state.codes.get(code).join(' '));
       redirect.searchParams.set('state', url.searchParams.get('state'));
       res.writeHead(302, { Location: redirect.toString() });
       return res.end();
@@ -78,10 +96,13 @@ export function startFakeTwitch(port = FAKE_PORT) {
         const scopes = state.codes.get(p.get('code'));
         if (!scopes) return json(res, 400, { status: 400, message: 'Invalid authorization code' });
         state.codes.delete(p.get('code'));
-        const token = 'user-' + randomUUID();
-        state.userTokens.set(token, scopes);
-        return json(res, 200, { access_token: token, refresh_token: 'refresh-' + randomUUID(),
-                                expires_in: 14000, scope: scopes, token_type: 'bearer' });
+        return json(res, 200, issue(scopes));
+      }
+      if (p.get('grant_type') === 'refresh_token') {
+        const scopes = state.refreshTokens.get(p.get('refresh_token'));
+        if (!scopes) return json(res, 400, { status: 400, message: 'Invalid refresh token' });
+        state.refreshTokens.delete(p.get('refresh_token'));
+        return json(res, 200, issue(scopes));
       }
       return json(res, 400, { message: 'unsupported grant' });
     }
@@ -152,6 +173,33 @@ export function startFakeTwitch(port = FAKE_PORT) {
         const id = randomUUID();
         state.chatSent.push({ ...m, message_id: id });
         return json(res, 200, { data: [{ message_id: id, is_sent: true }] });
+      }
+      if (path === '/moderation/chat' || path === '/moderation/bans') {
+        // Moderation needs the moderator's own token with the right scope.
+        if (isApp) return json(res, 401, { message: 'user token required' });
+        const need = path === '/moderation/chat' ? MOD_SCOPES[0] : MOD_SCOPES[1];
+        if (!state.userTokens.get(token).includes(need)) return json(res, 401, { message: 'missing scope ' + need });
+        const q = Object.fromEntries(url.searchParams);
+        if (!q.broadcaster_id || !q.moderator_id) return json(res, 400, { message: 'missing ids' });
+        if (req.method === 'DELETE' && path === '/moderation/chat') {
+          state.modActions.push({ type: 'delete', ...q });
+          res.writeHead(204);
+          return res.end();
+        }
+        if (req.method === 'POST') {
+          const { data } = JSON.parse(body);
+          if (!data?.user_id) return json(res, 400, { message: 'missing user_id' });
+          state.banned.add(data.user_id);
+          state.modActions.push({ type: 'timeout', ...q, ...data });
+          return json(res, 200, { data: [{ broadcaster_id: q.broadcaster_id, moderator_id: q.moderator_id,
+                                           user_id: data.user_id, created_at: new Date().toISOString(), end_time: null }] });
+        }
+        if (req.method === 'DELETE') {
+          if (!state.banned.delete(q.user_id)) return json(res, 400, { status: 400, message: 'The user specified in the user_id field is not banned.' });
+          state.modActions.push({ type: 'unban', ...q });
+          res.writeHead(204);
+          return res.end();
+        }
       }
       return json(res, 404, { message: 'not faked: ' + path });
     }

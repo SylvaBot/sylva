@@ -99,6 +99,28 @@ export interface BotView {
 export type BotSkip = 'notACommand' | 'unknown' | 'off' | 'level' | 'cooldown';
 export interface BotTry { reply?: string; skip?: BotSkip; command?: string }
 
+export type ModPreset = 'off' | 'relaxed' | 'standard' | 'strict' | 'custom';
+export interface ModShare { on: boolean; min: number; percent: number }
+export interface ModLimit { on: boolean; max: number }
+export interface ModRules {
+  links: boolean; caps: ModShare; symbols: ModShare; emotes: ModLimit; length: ModLimit; repeats: ModLimit; zalgo: boolean;
+}
+export type ModRule = 'words' | 'links' | 'zalgo' | 'length' | 'repeats' | 'caps' | 'symbols' | 'emotes';
+export interface ModSettings {
+  preset: ModPreset; rules: ModRules; exempt: UserLevel; steps: [number, number, number];
+  words: string[]; allowedLinks: string[]; notice: boolean;
+}
+export interface ModView {
+  settings: ModSettings;
+  permission: 'ok' | 'missing' | 'expired';
+  presets: [ModPreset, { rules: ModRules; exempt: UserLevel; steps: [number, number, number] }][];
+}
+export interface ModEntry {
+  id: number; at: number; userId: string; user: string; rule: ModRule; message: string;
+  action: 'delete' | 'timeout'; seconds: number; result: 'done' | 'failed'; detail?: string; undoneAt?: number;
+}
+export interface ModTry { rule?: ModRule; skipped: boolean; steps: [number, number, number] }
+
 export interface AppToken { id: string; name: string; createdAt: number; lastUsedAt?: number | null }
 
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
@@ -164,6 +186,13 @@ export const api = {
   bot: (key: string) => request<BotView>('GET', `${ch(key)}/bot`),
   saveBot: (key: string, s: BotSettings) => request<BotView>('POST', `${ch(key)}/bot`, s),
   sendTimer: (key: string, id: string) => request<BotView>('POST', `${ch(key)}/bot/timers/${encodeURIComponent(id)}/send`),
+  moderation: (key: string) => request<ModView>('GET', `${ch(key)}/moderation`),
+  saveModeration: (key: string, s: ModSettings) => request<ModView>('POST', `${ch(key)}/moderation`, s),
+  tryModeration: (key: string, message: string, level: UserLevel, settings?: ModSettings) =>
+    request<ModTry>('POST', `${ch(key)}/moderation/try`, { message, level, settings }),
+  modLog: (key: string, before?: number) =>
+    request<{ entries: ModEntry[] }>('GET', `${ch(key)}/moderation/log${before ? `?before=${before}` : ''}`),
+  undoModAction: (key: string, id: number) => request<ModEntry>('POST', `${ch(key)}/moderation/log/${id}/undo`),
   tryBot: (key: string, message: string, level: UserLevel, extra: { settings?: BotSettings; user?: string; channel?: string } = {}) =>
     request<BotTry>('POST', `${ch(key)}/bot/try`, { message, level, ...extra }),
   scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),

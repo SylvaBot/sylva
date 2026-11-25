@@ -202,7 +202,9 @@ async fn bot_finish(req: &Request, env: &Env, code: &str) -> Result<Response> {
     if who.client_id != env.var("TWITCH_CLIENT_ID")?.to_string() {
         return Err(Error::RustError("token was issued to another app".into()));
     }
-    let ok = who.scopes.iter().any(|s| s == sylva_core::auth::BOT_SCOPE);
+    let ok = sylva_core::auth::BOT_SCOPES
+        .iter()
+        .all(|need| who.scopes.iter().any(|s| s == need));
     let esc = |s: &str| {
         s.replace('&', "&amp;")
             .replace('<', "&lt;")

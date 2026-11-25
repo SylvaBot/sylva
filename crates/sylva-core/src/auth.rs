@@ -132,7 +132,7 @@ pub fn twitch_authorize_url(
     authorize_url(auth_base, client_id, redirect_uri, state, &scopes, false)
 }
 
-/// The Twitch approval page for the shared bot account: only `user:bot`, and
+/// The Twitch approval page for the shared bot account: only [`BOT_SCOPES`], and
 /// Twitch asks which account to use, so the bot account can be picked even
 /// while the streamer is signed in to Twitch.
 pub fn twitch_bot_authorize_url(
@@ -141,11 +141,20 @@ pub fn twitch_bot_authorize_url(
     redirect_uri: &str,
     state: &str,
 ) -> String {
-    authorize_url(auth_base, client_id, redirect_uri, state, BOT_SCOPE, true)
+    authorize_url(
+        auth_base,
+        client_id,
+        redirect_uri,
+        state,
+        &BOT_SCOPES.join(" "),
+        true,
+    )
 }
 
-/// The one scope the shared bot account grants.
-pub const BOT_SCOPE: &str = "user:bot";
+/// What the shared bot account grants: `user:bot` to be a bot, and
+/// `user:write:chat`, which Twitch also asks of whoever sends a chat message
+/// with the app's token.
+pub const BOT_SCOPES: &[&str] = &["user:bot", "user:write:chat"];
 
 fn authorize_url(
     auth_base: &str,

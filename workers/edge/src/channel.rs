@@ -107,6 +107,31 @@ CREATE TABLE IF NOT EXISTS bot_sent (
     at   INTEGER NOT NULL,
     text TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS points (
+    user_id    TEXT PRIMARY KEY,
+    login      TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    balance    INTEGER NOT NULL DEFAULT 0,
+    earned     INTEGER NOT NULL DEFAULT 0,
+    followed   INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS points_balance ON points(balance DESC);
+CREATE INDEX IF NOT EXISTS points_login ON points(login);
+CREATE TABLE IF NOT EXISTS points_ledger (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    delta   INTEGER NOT NULL,
+    reason  TEXT NOT NULL,
+    at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS points_ledger_user ON points_ledger(user_id, id);
+CREATE TABLE IF NOT EXISTS points_active (
+    user_id TEXT PRIMARY KEY,
+    login   TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    at      INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS events_kind ON events(kind, seq);
 CREATE INDEX IF NOT EXISTS events_received ON events(received_at);
 ";
@@ -239,8 +264,8 @@ pub struct ChannelDo {
     pub(crate) env: Env,
     /// The bot settings, read once and kept while the object is awake.
     pub(crate) bot: RefCell<Option<sylva_core::bot::BotSettings>>,
-    /// The streamer's moderation token and when to stop using it. Memory only.
-    pub(crate) mod_token: RefCell<Option<(String, i64)>>,
+    /// The streamer's tokens per grant and when to stop using each. Memory only.
+    pub(crate) tokens: RefCell<std::collections::HashMap<String, (String, i64)>>,
     /// When the last moderation notice went to chat.
     pub(crate) last_notice: Cell<i64>,
     /// Highest seq in the log. Kept in memory so assigning the next one needs no read.
@@ -271,7 +296,7 @@ impl DurableObject for ChannelDo {
             alert_settings: RefCell::new(None),
             env,
             bot: RefCell::new(None),
-            mod_token: RefCell::new(None),
+            tokens: RefCell::new(std::collections::HashMap::new()),
             last_notice: Cell::new(0),
         }
     }
@@ -452,7 +477,7 @@ impl DurableObject for ChannelDo {
                 let Ok(body) = req.json::<crate::bot::TryRequest>().await else {
                     return Response::error("That test could not be read", 400);
                 };
-                match self.try_bot(body)? {
+                match self.try_bot(body).await? {
                     Ok(r) => Response::from_json(&r),
                     Err(message) => Response::error(message, 400),
                 }
@@ -497,6 +522,40 @@ impl DurableObject for ChannelDo {
                 };
                 match self.undo_mod_action(id).await? {
                     Ok(entry) => Response::from_json(&entry),
+                    Err((status, message)) => Response::error(message, status),
+                }
+            }
+            (Method::Get, ["loyalty"]) => Response::from_json(&self.loyalty_view().await?),
+            (Method::Post, ["loyalty"]) => {
+                let Ok(body) = req.json::<serde_json::Value>().await else {
+                    return Response::error("Those points settings could not be read", 400);
+                };
+                match crate::loyalty::parse_settings(body) {
+                    Ok(s) => {
+                        self.save_loyalty_settings(&s).await?;
+                        Response::from_json(&self.loyalty_view().await?)
+                    }
+                    Err(message) => Response::error(message, 400),
+                }
+            }
+            (Method::Get, ["loyalty", "viewers"]) => {
+                let num =
+                    |k: &str, d: i64| q.get(k).and_then(|v| v.parse::<i64>().ok()).unwrap_or(d);
+                Response::from_json(&self.loyalty_viewers(
+                    q.get("q").map_or("", String::as_str),
+                    num("limit", 50).clamp(1, 200),
+                    num("offset", 0).max(0),
+                )?)
+            }
+            (Method::Get, ["loyalty", "viewers", id, "ledger"]) => {
+                Response::from_json(&serde_json::json!({ "entries": self.ledger(id)? }))
+            }
+            (Method::Post, ["loyalty", "viewers", id, "adjust"]) => {
+                let Ok(body) = req.json::<crate::loyalty::Adjust>().await else {
+                    return Response::error("That change could not be read", 400);
+                };
+                match self.adjust_points(id, body)? {
+                    Ok(v) => Response::from_json(&v),
                     Err((status, message)) => Response::error(message, status),
                 }
             }
@@ -569,6 +628,9 @@ impl DurableObject for ChannelDo {
                     "mod_strikes",
                     "mod_log",
                     "quotes",
+                    "points",
+                    "points_ledger",
+                    "points_active",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
@@ -576,7 +638,7 @@ impl DurableObject for ChannelDo {
                 self.head.set(0);
                 *self.alert_settings.borrow_mut() = None;
                 *self.bot.borrow_mut() = None;
-                *self.mod_token.borrow_mut() = None;
+                self.tokens.borrow_mut().clear();
                 self.last_notice.set(0);
                 Response::empty().map(|r| r.with_status(204))
             }
@@ -655,6 +717,9 @@ impl DurableObject for ChannelDo {
         }
         if let Err(e) = self.run_timers(now).await {
             console_error!("A timer could not post: {e}");
+        }
+        if let Err(e) = self.run_loyalty(now).await {
+            console_error!("Points could not be paid: {e}");
         }
         self.schedule().await?;
         Response::ok("ok")
@@ -855,13 +920,21 @@ impl ChannelDo {
             // Feeds show the queue length, so tell them it grew.
             self.broadcast_state()?;
         }
+        if let Err(e) = self.loyalty_event(&stored.event) {
+            console_error!("Points could not be added: {e}");
+        }
         if stored_raw == "stream.online" {
             self.restart_timers(received_at)?;
+            self.restart_loyalty(received_at)?;
             self.schedule().await?;
         }
         if is_chat {
-            // A line that breaks the chat rules gets no answer from the bot.
+            // A line that breaks the chat rules gets no answer from the bot
+            // and earns nothing.
             if !self.run_moderation(&stored).await {
+                if let Err(e) = self.mark_active(&stored.event) {
+                    console_error!("Could not note the chatter: {e}");
+                }
                 self.run_bot(&stored).await;
             }
             // Chat can make a timer due; only then does the alarm need moving.
@@ -1416,8 +1489,9 @@ impl ChannelDo {
             .playing()?
             .map(|p| p.started_at.unwrap_or(0.0) as i64 + ALERT_TIMEOUT_MS);
         let timer = self.next_timer_at(now)?;
+        let points = self.next_loyalty_at()?;
         let storage = self.state.storage();
-        match alert.into_iter().chain(timer).min() {
+        match alert.into_iter().chain(timer).chain(points).min() {
             // Careful: a Duration here is an offset from now, not a timestamp.
             Some(at) => {
                 storage

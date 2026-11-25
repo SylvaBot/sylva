@@ -36,6 +36,8 @@ mod bot;
 mod channel;
 mod community;
 mod delete;
+mod grants;
+mod loyalty;
 mod moderation;
 mod twitch_admin;
 mod twitch_api;
@@ -183,6 +185,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["bot", ..])
                 | (Method::Get, ["moderation", ..])
                 | (Method::Post, ["moderation", ..])
+                | (Method::Get, ["loyalty", ..])
+                | (Method::Post, ["loyalty", ..])
                 | (Method::Get, ["scene"])
                 | (Method::Post, ["scene", ..])
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,

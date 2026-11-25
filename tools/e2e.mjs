@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, BASE, admin, chat, chatLine, Client, follow, getJson, randomChannelId, sendEventSub, sleep } from './lib.mjs';
-import { FAKE_PORT, FAKE_USER, MOD_SCOPES, startFakeTwitch } from './fake-twitch.mjs';
+import { FAKE_PORT, FAKE_USER, LOYALTY_SCOPES, startFakeTwitch } from './fake-twitch.mjs';
 
 const results = [];
 async function check(name, fn) {
@@ -692,6 +692,112 @@ if (!fake || !usesFake) {
     assert.equal(sent().length, quiet, 'quotes can be turned off');
   });
 
+  /** The stream going live or offline. */
+  const streamState = (cid, online) => sendEventSub({
+    subType: online ? 'stream.online' : 'stream.offline', condition: { broadcaster_user_id: cid },
+    event: { id: randomUUID(), broadcaster_user_id: cid, broadcaster_user_login: 'pointstester',
+             broadcaster_user_name: 'PointsTester', type: 'live', started_at: new Date().toISOString() },
+  });
+  /** Wait until `fn` returns something truthy, for up to `ms`. */
+  const until = async (fn, ms = 12_000) => {
+    const end = Date.now() + ms;
+    for (;;) {
+      const v = await fn();
+      if (v || Date.now() > end) return v;
+      await sleep(250);
+    }
+  };
+
+  await check('loyalty points pay viewers while live, and chat can check and move them', async () => {
+    const lid = randomChannelId();
+    const path = `/v1/channels/twitch:${lid}/loyalty`;
+    const botPath = `/v1/channels/twitch:${lid}/bot`;
+    const post = (p, body) => fetch(`${BASE}${p}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    const sent = () => fake.state.chatSent.filter((m) => m.broadcaster_id === lid).map((m) => m.message);
+    const say = (text, who) => sendEventSub(chatLine(lid, { text, ...who }));
+    const ev = (subType, event) => sendEventSub({ subType, condition: { broadcaster_user_id: lid },
+      event: { broadcaster_user_id: lid, broadcaster_user_login: 'pointstester', broadcaster_user_name: 'PointsTester', ...event } });
+    const balance = async (login) => (await getJson(`${path}/viewers?q=${login}`)).viewers.find((v) => v.login === login)?.balance ?? 0;
+    const hazel = { id: '8001', name: 'Hazel' };
+    const mod = { id: '8009', name: 'Modly', badges: ['moderator'] };
+
+    const first = await getJson(path);
+    assert.equal(first.settings.enabled, false);
+    assert.equal(first.permission, 'missing');
+    assert.equal(first.viewers, 0);
+    assert.equal((await post(path, { ...first.settings, name: '<b>' })).status, 400);
+    const saved = await (await post(path, { ...first.settings, enabled: true, name: ' Leaves ', give: true })).json();
+    assert.equal(saved.settings.name, 'leaves');
+    await post(botPath, { ...(await getJson(botPath)).settings, enabled: true });
+
+    // Bonuses arrive whether or not the stream is live.
+    await say('hello', hazel);
+    const followed = { user_id: '8002', user_login: 'rowan', user_name: 'Rowan', followed_at: new Date().toISOString() };
+    await ev('channel.follow', followed);
+    await ev('channel.follow', followed);
+    await ev('channel.subscribe', { user_id: '8002', user_login: 'rowan', user_name: 'Rowan', tier: '1000', is_gift: false });
+    await ev('channel.cheer', { is_anonymous: false, user_id: '8001', user_login: 'hazel', user_name: 'Hazel', message: 'yay', bits: 250 });
+    await ev('channel.subscription.gift', { user_id: '8003', user_login: 'giver', user_name: 'Giver', total: 2, tier: '1000', is_anonymous: false });
+    await ev('channel.subscribe', { user_id: '8004', user_login: 'lucky', user_name: 'Lucky', tier: '1000', is_gift: true });
+    assert.equal(await balance('rowan'), 300, 'one follow bonus, however often they follow');
+    assert.equal(await balance('hazel'), 100, '250 bits pay for two hundreds');
+    assert.equal(await balance('giver'), 200);
+    assert.equal(await balance('lucky'), 0, 'a gifted sub pays the gifter');
+
+    // Live: who chatted since going live earns watch and chat points.
+    await streamState(lid, true);
+    await say('first!', hazel);
+    assert.ok(await until(async () => (await balance('hazel')) === 115), 'Hazel was paid for watching and chatting');
+    await streamState(lid, false);
+    assert.equal(await balance('rowan'), 300, 'without the chatter list, quiet viewers are not seen');
+
+    await say('!points', hazel);
+    assert.equal(sent().at(-1), 'Hazel has 115 leaves (rank 3).');
+    await say('!leaves @Rowan', { id: '8005', name: 'Ash' });
+    assert.equal(sent().at(-1), 'Rowan has 300 leaves (rank 1).');
+    await say('!top', mod);
+    assert.equal(sent().at(-1), 'Most leaves: 1. Rowan 300, 2. Giver 200, 3. Hazel 115');
+    await say('!give @rowan 1000', hazel);
+    assert.equal(sent().at(-1), 'Hazel, you have 115 leaves.');
+    await say('!give @rowan 15', hazel);
+    assert.equal(sent().at(-1), 'Hazel gave 15 leaves to Rowan.');
+    await say('!addpoints @nobody 10', mod);
+    assert.equal(sent().at(-1), 'There is no viewer called nobody.');
+    fake.state.users.set('newbie', { id: '8010', login: 'newbie', display_name: 'Newbie' });
+    await say('!addpoints @newbie 40', mod);
+    assert.equal(sent().at(-1), 'Newbie now has 40 leaves.');
+    const quiet = sent().length;
+    await say('!addpoints @newbie 40', { id: '8006', name: 'Sneaky' });
+    assert.equal(sent().length, quiet, 'only moderators add points');
+    await say('!addpoints @rowan -1000', mod);
+    assert.equal(sent().at(-1), 'Rowan now has 0 leaves.', 'a balance stops at zero');
+
+    const found = await getJson(`${path}/viewers?q=HAZ`);
+    assert.equal(found.total, 1);
+    assert.equal(found.viewers[0].earned, 115);
+    const adjusted = await (await post(`${path}/viewers/8001/adjust`, { delta: 5, reason: 'Prize' })).json();
+    assert.equal(adjusted.balance, 105);
+    assert.equal((await post(`${path}/viewers/8001/adjust`, { delta: 0 })).status, 400);
+    assert.equal((await post(`${path}/viewers/9999/adjust`, { delta: 5 })).status, 404);
+    const { entries } = await getJson(`${path}/viewers/8001/ledger`);
+    assert.deepEqual(entries.map((e) => [e.delta, e.reason]),
+      [[5, 'Prize'], [-15, 'Gave to Rowan'], [15, 'Watching'], [100, 'Cheered']]);
+    assert.equal((await getJson(path)).viewers, 4);
+
+    const tryIt = async (body) => (await post(`${botPath}/try`, body)).json();
+    assert.deepEqual(await tryIt({ message: '!top', level: 'everyone' }),
+      { reply: 'Most leaves: 1. Giver 200, 2. Hazel 105, 3. Newbie 40', command: 'top' });
+    assert.deepEqual(await tryIt({ message: '!addpoints rowan 5', level: 'everyone' }), { skip: 'level', command: 'addpoints' });
+
+    await post(path, { ...saved.settings, enabled: false });
+    const off = sent().length;
+    await say('!points', { id: '8007', name: 'Late' });
+    assert.equal(sent().length, off, 'points can be turned off');
+  });
+
   await check('timers wait for chat and going live, and Send now posts at once', async () => {
     const tid = randomChannelId();
     const path = `/v1/channels/twitch:${tid}/bot`;
@@ -846,14 +952,14 @@ if (!fake || !usesFake) {
   });
 
   await check('a sign in without every permission is refused', async () => {
+    const all = fake.state.grant;
     fake.state.grant = ['bits:read'];
     try {
       const res = await signIn();
       assert.equal(res.headers.get('location'), '/?signin=scopes');
       assert.equal(cookieOf(res, 'sylva_session'), null);
     } finally {
-      fake.state.grant = ['moderator:read:followers', 'channel:read:subscriptions', 'bits:read',
-                          'user:read:chat', 'user:bot', 'channel:bot', ...MOD_SCOPES];
+      fake.state.grant = all;
     }
   });
 
@@ -955,6 +1061,40 @@ if (!fake || !usesFake) {
     await post(path, { ...saved.settings, preset: 'off' });
     await say('spam.xyz', { id: '9006', name: 'Late' });
     assert.equal(acts().length, count + 2);
+  });
+
+  await check('with the chatter list allowed, viewers who only watch earn too', async () => {
+    const tid = FAKE_USER.id;
+    const path = `/v1/channels/twitch:${tid}/loyalty`;
+    const post = (p, body) => fetch(`${BASE}${p}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    assert.equal((await getJson(path)).permission, 'missing');
+    const start = await fetch(`${BASE}/auth/twitch/start?scopes=loyalty&next=/app/loyalty`, { redirect: 'manual' });
+    assert.ok(new URL(start.headers.get('location')).searchParams.get('scope').endsWith(` ${LOYALTY_SCOPES[0]}`));
+    const approve = await fetch(start.headers.get('location'), { redirect: 'manual' });
+    const done = await fetch(approve.headers.get('location'), { redirect: 'manual', headers: { Cookie: `sylva_oauth=${cookieOf(start, 'sylva_oauth')}; sylva_next=${cookieOf(start, 'sylva_next')}` } });
+    assert.equal(done.headers.get('location'), '/app/loyalty');
+    assert.equal((await getJson(path)).permission, 'ok');
+    assert.equal((await getJson(`/v1/channels/twitch:${tid}/moderation`)).permission, 'ok', 'moderation is still allowed');
+
+    fake.state.chatters.set(tid, [
+      { user_id: '9501', user_login: 'lurker', user_name: 'Lurker' },
+      { user_id: tid, user_login: FAKE_USER.login, user_name: FAKE_USER.display_name },
+    ]);
+    const settings = (await getJson(path)).settings;
+    await post(path, { ...settings, enabled: true });
+    await streamState(tid, true);
+    try {
+      const paid = await until(async () => (await getJson(`${path}/viewers`)).viewers.find((v) => v.login === 'lurker')?.balance === 10);
+      assert.ok(paid, 'the lurker earned watch points');
+      const { viewers } = await getJson(`${path}/viewers`);
+      assert.ok(!viewers.some((v) => v.id === tid), 'the streamer earns nothing');
+    } finally {
+      await streamState(tid, false);
+      await post(path, { ...settings, enabled: false });
+    }
   });
 
   const json = (body) => ({ 'Content-Type': 'application/json', ...body });

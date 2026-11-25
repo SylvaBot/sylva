@@ -54,6 +54,10 @@ Send `Authorization: Bearer sylva_...` on every request. API tokens do not expir
 | `POST /v1/channels/{key}/moderation/try` | `{"message": "...", "level": "everyone", "settings": {...}}`. Which rule the message breaks, if any, without acting. `settings` is optional, to try unsaved rules. |
 | `GET /v1/channels/{key}/moderation/log?before=&limit=50` | What Sylva did, newest first. |
 | `POST /v1/channels/{key}/moderation/log/{id}/undo` | Lifts a timeout that is still running. 409 for a removed message, which Twitch cannot bring back. |
+| `GET` / `POST /v1/channels/{key}/loyalty` | Loyalty points: `enabled`, `name`, `watch`, `active`, `follow`, `sub`, `gift`, `cheer`, `give`. The answer adds `permission` for the chat list, `live`, `botOn`, `viewers` and `everyMinutes`. |
+| `GET /v1/channels/{key}/loyalty/viewers?q=&limit=50&offset=0` | Viewers with points, most first: `id`, `login`, `name`, `balance`, `earned`, and `total`. |
+| `POST /v1/channels/{key}/loyalty/viewers/{id}/adjust` | `{"delta": 100, "reason": "Won the raffle"}`. A minus delta takes points away, never below zero. |
+| `GET /v1/channels/{key}/loyalty/viewers/{id}/ledger` | The viewer's newest 100 changes, with their reasons. |
 | `GET /v1/channels/{key}/scene` | The overlay layout: `draft`, `published` (with `version`) and `versions`. |
 | `POST /v1/channels/{key}/scene`, `.../scene/publish`, `.../scene/restore/{version}` | Save the draft, publish it, or bring a version back into the draft. |
 | `GET /v1/channels/{key}/ws` | The live socket. Send `{"type":"hello","role":"feed","lastSeq":N}` first; see `crates/sylva-core/src/protocol.rs`. |

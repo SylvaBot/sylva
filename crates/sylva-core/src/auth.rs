@@ -42,11 +42,28 @@ pub const MOD_SCOPES: &[(&str, &str)] = &[
     ),
 ];
 
+/// Asked for only when the streamer lets lurkers earn loyalty points.
+pub const LOYALTY_SCOPES: &[(&str, &str)] = &[(
+    "moderator:read:chatters",
+    "See who is in your chat, so viewers who only watch earn points too",
+)];
+
+/// Extra permissions, each asked for only when its feature needs it, and
+/// kept as its own grant so a plain sign in does not take it away.
+pub const GRANTS: &[(&str, &[(&str, &str)])] =
+    &[("moderation", MOD_SCOPES), ("loyalty", LOYALTY_SCOPES)];
+
+/// True when `granted` holds every scope of `purpose`.
+pub fn has_grant(purpose: &str, granted: &[String]) -> bool {
+    GRANTS
+        .iter()
+        .find(|(p, _)| *p == purpose)
+        .is_some_and(|(_, scopes)| scopes.iter().all(|(s, _)| granted.iter().any(|g| g == s)))
+}
+
 /// True when `granted` holds every moderation scope.
 pub fn can_moderate(granted: &[String]) -> bool {
-    MOD_SCOPES
-        .iter()
-        .all(|(s, _)| granted.iter().any(|g| g == s))
+    has_grant("moderation", granted)
 }
 
 /// How long a web session lasts.
@@ -92,20 +109,24 @@ pub fn encode(value: &str) -> String {
 }
 
 /// The Twitch page that asks the streamer to approve Sylva.
-/// `auth_base` is `https://id.twitch.tv/oauth2` in production. With
-/// `moderation`, it also asks for [`MOD_SCOPES`].
+/// `auth_base` is `https://id.twitch.tv/oauth2` in production. `extra`
+/// names [`GRANTS`] to ask for as well, such as `moderation`.
 pub fn twitch_authorize_url(
     auth_base: &str,
     client_id: &str,
     redirect_uri: &str,
     state: &str,
-    moderation: bool,
+    extra: &[&str],
 ) -> String {
     let mut scopes = scope_string();
-    if moderation {
-        for (s, _) in MOD_SCOPES {
-            scopes.push(' ');
-            scopes.push_str(s);
+    for (purpose, list) in GRANTS {
+        if extra.contains(purpose) {
+            for (s, _) in *list {
+                if !scopes.split(' ').any(|x| x == *s) {
+                    scopes.push(' ');
+                    scopes.push_str(s);
+                }
+            }
         }
     }
     authorize_url(auth_base, client_id, redirect_uri, state, &scopes, false)
@@ -262,7 +283,7 @@ mod tests {
             "abc",
             "https://x.dev/auth/twitch/callback",
             "s t",
-            false,
+            &[],
         );
         assert!(url.starts_with(
             "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=abc&"
@@ -271,7 +292,7 @@ mod tests {
         assert!(url.contains("scope=moderator%3Aread%3Afollowers%20channel%3Aread%3Asubscriptions"));
         assert!(url.ends_with("state=s%20t"));
         assert!(!url.contains("manage"));
-        let m = twitch_authorize_url("https://a", "abc", "https://x", "s", true);
+        let m = twitch_authorize_url("https://a", "abc", "https://x", "s", &["moderation"]);
         assert!(m.contains(
             "%20moderator%3Amanage%3Achat_messages%20moderator%3Amanage%3Abanned_users&"
         ));
@@ -287,6 +308,20 @@ mod tests {
             "moderator:manage:chat_messages".to_string(),
         ];
         assert!(can_moderate(&both));
+        assert!(!has_grant("loyalty", &both));
+        assert!(has_grant(
+            "loyalty",
+            &["moderator:read:chatters".to_string()]
+        ));
+        assert!(!has_grant("unknown", &both));
+        let l = twitch_authorize_url(
+            "https://a",
+            "abc",
+            "https://x",
+            "s",
+            &["loyalty", "moderation"],
+        );
+        assert!(l.contains("channel%3Abot%20moderator%3Amanage%3Achat_messages%20moderator%3Amanage%3Abanned_users%20moderator%3Aread%3Achatters&"));
     }
 
     #[test]

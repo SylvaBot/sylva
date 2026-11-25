@@ -397,7 +397,10 @@ impl ChannelDo {
 
     /// Run the sandbox: the reply a chat line would get, sending nothing and
     /// ignoring cooldowns.
-    pub(crate) fn try_bot(&self, t: TryRequest) -> Result<std::result::Result<TryResult, String>> {
+    pub(crate) async fn try_bot(
+        &self,
+        t: TryRequest,
+    ) -> Result<std::result::Result<TryResult, String>> {
         let stored = self.bot_settings()?;
         let settings = match t.settings {
             Some(s) => match s.validated(&stored) {
@@ -421,37 +424,40 @@ impl ChannelDo {
                 Some(n) => n,
                 None => short(t.channel.as_deref(), "This channel"),
             };
-            return Ok(Ok(
-                match self.community_reply(
-                    &mut settings,
-                    &trigger,
-                    &args,
-                    &crate::community::Ask {
-                        level: t.level,
-                        channel: &channel,
-                        now,
-                        dry: true,
-                    },
-                )? {
-                    Some(reply) => TryResult {
-                        reply: Some(reply),
-                        skip: None,
-                        command: Some(trigger),
-                    },
-                    None => {
-                        let level_too_low = settings.quotes.enabled
-                            && matches!(trigger.as_str(), "addquote" | "delquote");
-                        skip(
-                            if level_too_low {
-                                Skip::Level
-                            } else {
-                                Skip::Unknown
-                            },
-                            level_too_low.then(|| trigger.clone()),
-                        )
-                    }
+            let ask = crate::community::Ask {
+                level: t.level,
+                channel: &channel,
+                now,
+                dry: true,
+            };
+            let user = short(t.user.as_deref(), "Maple");
+            let reply = match self.community_reply(&mut settings, &trigger, &args, &ask)? {
+                Some(r) => Some(r),
+                None => {
+                    self.loyalty_reply(&trigger, &args, &ask, None, &user)
+                        .await?
+                }
+            };
+            return Ok(Ok(match reply {
+                Some(reply) => TryResult {
+                    reply: Some(reply),
+                    skip: None,
+                    command: Some(trigger),
                 },
-            ));
+                None => {
+                    let level_too_low = (settings.quotes.enabled
+                        && matches!(trigger.as_str(), "addquote" | "delquote"))
+                        || (trigger == "addpoints" && self.loyalty_settings()?.enabled);
+                    skip(
+                        if level_too_low {
+                            Skip::Level
+                        } else {
+                            Skip::Unknown
+                        },
+                        level_too_low.then(|| trigger.clone()),
+                    )
+                }
+            }));
         };
         let c = &settings.commands[i];
         if let Err(s) = bot::allowed(c, t.level, 0, None, None) {
@@ -545,18 +551,22 @@ impl ChannelDo {
             actor.id == broadcaster,
         );
         let Some(i) = settings.find(&trigger) else {
-            // Not a command: maybe a counter or a quote.
-            if let Some(reply) = self.community_reply(
-                &mut settings,
-                &trigger,
-                &args,
-                &crate::community::Ask {
-                    level,
-                    channel: &self.channel_name()?,
-                    now,
-                    dry: false,
-                },
-            )? {
+            // Not a command: maybe a counter, a quote or points.
+            let channel = self.channel_name()?;
+            let ask = crate::community::Ask {
+                level,
+                channel: &channel,
+                now,
+                dry: false,
+            };
+            let reply = match self.community_reply(&mut settings, &trigger, &args, &ask)? {
+                Some(r) => Some(r),
+                None => {
+                    self.loyalty_reply(&trigger, &args, &ask, Some(actor), &actor.display_name)
+                        .await?
+                }
+            };
+            if let Some(reply) = reply {
                 self.say(&broadcaster, &from, &reply, now).await?;
             }
             return Ok(());

@@ -459,9 +459,12 @@ impl AccountDo {
             vec![now.to_string().into()],
         )?;
         let i = link.identity;
-        if sylva_core::auth::can_moderate(&i.scopes) {
+        for (purpose, _) in sylva_core::auth::GRANTS {
+            if !sylva_core::auth::has_grant(purpose, &i.scopes) {
+                continue;
+            }
             self.save_grant(&Grant {
-                purpose: "moderation".into(),
+                purpose: (*purpose).into(),
                 platform: i.platform.clone(),
                 platform_user_id: i.platform_user_id.clone(),
                 scopes: i.scopes.clone(),

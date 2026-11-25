@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "cd workers/edge && wrangler dev --port 8787",
-    "dev:test": "cd workers/edge && wrangler dev --port 8787 --var TWITCH_AUTH_URL:http://localhost:8788/oauth2 --var TWITCH_API_URL:http://localhost:8788/helix",
+    "dev:test": "cd workers/edge && wrangler dev --port 8787 --var TWITCH_AUTH_URL:http://localhost:8788/oauth2 --var TWITCH_API_URL:http://localhost:8788/helix --var SYLVA_LOYALTY_TICK_MS:3000",
     "dev:web": "vite web",
     "build:web": "tsc -p web && vite build web",
     "deploy": "cd workers/edge && wrangler deploy",

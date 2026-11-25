@@ -24,7 +24,7 @@ Phase 1 is the MVP: a streamer can replace StreamElements for alerts, overlays a
 * **Sessions** are a cookie holding `<account id>.<secret>`, HttpOnly and SameSite=Lax, for 30 days. The account stores only a SHA-256 hash of the secret. Signing out deletes it. Requests that change something with the cookie must also come from Sylva's own pages (`Origin` check).
 * **Events**: after sign in, the Worker subscribes the channel on the app's conduit to follows (v2), subs, resubs, gifts, cheers, chat, raids, going live, going offline and channel updates. A 409 from Twitch means the subscription exists already and counts as success.
 * **Access to a channel**: its owner (cookie) or the admin token. An overlay link's token opens the socket as an overlay only. It gets no history and cannot connect as a feed, so a leaked OBS link does not leak chat or the event log. The Worker always sets the internal access header itself and strips any copy a client sends.
-* **The dashboard** is React and TypeScript in `web/`, built by Vite and served by the same Worker as static assets, so sign in, the API and the dashboard share one origin and need no CORS. Its stylesheet is Cortex's `styles.css` with a few additions at the end.
+* **The dashboard** is React and TypeScript in `web/`, built by Vite and embedded in the Worker, so sign in, the API and the dashboard share one origin and need no CORS. Its stylesheet is Cortex's `styles.css` with a few additions at the end. It is embedded rather than uploaded as Workers static assets because the asset upload needs its own short lived token, and deploys from Claude's cloud sessions go through a proxy that replaces every Cloudflare token.
 
 ## Fixed along the way
 

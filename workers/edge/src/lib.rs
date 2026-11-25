@@ -1,7 +1,6 @@
 //! Sylva's edge Worker.
 //!
-//! Routes the Worker answers itself (everything else is the dashboard, served
-//! from static assets):
+//! Routes (any other GET is the dashboard, embedded from `web/dist`):
 //! * `GET  /auth/twitch/start`, `/auth/twitch/callback`, `POST /auth/sign-out`:
 //!   sign in with Twitch (see `auth`).
 //! * `GET  /v1/me`: who is signed in and which channels they manage.
@@ -36,6 +35,7 @@ mod channel;
 mod twitch_admin;
 mod twitch_api;
 mod util;
+mod web;
 
 pub use account::{AccountDo, DirectoryDo};
 pub use channel::ChannelDo;
@@ -137,6 +137,11 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,
                 _ => Response::error("Not found", 404),
             }
+        }
+        (Method::Get, [first, ..])
+            if !matches!(*first, "v1" | "auth" | "twitch" | "admin" | "overlay") =>
+        {
+            web::serve(&path)
         }
         _ => Response::error("Not found", 404),
     }

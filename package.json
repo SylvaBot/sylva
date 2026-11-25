@@ -7,11 +7,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "npm run build:web && cd workers/edge && wrangler dev --port 8787",
-    "dev:test": "npm run build:web && cd workers/edge && wrangler dev --port 8787 --var TWITCH_AUTH_URL:http://localhost:8788/oauth2 --var TWITCH_API_URL:http://localhost:8788/helix",
+    "dev": "cd workers/edge && wrangler dev --port 8787",
+    "dev:test": "cd workers/edge && wrangler dev --port 8787 --var TWITCH_AUTH_URL:http://localhost:8788/oauth2 --var TWITCH_API_URL:http://localhost:8788/helix",
     "dev:web": "vite web",
     "build:web": "tsc -p web && vite build web",
-    "deploy": "npm run build:web && cd workers/edge && wrangler deploy",
+    "deploy": "cd workers/edge && wrangler deploy",
     "fake-twitch": "node tools/fake-twitch.mjs",
     "test:e2e": "node tools/e2e.mjs",
     "test:burst": "node tools/burst.mjs"

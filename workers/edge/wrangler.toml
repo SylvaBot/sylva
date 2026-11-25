@@ -5,15 +5,8 @@ account_id = "4fe7b7aea8ef5f7e1246f21c717d56dd"
 workers_dev = true
 
 [build]
-command = "worker-build --release"
-
-# The dashboard (built from /web with `npm run build:web`). Requests for these
-# paths go to the Worker first; everything else is a static file, and unknown
-# paths get index.html so the dashboard can route them.
-[assets]
-directory = "../../web/dist"
-not_found_handling = "single-page-application"
-run_worker_first = ["/v1/*", "/auth/*", "/twitch/*", "/admin/*", "/overlay/*", "/health"]
+# The dashboard is embedded in the Worker (see build.rs), so build it first.
+command = "cd ../.. && npm run build:web && cd workers/edge && worker-build --release"
 
 [[durable_objects.bindings]]
 name = "CHANNEL"

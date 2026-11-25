@@ -11,7 +11,7 @@ This repository is in **Phase 1**. Streamers sign in with Twitch, and Sylva pick
 | `crates/sylva-core` | Plain Rust with no Cloudflare code: the normalized event model, Twitch EventSub verification and parsing, the realtime protocol, and sign in helpers (scopes, cookies, token encryption). Cortex can depend on it too. |
 | `workers/edge` | The Cloudflare Worker (Rust compiled to WebAssembly with workers-rs). Twitch sign in and webhooks, the API, and three kinds of Durable Object: `ChannelDo` per channel, `AccountDo` per account, and one `DirectoryDo`. |
 | `workers/edge/overlay` | The alert overlay for OBS, styled like Cortex. |
-| `web` | The dashboard: React and TypeScript, built with Vite, using Cortex's design system. The Worker serves it as static assets. |
+| `web` | The dashboard: React and TypeScript, built with Vite, using Cortex's design system. It is built into the Worker (`workers/edge/build.rs`), so one deploy carries everything. |
 | `tools` | Node scripts that test a running Worker the way Twitch, OBS and the dashboard would, plus a fake Twitch for sign in tests. |
 
 ## Run it locally
@@ -29,7 +29,7 @@ npm run fake-twitch    # in another terminal, to sign in from a browser
 
 Open `http://localhost:8787` and press **Continue with Twitch**. The fake Twitch signs you in as `sylvatester` at once. To sign in with real Twitch locally, run `npm run dev` instead and put the app's real secret in `.dev.vars` (the app needs `http://localhost:8787/auth/twitch/callback` as a redirect URL).
 
-`npm run dev` and `dev:test` build the dashboard once at start. While working on the dashboard, `npm run dev:web` serves it with hot reload on `http://localhost:5173` and passes API calls to the Worker.
+`npm run dev` and `dev:test` build the dashboard into the Worker, and rebuild when you save a Rust file. While working on the dashboard, `npm run dev:web` serves it with hot reload on `http://localhost:5173` and passes API calls to the Worker.
 
 Tests, with the Worker running under `dev:test`:
 

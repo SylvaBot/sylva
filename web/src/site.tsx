@@ -1,0 +1,118 @@
+// Pieces shared by the public pages (home, /device, /privacy), and the
+// privacy page itself.
+
+import { useEffect, type ReactNode } from 'react';
+import { Link } from './router';
+
+export function SiteHeader({ children }: { children?: ReactNode }) {
+  return (
+    <header className="site-nav">
+      <Link className="brand" href="/" aria-label="Sylva home">
+        <img src="/logo.svg" alt="" width="26" height="26" />
+        <span>Sylva</span>
+      </Link>
+      {children}
+    </header>
+  );
+}
+
+export function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <span>© {new Date().getFullYear()} Sylva</span>
+      <nav className="footer-links" aria-label="About Sylva">
+        <Link href="/privacy">Privacy</Link>
+        <span>Not affiliated with Twitch.</span>
+      </nav>
+    </footer>
+  );
+}
+
+const UPDATED = '25 November 2026';
+
+export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
+  useEffect(() => {
+    document.title = 'Privacy · Sylva';
+  }, []);
+
+  return (
+    <div className="site">
+      <SiteHeader>
+        <span className="spacer" />
+        {signedIn
+          ? <Link className="btn primary" href="/app">Open dashboard</Link>
+          : <Link className="btn" href="/">Home</Link>}
+      </SiteHeader>
+      <main id="content" className="prose wrap">
+        <h1>Privacy</h1>
+        <p className="prose-lede">
+          What Sylva keeps, why, and how to delete it. In short: only what it needs to run your alerts and
+          dashboard, never sold or shared for advertising, and gone the moment you delete your account.
+        </p>
+        <p className="prose-meta">Last updated {UPDATED}.</p>
+
+        <h2>What Sylva keeps</h2>
+        <ul>
+          <li><b>Your Twitch account:</b> its id, name, display name and profile picture address.</li>
+          <li>
+            <b>Your Twitch sign in:</b> the access and refresh tokens Twitch gives Sylva, encrypted before
+            they are stored. Sylva uses them only to receive your channel's events and chat.
+          </li>
+          <li>
+            <b>Your channel's activity:</b> follows, subs, gifted subs, cheers, raids, chat messages, and
+            when your stream starts, ends or changes title, with the viewer names Twitch sends. This is your
+            Activity feed and history.
+          </li>
+          <li><b>Your settings:</b> alert settings, your goal, whether alerts are paused or muted, and your overlay link.</li>
+          <li>
+            <b>Sign ins:</b> for each browser session and each connected app (such as Cortex), a one way hash
+            of its secret, when it was made and when an app was last used. Sylva cannot recover the secret from it.
+          </li>
+        </ul>
+
+        <h2>What Sylva does not do</h2>
+        <ul>
+          <li>It does not post in your chat or change anything on your channel.</li>
+          <li>It does not sell your data, show ads, or share data with anyone for advertising.</li>
+          <li>It has no analytics or tracking scripts, and loads nothing from other sites except Twitch profile pictures.</li>
+        </ul>
+
+        <h2>Cookies and browser storage</h2>
+        <p>
+          Sylva sets one cookie to keep you signed in (<code>sylva_session</code>, for up to 30 days) and two
+          short lived cookies while you sign in with Twitch, which protect the sign in and remember the page to
+          return to. Your theme, your Activity filters and which setup steps you finished are kept in this
+          browser's storage.
+          None of these are used for tracking.
+        </p>
+
+        <h2>Who can see what</h2>
+        <ul>
+          <li>Your activity, chat and settings are visible only to you when signed in, and to apps you connected.</li>
+          <li>Anyone with your overlay link sees what it puts on stream (alerts and the widgets you add), nothing else. You can replace the link at any time on the Overlay page.</li>
+        </ul>
+
+        <h2>Where it is stored</h2>
+        <p>
+          Sylva runs on Cloudflare Workers. Your data is stored with Cloudflare Durable Objects, and is
+          encrypted in transit and at rest by Cloudflare. Twitch tokens are also encrypted by Sylva itself.
+        </p>
+
+        <h2>How long it is kept</h2>
+        <p>
+          Until you delete your account. Sign in sessions end after 30 days, and unused connection codes for
+          apps after 10 minutes.
+        </p>
+
+        <h2>Deleting your data</h2>
+        <p>
+          In <Link href="/app/settings">Settings</Link>, choose <b>Delete account</b>. Sylva then asks Twitch to
+          stop sending your channel's events, deletes your account, activity, chat history, settings, overlay
+          links and connected apps at once, and tells Twitch to forget its sign in. This cannot be undone. You can
+          also remove Sylva's access on Twitch under Settings, Connections.
+        </p>
+      </main>
+      <SiteFooter />
+    </div>
+  );
+}

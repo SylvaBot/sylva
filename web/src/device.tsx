@@ -4,6 +4,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, type Me } from './api';
 import { Link } from './router';
+import { SiteFooter } from './site';
 import { errorText, Icon } from './ui';
 
 type Step =
@@ -141,10 +142,7 @@ export function DevicePage({ me }: { me: Me | null | undefined }) {
           )}
         </section>
       </main>
-      <footer className="site-footer">
-        <span>© {new Date().getFullYear()} Sylva</span>
-        <span>Not affiliated with Twitch.</span>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

@@ -45,6 +45,7 @@
   --other: #8b8b94;
   --warn: #e8b13a;
   --danger: #f0686a;
+  --danger-solid: #c4363b;
   --ok: #3ecf74;
   --focus: #6f9cf5;
 
@@ -87,6 +88,7 @@
   --other: #74747c;
   --warn: #b7800f;
   --danger: #be3237;
+  --danger-solid: #be3237;
   --ok: #1fa855;
   --tint: 7%;
   --tint-border: 22%;
@@ -157,6 +159,8 @@ h1, h2, h3, p { margin: 0; }
 .btn svg { width: 15px; height: 15px; }
 .btn.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); font-weight: 600; }
 .btn.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+.btn.solid-danger { background: var(--danger-solid); color: #ffffff; border-color: var(--danger-solid); font-weight: 600; }
+.btn.solid-danger:hover:not(:disabled) { filter: brightness(1.08); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); border-color: transparent; }
 .btn.danger { color: var(--danger); }
@@ -587,6 +591,28 @@ h1, h2, h3, p { margin: 0; }
 .signin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; color: var(--text-2); }
 .signin-list li { display: flex; gap: 10px; align-items: center; }
 .signin-list svg { color: var(--follow); }
+/* ---------- Delete account ---------- */
+.danger-zone { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.setting.flush { padding: 0; border-top: 0; flex-wrap: wrap; }
+.setting.flush .card-text { flex: 1 1 320px; }
+.delete-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+.delete-form .field b { color: var(--text); }
+
+/* ---------- Public pages: notice, footer links, privacy ---------- */
+.site-notice { margin-top: 16px; padding: 10px 14px; border-radius: var(--r); font-size: 13.5px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border-2); max-width: 520px; }
+.footer-links { display: flex; gap: 16px; flex-wrap: wrap; }
+.prose { max-width: 720px; padding-block: 56px 72px; }
+.prose h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
+.prose-lede { margin-top: 14px; font-size: 17px; line-height: 1.6; color: var(--muted); }
+.prose-meta { margin-top: 10px; font-size: 13px; color: var(--faint); }
+.prose h2 { margin-top: 40px; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+.prose p, .prose li { font-size: 15px; line-height: 1.7; color: var(--text-2); }
+.prose p { margin-top: 10px; }
+.prose ul { margin: 10px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.prose b { color: var(--text); font-weight: 600; }
+.prose code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .9em; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+@media (max-width: 560px) { .prose { padding-block: 32px 48px; } .prose h1 { font-size: 28px; } }
+
 .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .04em; }
 .apps-list { list-style: none; margin: 0; padding: 0; }
 .apps-list li { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--border); }

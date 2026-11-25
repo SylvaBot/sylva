@@ -33,6 +33,7 @@ mod account;
 mod apps;
 mod auth;
 mod channel;
+mod delete;
 mod twitch_admin;
 mod twitch_api;
 mod util;
@@ -92,6 +93,16 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 (Method::Get, ["v1", "apps"]) => no_store(apps::list(&env, &s).await?),
                 (Method::Post, ["v1", "apps", id, "revoke"]) => apps::revoke(&env, &s, id).await,
                 _ => Response::error("Not found", 404),
+            }
+        }
+        (Method::Post, ["v1", "account", "delete"]) => {
+            // The browser session only: an app cannot delete the account.
+            if !auth::same_origin(&req) {
+                return Response::error("Forbidden", 403);
+            }
+            match auth::session(&req, &env).await? {
+                Some(s) => delete::delete_account(req, &env, s).await,
+                None => Response::error("Sign in to Sylva first", 401),
             }
         }
         (Method::Post, ["twitch", "eventsub"]) => eventsub(req, &env).await,

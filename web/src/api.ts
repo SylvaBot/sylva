@@ -106,6 +106,7 @@ const ch = (key: string) => `/v1/channels/${encodeURIComponent(key)}`;
 export const api = {
   me: () => request<Me>('GET', '/v1/me'),
   signOut: () => request<unknown>('POST', '/auth/sign-out'),
+  deleteAccount: (confirm: string) => request<{ deleted: boolean }>('POST', '/v1/account/delete', { confirm }),
   history: (key: string, filter: 'alerts' | 'chat', limit: number, before?: number, q?: string) => {
     const p = new URLSearchParams({ filter, limit: String(limit) });
     if (before) p.set('before', String(before));

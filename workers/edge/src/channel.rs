@@ -312,6 +312,20 @@ impl DurableObject for ChannelDo {
                     Err(Invalid(message)) => Response::error(message, 400),
                 }
             }
+            (Method::Post, ["erase"]) => {
+                // The owner deleted their account. Only the Worker sends this
+                // (it is not in the list it forwards for clients).
+                for ws in self.state.get_websockets() {
+                    let _ = ws.close(Some(CLOSE_LINK_REPLACED), Some("channel deleted"));
+                }
+                for table in ["alerts", "events", "settings", "config", "secrets"] {
+                    self.sql.exec(&format!("DELETE FROM {table}"), None)?;
+                }
+                self.state.storage().delete_alarm().await?;
+                self.head.set(0);
+                *self.alert_settings.borrow_mut() = None;
+                Response::empty().map(|r| r.with_status(204))
+            }
             (Method::Get, ["overlay-token"]) => {
                 Response::from_json(&serde_json::json!({ "token": self.overlay_token()? }))
             }

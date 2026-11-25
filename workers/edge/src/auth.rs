@@ -52,7 +52,7 @@ fn safe_next(next: &str) -> Option<&str> {
     (ok_path && ok_chars).then_some(next)
 }
 
-fn is_https(req: &Request) -> bool {
+pub(crate) fn is_https(req: &Request) -> bool {
     req.url().map(|u| u.scheme() == "https").unwrap_or(false)
 }
 

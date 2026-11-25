@@ -278,12 +278,12 @@ pub struct FeatureStatus {
     pub problems: Vec<String>,
 }
 
-/// Which of a channel's events are flowing, read from Twitch.
-pub async fn channel_status(app: &App, broadcaster_user_id: &str) -> Result<Vec<FeatureStatus>> {
+/// Every EventSub subscription that names this user, read from Twitch.
+async fn user_subscriptions(app: &App, user_id: &str) -> Result<Vec<Value>> {
     let mut subs: Vec<Value> = Vec::new();
     let mut cursor: Option<String> = None;
     for _ in 0..5 {
-        let mut path = format!("/eventsub/subscriptions?user_id={broadcaster_user_id}");
+        let mut path = format!("/eventsub/subscriptions?user_id={user_id}");
         if let Some(c) = &cursor {
             path.push_str(&format!("&after={}", sylva_core::auth::encode(c)));
         }
@@ -301,6 +301,12 @@ pub async fn channel_status(app: &App, broadcaster_user_id: &str) -> Result<Vec<
             break;
         }
     }
+    Ok(subs)
+}
+
+/// Which of a channel's events are flowing, read from Twitch.
+pub async fn channel_status(app: &App, broadcaster_user_id: &str) -> Result<Vec<FeatureStatus>> {
+    let subs = user_subscriptions(app, broadcaster_user_id).await?;
 
     let mut out: Vec<FeatureStatus> = Vec::new();
     for spec in channel_subscriptions(broadcaster_user_id) {
@@ -335,4 +341,40 @@ pub async fn channel_status(app: &App, broadcaster_user_id: &str) -> Result<Vec<
         }
     }
     Ok(out)
+}
+
+/// Stop every EventSub subscription that names this user, so Twitch sends
+/// Sylva nothing more about them. Fails if Twitch did not confirm each one.
+pub async fn unsubscribe_user(app: &App, user_id: &str) -> Result<usize> {
+    let subs = user_subscriptions(app, user_id).await?;
+    for s in &subs {
+        let Some(id) = s["id"].as_str() else { continue };
+        let path = format!(
+            "/eventsub/subscriptions?id={}",
+            sylva_core::auth::encode(id)
+        );
+        let (status, v) = app.helix(Method::Delete, &path, None).await?;
+        // 404: it is already gone.
+        if status >= 300 && status != 404 {
+            return Err(Error::RustError(format!(
+                "Twitch did not delete subscription {id} ({status}): {v}"
+            )));
+        }
+    }
+    Ok(subs.len())
+}
+
+/// Tell Twitch to forget a user token. Best effort: an expired token is
+/// refused, and that is fine.
+pub async fn revoke_token(env: &Env, token: &str) -> Result<()> {
+    let client_id = env.var("TWITCH_CLIENT_ID")?.to_string();
+    let (status, v) = post_form(
+        &format!("{}/revoke", auth_base(env)?),
+        &[("client_id", &client_id), ("token", token)],
+    )
+    .await?;
+    if status >= 300 {
+        console_warn!("Twitch did not revoke a token ({status}): {v}");
+    }
+    Ok(())
 }

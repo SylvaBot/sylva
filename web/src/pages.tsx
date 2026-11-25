@@ -1,6 +1,6 @@
 // The dashboard's pages. Each reads the live channel from useChannel().
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError, type AlertState, type AppToken, type FeatureStatus, type Kind, type SylvaEvent } from './api';
 import { AlertTypes } from './alertTypes';
 import { PAGE, useChannel } from './channel';
@@ -582,6 +582,69 @@ function ConnectedApps() {
   );
 }
 
+function DeleteAccount() {
+  const ch = useChannel();
+  const login = ch.twitch?.login ?? '';
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const matches = login !== '' && typed.trim().toLowerCase() === login.toLowerCase();
+
+  const remove = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!matches) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteAccount(typed.trim());
+      // A full load, so nothing of the old account stays in memory.
+      location.assign('/?deleted=1');
+    } catch (x) {
+      setError(errorText(x));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card id="delete" title="Delete account" className="danger-zone" desc="Removes your Sylva account and everything in it, at once. This cannot be undone.">
+      <div className="card-body">
+        {!open ? (
+          <div className="setting flush">
+            <p className="card-text">
+              Your activity and chat history, alert and widget settings, goal, overlay links and connected apps are
+              deleted, and Twitch stops sending Sylva your events. <Link href="/privacy">What Sylva keeps</Link>
+            </p>
+            <button className="btn danger" type="button" onClick={() => setOpen(true)}>Delete account</button>
+          </div>
+        ) : (
+          <form className="delete-form" onSubmit={remove}>
+            <label className="field">
+              <span>Type <b className="mono">{login}</b> to confirm</span>
+              <input
+                className="input"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                autoFocus
+              />
+            </label>
+            {error && <p className="form-error" role="alert">{error}</p>}
+            <div className="goal-actions">
+              <button className="btn ghost" type="button" disabled={busy} onClick={() => { setOpen(false); setTyped(''); setError(null); }}>Cancel</button>
+              <button className="btn solid-danger" type="submit" disabled={busy || !matches}>
+                {busy ? 'Deleting' : 'Delete everything'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const ch = useChannel();
   const [theme, set] = useState<Theme>(getTheme);
@@ -633,6 +696,7 @@ export function SettingsPage() {
         </Card>
         <ConnectedApps />
         <TwitchEvents />
+        <DeleteAccount />
       </div>
     </div>
   );

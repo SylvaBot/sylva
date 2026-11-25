@@ -28,6 +28,9 @@ export function startFakeTwitch(port = FAKE_PORT) {
     tokenRequests: [],
     // Set to a status (such as 403) to make every subscription request fail.
     failSubscriptions: null,
+    // Set to a status (such as 503) to make deleting subscriptions fail.
+    failDeletes: null,
+    revoked: [],
     // Scopes the next authorize grants. Tests narrow it to check "scopes".
     grant: SCOPES,
   };
@@ -81,6 +84,15 @@ export function startFakeTwitch(port = FAKE_PORT) {
       return json(res, 400, { message: 'unsupported grant' });
     }
 
+    if (req.method === 'POST' && url.pathname === '/oauth2/revoke') {
+      const p = new URLSearchParams(body);
+      if (p.get('client_id') !== CLIENT_ID) return json(res, 400, { status: 400, message: 'Invalid client' });
+      if (!state.userTokens.delete(p.get('token'))) return json(res, 400, { status: 400, message: 'Invalid token' });
+      state.revoked.push(p.get('token'));
+      res.writeHead(200);
+      return res.end();
+    }
+
     if (req.method === 'GET' && url.pathname === '/oauth2/validate') {
       const token = auth.replace(/^OAuth /, '');
       const scopes = state.userTokens.get(token);
@@ -120,6 +132,15 @@ export function startFakeTwitch(port = FAKE_PORT) {
         const uid = url.searchParams.get('user_id');
         const data = state.subscriptions.filter((s) => !uid || Object.values(s.condition).includes(uid));
         return json(res, 200, { data, total: data.length, pagination: {} });
+      }
+      if (req.method === 'DELETE' && path === '/eventsub/subscriptions') {
+        if (!isApp) return json(res, 401, { message: 'app token required' });
+        if (state.failDeletes) return json(res, state.failDeletes, { message: 'try again' });
+        const i = state.subscriptions.findIndex((s) => s.id === url.searchParams.get('id'));
+        if (i < 0) return json(res, 404, { message: 'subscription not found' });
+        state.subscriptions.splice(i, 1);
+        res.writeHead(204);
+        return res.end();
       }
       return json(res, 404, { message: 'not faked: ' + path });
     }

@@ -667,10 +667,14 @@ impl ChannelDo {
             .await?;
         let sent = status == 200 && v["data"][0]["is_sent"].as_bool().unwrap_or(false);
         if !sent {
-            console_error!(
-                "Twitch did not send the bot's reply ({status}): {}",
-                v["data"][0]["drop_reason"]
-            );
+            // Twitch's own words: a drop reason when it refused the line, or
+            // the error (such as a missing permission) when the call failed.
+            let why = if status == 200 {
+                v["data"][0]["drop_reason"].to_string()
+            } else {
+                v.to_string()
+            };
+            console_error!("Twitch did not send the bot's reply ({status}): {why}");
         }
         Ok(())
     }

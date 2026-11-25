@@ -15,6 +15,7 @@ pub mod moderation;
 pub mod protocol;
 pub mod scene;
 pub mod store;
+pub mod team;
 pub mod twitch;
 pub mod widgets;
 

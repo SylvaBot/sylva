@@ -73,3 +73,11 @@ export const useToast = () => useContext(ToastContext);
 export function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+/** Turns off every control inside when `on` is false, for the parts of a page
+ * a teammate's role cannot change. With a className it is always a box, so
+ * the layout is the same either way. */
+export function Gate({ on, className, children }: { on: boolean; className?: string; children: ReactNode }) {
+  if (on) return className ? <div className={className}>{children}</div> : <>{children}</>;
+  return <fieldset className={'gate' + (className ? ' ' + className : '')} disabled>{children}</fieldset>;
+}

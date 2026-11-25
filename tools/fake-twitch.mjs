@@ -6,7 +6,8 @@
 //
 // It knows one streamer (FAKE_USER below). The authorize page approves at
 // once and sends the browser back, so a test or a browser can sign in with no
-// Twitch account.
+// Twitch account. A test signs in as someone else by setting `state.as` to
+// one of `state.users`.
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 
@@ -48,6 +49,9 @@ export function startFakeTwitch(port = FAKE_PORT) {
     chatters: new Map(),
     // Twitch users besides FAKE_USER, found by login: login -> { id, login, display_name }.
     users: new Map(),
+    // Who the next sign in is, when not FAKE_USER: one of `users`.
+    as: null,
+    tokenUsers: new Map(), // token -> user
   };
 
   const json = (res, status, body) => {
@@ -60,10 +64,11 @@ export function startFakeTwitch(port = FAKE_PORT) {
     req.on('end', () => resolve(b));
   });
 
-  const issue = (scopes) => {
+  const issue = (scopes, user = FAKE_USER) => {
     const token = 'user-' + randomUUID();
     const refresh = 'refresh-' + randomUUID();
     state.userTokens.set(token, scopes);
+    state.tokenUsers.set(token, user);
     state.refreshTokens.set(refresh, scopes);
     return { access_token: token, refresh_token: refresh, expires_in: state.tokenTtl,
              scope: scopes, token_type: 'bearer' };
@@ -74,12 +79,25 @@ export function startFakeTwitch(port = FAKE_PORT) {
     const auth = req.headers.authorization || '';
     const body = await readBody(req);
 
+    // For browser runs, where the test cannot reach `state`: add a Twitch
+    // user (?login=&id=) and sign in as them next, or ?login= alone to go
+    // back to FAKE_USER.
+    if (req.method === 'POST' && url.pathname === '/_test/as') {
+      const login = (url.searchParams.get('login') || '').toLowerCase();
+      const id = url.searchParams.get('id');
+      if (id) state.users.set(login, { id, login, display_name: url.searchParams.get('name') || login, profile_image_url: '' });
+      state.as = id ? state.users.get(login) : null;
+      return json(res, 200, { as: state.as });
+    }
+
     if (req.method === 'GET' && url.pathname === '/oauth2/authorize') {
       const redirect = new URL(url.searchParams.get('redirect_uri'));
       if (url.searchParams.get('client_id') !== CLIENT_ID) return json(res, 400, { message: 'bad client id' });
       const code = 'code-' + randomUUID();
       const asked = (url.searchParams.get('scope') || '').split(' ').filter(Boolean);
       state.codes.set(code, asked.filter((s) => state.grant.includes(s)));
+      state.codeUsers = state.codeUsers || new Map();
+      state.codeUsers.set(code, state.as || FAKE_USER);
       state.lastAuthorize = Object.fromEntries(url.searchParams);
       redirect.searchParams.set('code', code);
       redirect.searchParams.set('scope', state.codes.get(code).join(' '));
@@ -101,7 +119,7 @@ export function startFakeTwitch(port = FAKE_PORT) {
         const scopes = state.codes.get(p.get('code'));
         if (!scopes) return json(res, 400, { status: 400, message: 'Invalid authorization code' });
         state.codes.delete(p.get('code'));
-        return json(res, 200, issue(scopes));
+        return json(res, 200, issue(scopes, state.codeUsers.get(p.get('code'))));
       }
       if (p.get('grant_type') === 'refresh_token') {
         const scopes = state.refreshTokens.get(p.get('refresh_token'));
@@ -125,8 +143,9 @@ export function startFakeTwitch(port = FAKE_PORT) {
       const token = auth.replace(/^OAuth /, '');
       const scopes = state.userTokens.get(token);
       if (!scopes) return json(res, 401, { status: 401, message: 'invalid access token' });
-      return json(res, 200, { client_id: CLIENT_ID, login: FAKE_USER.login, scopes,
-                              user_id: FAKE_USER.id, expires_in: 14000 });
+      const user = state.tokenUsers.get(token) || FAKE_USER;
+      return json(res, 200, { client_id: CLIENT_ID, login: user.login, scopes,
+                              user_id: user.id, expires_in: 14000 });
     }
 
     // Helix: needs a Client-Id and a token Twitch knows.
@@ -138,11 +157,14 @@ export function startFakeTwitch(port = FAKE_PORT) {
       const path = url.pathname.slice('/helix'.length);
 
       if (req.method === 'GET' && path === '/users') {
-        const login = url.searchParams.get('login');
-        if (isApp && !login) return json(res, 400, { message: 'login required' });
-        if (!login || login === FAKE_USER.login) return json(res, 200, { data: [FAKE_USER] });
-        const u = state.users.get(login.toLowerCase());
-        return json(res, 200, { data: u ? [u] : [] });
+        const logins = url.searchParams.getAll('login').map((l) => l.toLowerCase());
+        const ids = url.searchParams.getAll('id');
+        if (!logins.length && !ids.length) {
+          if (isApp) return json(res, 400, { message: 'login or id required' });
+          return json(res, 200, { data: [state.tokenUsers.get(token) || FAKE_USER] });
+        }
+        const known = [FAKE_USER, ...state.users.values()];
+        return json(res, 200, { data: known.filter((u) => logins.includes(u.login) || ids.includes(u.id)) });
       }
       if (req.method === 'GET' && path === '/chat/chatters') {
         if (isApp) return json(res, 401, { message: 'user token required' });

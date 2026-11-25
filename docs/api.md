@@ -35,7 +35,9 @@ Send `Authorization: Bearer sylva_...` on every request. API tokens do not expir
 
 | Call | What it does |
 | --- | --- |
-| `GET /v1/me` | The account, its Twitch identity and its channels. The channel key, such as `twitch:12826`, is in `channels[0].key`. |
+| `GET /v1/me` | The account, its Twitch identity and its channels, each with `key`, `role` (`owner`, `editor`, `moderator` or `viewer`), `name`, `login` and `avatar`. The account's own channel comes first, such as `twitch:12826` in `channels[0].key`; channels it helps run follow. A role's limits are listed under Team in [site.md](site.md); a refused call gets 403 with the reason. |
+| `GET /v1/channels/{key}/team` | The owner only: the team, each with `id`, `login`, `name`, `avatar`, `role`, `addedAt` and `joined` (has signed in to Sylva), and `max`. |
+| `POST /v1/channels/{key}/team`, `.../team/{id}/remove` | The owner only. `{"login": "name", "role": "editor"}` adds someone by Twitch name or changes their role; 404 for an unknown name, 409 when the team is full. |
 | `GET /v1/channels/{key}/history?filter=alerts&limit=100&before=&q=` | Events, newest first. `filter` is `alerts`, `chat` or left out for both. `q` searches names and messages. |
 | `GET /v1/channels/{key}/summary?since=<ms>` | Counts by kind since a time, and bits. |
 | `GET /v1/channels/{key}/state` | The alert queue: `paused`, `muted`, `playing`, `queued`, `overlaysConnected`. |

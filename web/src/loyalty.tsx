@@ -8,7 +8,7 @@ import { useChannel } from './channel';
 import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
-import { errorText, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, useToast } from './ui';
 
 const ALLOW_URL = '/auth/twitch/start?scopes=loyalty&next=/app/loyalty';
 const PAGE = 50;
@@ -94,11 +94,13 @@ export function LoyaltyPage() {
           {view.settings.enabled && view.permission !== 'ok' && (
             <div className="notice">
               <span>
-                {view.permission === 'expired'
-                  ? 'Twitch no longer accepts Sylva’s permission to see who is in your chat. Allow it again so viewers who only watch keep earning.'
-                  : 'Right now only viewers who chat earn watch points. Let Sylva see who is in your chat so viewers who only watch earn too.'}
+                {!ch.can.own
+                  ? `Right now only viewers who chat earn watch points. ${ch.name} can let Sylva see who is in chat on this page, so viewers who only watch earn too.`
+                  : view.permission === 'expired'
+                    ? 'Twitch no longer accepts Sylva’s permission to see who is in your chat. Allow it again so viewers who only watch keep earning.'
+                    : 'Right now only viewers who chat earn watch points. Let Sylva see who is in your chat so viewers who only watch earn too.'}
               </span>
-              <a className="btn primary sm" href={ALLOW_URL}><Icon id="twitch" />Allow chat list</a>
+              {ch.can.own && <a className="btn primary sm" href={ALLOW_URL}><Icon id="twitch" />Allow chat list</a>}
             </div>
           )}
           {view.settings.enabled && !view.botOn && (
@@ -118,37 +120,39 @@ export function LoyaltyPage() {
             action={
               <div className="field inline points-switch">
                 <span>{view.settings.enabled ? 'On' : 'Off'}</span>
-                <button className="switch" type="button" role="switch" aria-checked={view.settings.enabled} aria-label="Loyalty points" disabled={busy} onClick={toggle} />
+                <button className="switch" type="button" role="switch" aria-checked={view.settings.enabled} aria-label="Loyalty points" disabled={busy || !ch.can.edit} onClick={toggle} />
               </div>
             }
           >
-            <div className="card-body points-settings">
-              <label className="field" htmlFor="points-name">
-                <span className="field-row">What they are called<span className="field-hint">Viewers can also type !{draft.name.trim().toLowerCase().replace(/ /g, '') || 'points'}</span></span>
-                <input id="points-name" className="input" maxLength={20} value={draft.name} placeholder="points" onChange={(e) => set({ name: e.target.value })} />
-              </label>
-              <div className="field inline">
-                <span>Viewers can give their own with <code>!give</code></span>
-                <button className="switch" type="button" role="switch" aria-checked={draft.give} aria-label="Viewers can give points" onClick={() => set({ give: !draft.give })} />
+            <Gate on={ch.can.edit}>
+              <div className="card-body points-settings">
+                <label className="field" htmlFor="points-name">
+                  <span className="field-row">What they are called<span className="field-hint">Viewers can also type !{draft.name.trim().toLowerCase().replace(/ /g, '') || 'points'}</span></span>
+                  <input id="points-name" className="input" maxLength={20} value={draft.name} placeholder="points" onChange={(e) => set({ name: e.target.value })} />
+                </label>
+                <div className="field inline">
+                  <span>Viewers can give their own with <code>!give</code></span>
+                  <button className="switch" type="button" role="switch" aria-checked={draft.give} aria-label="Viewers can give points" onClick={() => set({ give: !draft.give })} />
+                </div>
               </div>
-            </div>
-            <h3 className="points-sub">How viewers earn</h3>
-            <ul className="types points-rules">
-              {rules(view.everyMinutes).map((r) => (
-                <li key={r.key} className="type">
-                  <div className="type-row">
-                    <div className="type-main">
-                      <b>{r.name}</b>
-                      <span>{r.when}</span>
+              <h3 className="points-sub">How viewers earn</h3>
+              <ul className="types points-rules">
+                {rules(view.everyMinutes).map((r) => (
+                  <li key={r.key} className="type">
+                    <div className="type-row">
+                      <div className="type-main">
+                        <b>{r.name}</b>
+                        <span>{r.when}</span>
+                      </div>
+                      <div className="points-amount">
+                        <NumberField label={`${r.name}: points`} value={draft[r.key]} min={0} max={MAX_RULE} onChange={(n) => set({ [r.key]: n })} />
+                        <span>{draft.name.trim().toLowerCase() || 'points'}</span>
+                      </div>
                     </div>
-                    <div className="points-amount">
-                      <NumberField label={`${r.name}: points`} value={draft[r.key]} min={0} max={MAX_RULE} onChange={(n) => set({ [r.key]: n })} />
-                      <span>{draft.name.trim().toLowerCase() || 'points'}</span>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            </Gate>
             <p className="card-body field-hint points-foot">You and your bot never earn. A balance never drops below zero.</p>
           </Card>
 
@@ -309,7 +313,7 @@ function ViewerDetail({ viewer, name, onSaved }: { viewer: PointsViewer; name: s
 
   return (
     <div className="points-detail">
-      <form className="points-adjust" onSubmit={(e) => { e.preventDefault(); void apply(1); }}>
+      {ch.can.moderate && <form className="points-adjust" onSubmit={(e) => { e.preventDefault(); void apply(1); }}>
         <label className="field" htmlFor={`${id}-amount`}>
           Amount
           <input id={`${id}-amount`} className="input" inputMode="numeric" placeholder="100" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d,]/g, ''))} />
@@ -322,7 +326,7 @@ function ViewerDetail({ viewer, name, onSaved }: { viewer: PointsViewer; name: s
           <button className="btn" type="button" disabled={busy || !valid} onClick={() => void apply(-1)}>Take away</button>
           <button className="btn primary" type="submit" disabled={busy || !valid}>Add</button>
         </div>
-      </form>
+      </form>}
       <h3 className="points-sub">Recent changes</h3>
       {entries === null && <p className="field-hint">Loading</p>}
       {entries?.length === 0 && <p className="field-hint">No changes kept for this viewer.</p>}

@@ -7,7 +7,8 @@
 //! * `POST /twitch/eventsub` receives EventSub webhooks (a conduit's webhook
 //!   shards point here), checks the signature and hands each event to its
 //!   channel's Durable Object.
-//! * `/v1/channels/{key}/...`: the channel API, for the channel's owner:
+//! * `/v1/channels/{key}/...`: the channel API, for the channel's owner and
+//!   team (each role's limits are `sylva_core::team::allows`):
 //!   * `GET ws` is the realtime socket (see `sylva_core::protocol`). An
 //!     overlay link's `?token=` also opens it, as an overlay only.
 //!   * `GET state`, `GET events?after=&limit=` (oldest first),
@@ -19,13 +20,15 @@
 //!   * `GET overlay` gives the overlay link, `POST overlay/rotate` replaces it.
 //!   * `GET twitch` says which Twitch events are on, `POST twitch/subscribe`
 //!     turns them on again.
+//!   * `GET team`, `POST team` (`{login, role}`) and `POST team/{id}/remove`
+//!     manage the team (see `team`).
 //! * `GET  /overlay/{key}?token=` serves the alert overlay for OBS.
 //! * `/admin/twitch/*` sets up the Twitch conduit (see `twitch_admin`).
 //!
 //! `{key}` is the channel's Durable Object name, such as `twitch:12826`.
 //!
-//! Who may call the channel API: the signed in owner (session cookie), or
-//! anyone with `Authorization: Bearer <SYLVA_ADMIN_TOKEN>` (tests and setup).
+//! Who may call the channel API: the signed in owner or a teammate (session
+//! cookie or an app's API token), as far as their role allows, or anyone with `Authorization: Bearer <SYLVA_ADMIN_TOKEN>` (tests and setup).
 //! Requests that change something with a cookie must come from Sylva's own
 //! pages (`Origin` check).
 
@@ -41,6 +44,7 @@ mod grants;
 mod loyalty;
 mod moderation;
 mod store;
+mod team;
 mod twitch_admin;
 mod twitch_api;
 mod util;
@@ -50,6 +54,7 @@ pub use account::{AccountDo, DirectoryDo};
 pub use channel::ChannelDo;
 use channel::{ACCESS_HEADER, CHANNEL_HEADER, TOKEN_HEADER};
 use serde_json::json;
+use sylva_core::team::{self as roles, Role};
 use sylva_core::twitch::{self, WebhookHeaders, WebhookMessage};
 use sylva_core::{Actor, Event, EventKind, Platform};
 use worker::js_sys;
@@ -61,10 +66,12 @@ const OVERLAY_HTML: &str = include_str!("../overlay/index.html");
 #[derive(PartialEq)]
 enum Caller {
     Admin,
-    /// The owner in a browser, with the session cookie.
-    Owner,
-    /// The owner through an app such as Cortex, with an API token.
-    App,
+    /// The owner or a teammate. `via_token` is an app such as Cortex with an
+    /// API token, rather than a browser with the session cookie.
+    Member {
+        role: Role,
+        via_token: bool,
+    },
     /// Not allowed, or only with an overlay link's token.
     Anonymous,
 }
@@ -144,15 +151,29 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 Caller::Admin
             } else {
                 match auth::caller(&req, &env).await? {
-                    // API tokens carry no cookie, so they need no Origin check.
-                    Some(s) if s.me.owns(key) && s.via_token => Caller::App,
-                    Some(s) if s.me.owns(key) => Caller::Owner,
-                    Some(_) => return Response::error("This is not your channel", 403),
+                    Some(s) => match s.me.role(key) {
+                        Some(role) => Caller::Member {
+                            role,
+                            via_token: s.via_token,
+                        },
+                        None => return Response::error("This is not your channel", 403),
+                    },
                     None => Caller::Anonymous,
                 }
             };
-            if caller == Caller::Owner && method != Method::Get && !auth::same_origin(&req) {
-                return Response::error("Forbidden", 403);
+            if let Caller::Member { role, via_token } = caller {
+                // API tokens carry no cookie, so they need no Origin check.
+                if !via_token && method != Method::Get && !auth::same_origin(&req) {
+                    return Response::error("Forbidden", 403);
+                }
+                if !roles::allows(role, method != Method::Get, rest) {
+                    let who = match role {
+                        Role::Editor => "An editor",
+                        Role::Moderator => "A moderator",
+                        _ => "A viewer",
+                    };
+                    return Response::error(format!("{who} cannot do that on this channel"), 403);
+                }
             }
             if caller == Caller::Anonymous {
                 // Only an overlay link may open the socket without signing in.
@@ -174,6 +195,9 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 (Method::Post, ["overlay", "rotate"]) => overlay_link(&req, &env, key, true).await,
                 (Method::Get, ["twitch"]) => twitch_status(&env, key).await,
                 (Method::Post, ["twitch", "subscribe"]) => twitch_subscribe(&env, key).await,
+                (Method::Get, ["team"]) => team::list(&env, key).await,
+                (Method::Post, ["team"]) => team::add(req, &env, key).await,
+                (Method::Post, ["team", id, "remove"]) => team::remove(&env, key, id).await,
                 (Method::Get, ["ws"])
                 | (Method::Get, ["state"])
                 | (Method::Get, ["events"])

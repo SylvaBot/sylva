@@ -92,6 +92,10 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             with the viewer's Twitch id, name and tickets (your last 50 giveaways).
           </li>
           <li>
+            <b>Your team, if you add one:</b> each teammate's Twitch id, name and picture, their role, and when they
+            were added. Each teammate's account keeps your channel's name and their role, so they can open it.
+          </li>
+          <li>
             <b>Sign ins:</b> for each browser session and each connected app (such as Cortex), a one way hash
             of its secret, when it was made and when an app was last used. Sylva cannot recover the secret from it.
           </li>

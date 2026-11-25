@@ -28,6 +28,24 @@ const GOAL_KINDS: { id: GoalKind; label: string; unit: string }[] = [
 
 export function OverlayPage() {
   const ch = useChannel();
+  if (ch.can.edit) return <OverlayEditorPage />;
+  return (
+    <div className="page">
+      <PageHead title="Overlay" desc="The alert box and widgets that show on stream." />
+      <Card id="overlay-locked" title="Only the owner and editors change the overlay">
+        <div className="card-body">
+          <p className="card-text">
+            The overlay links show this channel&apos;s alerts to anyone who has them, so they stay with the owner and editors.
+            You can still pause, mute, skip and replay alerts from <Link href="/app/alerts">Alerts</Link>.
+          </p>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function OverlayEditorPage() {
+  const ch = useChannel();
   const toast = useToast();
   const [url, setUrl] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
@@ -83,9 +101,11 @@ export function OverlayPage() {
         title="Overlay"
         desc={connected === 0 ? 'No alert box is connected right now.' : connected === 1 ? '1 alert box is connected right now.' : `${num(connected)} alert boxes are connected right now.`}
       >
-        <button className={'btn' + (armed ? ' armed' : '')} type="button" disabled={!url} onClick={replace} title="Make new links and stop the old ones">
-          <Icon id="refresh" />{armed ? 'Click again to replace' : 'New links'}
-        </button>
+        {ch.can.own && (
+          <button className={'btn' + (armed ? ' armed' : '')} type="button" disabled={!url} onClick={replace} title="Make new links and stop the old ones">
+            <Icon id="refresh" />{armed ? 'Click again to replace' : 'New links'}
+          </button>
+        )}
       </PageHead>
       <div className="stack">
         <SceneEditor url={url} />

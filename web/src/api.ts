@@ -44,11 +44,19 @@ export interface Identity {
   scopes: string[];
 }
 
+export type Role = 'owner' | 'editor' | 'moderator' | 'viewer';
+
+/** A channel the account can open: its own, or one it helps run. */
+export interface ChannelRef { key: string; role: Role; name: string; login: string; avatar: string }
+
 export interface Me {
   accountId: string;
   identities: Identity[];
-  channels: { key: string; role: string }[];
+  channels: ChannelRef[];
 }
+
+export interface TeamMember { id: string; login: string; name: string; avatar: string; role: Exclude<Role, 'owner'>; addedAt: number; joined: boolean }
+export interface TeamView { team: TeamMember[]; max: number }
 
 export interface Summary { since: number; counts: Partial<Record<Kind, number>>; bits: number }
 
@@ -271,6 +279,9 @@ export const api = {
   startGiveaway: (key: string, s: GiveawaySettings) => request<GiveawaysView>('POST', `${ch(key)}/giveaways`, s),
   giveawayAction: (key: string, id: number, action: 'close' | 'draw' | 'end' | 'cancel') =>
     request<GiveawaysView>('POST', `${ch(key)}/giveaways/${id}/${action}`),
+  team: (key: string) => request<TeamView>('GET', `${ch(key)}/team`),
+  setTeammate: (key: string, login: string, role: TeamMember['role']) => request<TeamView>('POST', `${ch(key)}/team`, { login, role }),
+  removeTeammate: (key: string, id: string) => request<TeamView>('POST', `${ch(key)}/team/${encodeURIComponent(id)}/remove`),
   scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),
   saveScene: (key: string, scene: Scene) => request<SceneState>('POST', `${ch(key)}/scene`, scene),
   publishScene: (key: string) => request<SceneState>('POST', `${ch(key)}/scene/publish`),

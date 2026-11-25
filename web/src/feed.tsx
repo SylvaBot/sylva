@@ -97,7 +97,7 @@ export function describe(e: SylvaEvent): { title: ReactNode; pills: string[]; me
   return { title, pills, message };
 }
 
-function Item({ e, fresh, onReplay }: { e: SylvaEvent; fresh: boolean; onReplay(e: SylvaEvent): Promise<void> }) {
+function Item({ e, fresh, onReplay }: { e: SylvaEvent; fresh: boolean; onReplay?(e: SylvaEvent): Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const g = groupOf(e.kind);
   const d = describe(e);
@@ -115,7 +115,7 @@ function Item({ e, fresh, onReplay }: { e: SylvaEvent; fresh: boolean; onReplay(
       <div className="item-side">
         <time dateTime={e.createdAt} title={new Date(e.createdAt).toLocaleString()}>{ago(e.createdAt)}</time>
       </div>
-      {ALERT_KINDS.has(e.kind) && (
+      {ALERT_KINDS.has(e.kind) && onReplay && (
         <button
           className="replay"
           type="button"
@@ -226,7 +226,8 @@ export const matchesShown = (shown: Set<string>) => (e: SylvaEvent) => !shown.si
 export function FeedList(props: {
   events: SylvaEvent[];
   freshFrom: number;
-  onReplay(e: SylvaEvent): Promise<void>;
+  /** Left out when the viewer's role cannot replay alerts. */
+  onReplay?(e: SylvaEvent): Promise<void>;
   empty: ReactNode;
   flush?: boolean;
 }) {

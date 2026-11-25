@@ -7,7 +7,7 @@ import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, ty
 import { useChannel } from './channel';
 import { Counters, Quotes } from './community';
 import { Card, PageHead } from './pages';
-import { errorText, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, useToast } from './ui';
 
 export const LEVELS: { id: UserLevel; label: string; who: string }[] = [
   { id: 'everyone', label: 'Everyone', who: 'everyone' },
@@ -74,7 +74,9 @@ export function BotPage() {
   const settings = view?.settings;
   const who = view?.sender.kind === 'sylva'
     ? <>Sylva&apos;s bot, <b>{view.sender.login || 'the shared bot account'}</b></>
-    : <>your own account, <b>{ch.name}</b>, with Twitch&apos;s Chat Bot badge</>;
+    : ch.can.own
+      ? <>your own account, <b>{ch.name}</b>, with Twitch&apos;s Chat Bot badge</>
+      : <><b>{ch.name}</b>&apos;s own account, with Twitch&apos;s Chat Bot badge</>;
 
   return (
     <div className="page">
@@ -84,11 +86,11 @@ export function BotPage() {
       {settings && (
         <div className="stack">
           <Card id="bot-on">
-            <div className="bot-status">
+            <Gate on={ch.can.edit} className="bot-status">
               <span className={'tile ' + (settings.enabled ? 'c-follow' : '')}><Icon id="bot" /></span>
               <div className="type-main">
                 <b>{settings.enabled ? 'The bot is on' : 'The bot is off'}</b>
-                <span>{settings.enabled ? <>It answers commands in your chat as {who}.</> : <>Turn it on to answer commands in your chat. Replies come from {who}.</>}</span>
+                <span>{settings.enabled ? <>It answers commands in {ch.can.own ? 'your' : 'the'} chat as {who}.</> : <>Turn it on to answer commands in {ch.can.own ? 'your' : 'the'} chat. Replies come from {who}.</>}</span>
               </div>
               <button
                 className="switch"
@@ -98,7 +100,7 @@ export function BotPage() {
                 aria-label="Chat bot"
                 onClick={() => save({ ...settings, enabled: !settings.enabled }, settings.enabled ? 'The bot is off' : 'The bot is on')}
               />
-            </div>
+            </Gate>
           </Card>
 
           <Card
@@ -106,7 +108,7 @@ export function BotPage() {
             title="Commands"
             desc="A viewer types the command in chat and the bot replies. Moderators skip cooldowns."
             action={
-              <button className="btn sm" type="button" onClick={() => setOpen('new')} disabled={open === 'new' || settings.commands.length >= 100}>
+              <button className="btn sm" type="button" onClick={() => setOpen('new')} disabled={!ch.can.edit || open === 'new' || settings.commands.length >= 100}>
                 <Icon id="plus" />New command
               </button>
             }
@@ -149,7 +151,7 @@ export function BotPage() {
                         aria-controls={`cmd-edit-${i}`}
                         onClick={() => setOpen(isOpen ? null : i)}
                       >
-                        {isOpen ? 'Close' : 'Edit'}
+                        {isOpen ? 'Close' : ch.can.edit ? 'Edit' : 'View'}
                       </button>
                       <button
                         className="switch"
@@ -157,6 +159,7 @@ export function BotPage() {
                         role="switch"
                         aria-checked={c.enabled}
                         aria-label={`!${c.name}`}
+                        disabled={!ch.can.edit}
                         onClick={() => save(
                           { ...settings, commands: settings.commands.map((x, j) => (j === i ? { ...x, enabled: !x.enabled } : x)) },
                           `!${c.name} ${c.enabled ? 'off' : 'on'}`,
@@ -164,20 +167,22 @@ export function BotPage() {
                       />
                     </div>
                     {isOpen && (
-                      <CommandEditor
-                        id={`cmd-edit-${i}`}
-                        command={c}
-                        settings={settings}
-                        index={i}
-                        onCancel={() => setOpen(null)}
-                        onDelete={async () => {
-                          const next = { ...settings, commands: settings.commands.filter((_, j) => j !== i) };
-                          if (await save(next, `!${c.name} deleted`, settings)) setOpen(null);
-                        }}
-                        onSave={async (next) => {
-                          if (await save({ ...settings, commands: settings.commands.map((x, j) => (j === i ? next : x)) }, `!${c.name} saved`)) setOpen(null);
-                        }}
-                      />
+                      <Gate on={ch.can.edit}>
+                        <CommandEditor
+                          id={`cmd-edit-${i}`}
+                          command={c}
+                          settings={settings}
+                          index={i}
+                          onCancel={() => setOpen(null)}
+                          onDelete={async () => {
+                            const next = { ...settings, commands: settings.commands.filter((_, j) => j !== i) };
+                            if (await save(next, `!${c.name} deleted`, settings)) setOpen(null);
+                          }}
+                          onSave={async (next) => {
+                            if (await save({ ...settings, commands: settings.commands.map((x, j) => (j === i ? next : x)) }, `!${c.name} saved`)) setOpen(null);
+                          }}
+                        />
+                      </Gate>
                     )}
                   </li>
                 );
@@ -185,13 +190,13 @@ export function BotPage() {
             </ul>
           </Card>
 
-          <Timers view={view!} onSave={save} onView={setView} />
+          <Gate on={ch.can.edit}><Timers view={view!} onSave={save} onView={setView} /></Gate>
 
           <Counters view={view!} onSave={save} onView={setView} />
 
           <Quotes view={view!} onSave={save} />
 
-          <TestChat settings={settings} />
+          <Gate on={ch.can.moderate}><TestChat settings={settings} /></Gate>
         </div>
       )}
     </div>

@@ -693,6 +693,8 @@ h1, h2, h3, p { margin: 0; }
   .item { gap: 10px; padding: 9px 10px; }
   .chat { padding: 0 16px 14px; }
   .setting { flex-direction: column; align-items: flex-start; padding: 16px; }
+  .setting.flush { padding: 0; }
+  .setting.flush .card-text { flex-basis: auto; }
   .preview-alert { display: none; }
   .site-nav .btn.ghost { display: none; }
 }
@@ -952,7 +954,7 @@ h1, h2, h3, p { margin: 0; }
   .quote-settings { grid-template-columns: minmax(0, 1fr); }
   .counters-card .type-row { flex-wrap: wrap; }
   .counters-card .type-main { flex-basis: 100%; }
-  .counters-card .stepper { margin-right: auto; }
+  .counters-card .stepper, .counters-card .gate { margin-right: auto; }
 }
 
 /* Loyalty */
@@ -1066,3 +1068,25 @@ h1, h2, h3, p { margin: 0; }
   .give-seed div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 .give-winners .cmd-meta { font-size: 12px; color: var(--faint); }
+
+/* Team access */
+.notice.role-note { width: calc(100% - 64px); max-width: 1136px; margin: 16px auto 0; background: var(--surface); border-color: var(--border); }
+.channel-pick .select { width: 100%; }
+fieldset.gate { border: 0; margin: 0; padding: 0; min-width: 0; }
+@media (max-width: 860px) {
+  .notice.role-note { width: calc(100% - 32px); margin-top: 12px; }
+}
+.role-key { list-style: none; margin: 0; padding: 0 20px 16px; display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+.role-key b { display: inline-block; min-width: 88px; color: var(--text); font-weight: 600; }
+.team-list { border-top: 1px solid var(--border); padding: 4px 0; }
+.team-role { width: 140px; flex: none; }
+.team-add { display: grid; grid-template-columns: minmax(0, 1fr) 180px auto; gap: 12px; align-items: end; border-top: 1px solid var(--border); }
+.team-add .field-hint { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .team-add { grid-template-columns: minmax(0, 1fr); }
+  .team-list .type-row { flex-wrap: wrap; }
+  .team-list .type-main { flex: 1 1 calc(100% - 52px); }
+  .team-role { flex: 1 1 auto; width: auto; }
+  .role-key b { display: block; }
+}
+.switch:disabled { opacity: .55; }

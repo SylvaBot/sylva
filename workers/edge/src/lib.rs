@@ -167,10 +167,11 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 _ => Response::error("Not found", 404),
             }
         }
-        (Method::Get, [first, ..])
+        (Method::Get | Method::Head, [first, ..])
             if !matches!(*first, "v1" | "auth" | "twitch" | "admin" | "overlay") =>
         {
-            web::serve(&path)
+            let versioned = req.url()?.query_pairs().any(|(k, _)| k == "v");
+            web::serve(&path, versioned)
         }
         _ => Response::error("Not found", 404),
     }

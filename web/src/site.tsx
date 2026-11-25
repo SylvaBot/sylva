@@ -82,6 +82,12 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             balance and total earned, and a history of why their balance changed (the newest 20,000 changes in your channel).
           </li>
           <li>
+            <b>Your points store, if you open it:</b> your rewards, and each redemption with the viewer's name,
+            what they wrote with it and whether it is done (every waiting one, and the newest 5,000 others).
+            Your public points page at <code>/s/</code> and your Twitch name shows your rewards and the ten viewers
+            with the most points, and lets anyone look up a viewer's points, as <code>!points</code> does in chat.
+          </li>
+          <li>
             <b>Sign ins:</b> for each browser session and each connected app (such as Cortex), a one way hash
             of its secret, when it was made and when an app was last used. Sylva cannot recover the secret from it.
           </li>

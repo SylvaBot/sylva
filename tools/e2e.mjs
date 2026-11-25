@@ -693,10 +693,10 @@ if (!fake || !usesFake) {
   });
 
   /** The stream going live or offline. */
-  const streamState = (cid, online) => sendEventSub({
+  const streamState = (cid, online, login = 'pointstester', name = 'PointsTester') => sendEventSub({
     subType: online ? 'stream.online' : 'stream.offline', condition: { broadcaster_user_id: cid },
-    event: { id: randomUUID(), broadcaster_user_id: cid, broadcaster_user_login: 'pointstester',
-             broadcaster_user_name: 'PointsTester', type: 'live', started_at: new Date().toISOString() },
+    event: { id: randomUUID(), broadcaster_user_id: cid, broadcaster_user_login: login,
+             broadcaster_user_name: name, type: 'live', started_at: new Date().toISOString() },
   });
   /** Wait until `fn` returns something truthy, for up to `ms`. */
   const until = async (fn, ms = 12_000) => {
@@ -1084,16 +1084,107 @@ if (!fake || !usesFake) {
       { user_id: tid, user_login: FAKE_USER.login, user_name: FAKE_USER.display_name },
     ]);
     const settings = (await getJson(path)).settings;
-    await post(path, { ...settings, enabled: true });
-    await streamState(tid, true);
+    await post(path, { ...settings, enabled: true, watch: 10 });
+    await streamState(tid, true, FAKE_USER.login, FAKE_USER.display_name);
     try {
       const paid = await until(async () => (await getJson(`${path}/viewers`)).viewers.find((v) => v.login === 'lurker')?.balance === 10);
       assert.ok(paid, 'the lurker earned watch points');
       const { viewers } = await getJson(`${path}/viewers`);
       assert.ok(!viewers.some((v) => v.id === tid), 'the streamer earns nothing');
     } finally {
-      await streamState(tid, false);
+      await streamState(tid, false, FAKE_USER.login, FAKE_USER.display_name);
       await post(path, { ...settings, enabled: false });
+    }
+  });
+
+  await check('the points store sells rewards in chat, queues them, refunds, and shows a public page', async () => {
+    const tid = FAKE_USER.id;
+    const base = `/v1/channels/twitch:${tid}`;
+    const post = (p, body) => fetch(`${BASE}${p}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    const sent = () => fake.state.chatSent.filter((m) => m.broadcaster_id === tid).map((m) => m.message);
+    const say = (text, who) => sendEventSub(chatLine(tid, { text, ...who }));
+    const buyer = { id: '8101', name: 'Buyer' };
+    const mod = { id: '8109', name: 'Modly', badges: ['moderator'] };
+    const points = (await getJson(`${base}/loyalty`)).settings;
+    await post(`${base}/loyalty`, { ...points, enabled: true, name: 'leaves' });
+    const bot = (await getJson(`${base}/bot`)).settings;
+    await post(`${base}/bot`, { ...bot, enabled: true });
+    try {
+      const first = await getJson(`${base}/loyalty/store`);
+      assert.deepEqual(first.settings, { enabled: false, items: [] });
+      assert.equal(first.pointsOn, true);
+      assert.equal(first.login, FAKE_USER.login, 'the login comes from Twitch events');
+      assert.match(await (await post(`${base}/loyalty/store`, { enabled: true, items: [{ name: '1up', cost: 5 }] })).text(), /starts with a number/);
+      const saved = await (await post(`${base}/loyalty/store`, { enabled: true, items: [
+        { name: 'Hydrate', cost: 100 },
+        { name: 'Song request', cost: 300, input: true, cooldown: 10, description: 'Name a song' },
+        { name: 'Shoutout', cost: 50, stock: 1 },
+      ] })).json();
+      assert.deepEqual(saved.settings.items.map((i) => [i.id, i.name, i.enabled]), [['r1', 'Hydrate', true], ['r2', 'Song request', true], ['r3', 'Shoutout', true]]);
+
+      fake.state.users.set('buyer', { id: '8101', login: 'buyer', display_name: 'Buyer' });
+      await say('!addpoints @buyer 1000', mod);
+      await say('!store', buyer);
+      assert.equal(sent().at(-1), `Rewards for leaves: 1. Hydrate (100), 2. Song request (300), 3. Shoutout (50). Redeem with !redeem and a number. All rewards: ${BASE}/s/${FAKE_USER.login}`);
+      await say('!redeem 2', buyer);
+      assert.equal(sent().at(-1), 'Song request needs a message: !redeem 2 and your message.');
+      await say('!redeem song REQUEST Darude Sandstorm', buyer);
+      assert.equal(sent().at(-1), 'Buyer redeemed Song request for 300 leaves.');
+      await say('!redeem 2 again', buyer);
+      assert.equal(sent().at(-1), 'Buyer, you can redeem Song request again in 10 minutes.');
+      await say('!redeem shoutout', buyer);
+      assert.equal(sent().at(-1), 'Buyer redeemed Shoutout for 50 leaves.');
+      await say('!redeem 3', { id: '8102', name: 'Late' });
+      assert.equal(sent().at(-1), 'Shoutout is sold out.');
+      await say('!redeem 1', { id: '8103', name: 'Poor' });
+      assert.equal(sent().at(-1), 'Poor, Hydrate costs 100 leaves and you have 0.');
+      await say('!redeem pizza', buyer);
+      assert.equal(sent().at(-1), 'There is no reward like that. See them with !store.');
+      const balance = async () => (await getJson(`${base}/loyalty/viewers?q=buyer`)).viewers[0].balance;
+      assert.equal(await balance(), 650);
+      assert.equal((await getJson(`${base}/loyalty/store`)).settings.items[2].stock, 0);
+
+      const queue = (await getJson(`${base}/loyalty/redemptions`)).redemptions;
+      assert.deepEqual(queue.map((r) => [r.itemName, r.input, r.name, r.status]),
+        [['Song request', 'Darude Sandstorm', 'Buyer', 'pending'], ['Shoutout', '', 'Buyer', 'pending']]);
+      const [song, shout] = queue;
+      assert.equal((await (await post(`${base}/loyalty/redemptions/${song.id}/done`)).json()).status, 'done');
+      assert.equal((await post(`${base}/loyalty/redemptions/${song.id}/done`)).status, 409);
+      assert.equal((await (await post(`${base}/loyalty/redemptions/${song.id}/reopen`)).json()).status, 'pending');
+      assert.equal((await (await post(`${base}/loyalty/redemptions/${shout.id}/refund`)).json()).status, 'refunded');
+      assert.equal((await post(`${base}/loyalty/redemptions/${shout.id}/refund`)).status, 409);
+      assert.equal((await post(`${base}/loyalty/redemptions/999999/done`)).status, 404);
+      assert.equal(await balance(), 700, 'a refund gives the points back');
+      assert.equal((await getJson(`${base}/loyalty/store`)).settings.items[2].stock, 1, 'and the reward back to the stock');
+      assert.deepEqual((await getJson(`${base}/loyalty/redemptions?status=done`)).redemptions.map((r) => r.status), ['refunded']);
+      assert.equal((await getJson(`${base}/loyalty/store`)).pending, 1);
+
+      const pub = await fetch(`${BASE}/v1/public/${FAKE_USER.login}?viewer=@Buyer`);
+      assert.equal(pub.status, 200);
+      const page = await pub.json();
+      assert.deepEqual(page.items.map((i) => [i.number, i.name, i.cost]), [[1, 'Hydrate', 100], [2, 'Song request', 300], [3, 'Shoutout', 50]]);
+      assert.equal(page.pointsName, 'leaves');
+      assert.equal(page.channel, FAKE_USER.display_name);
+      const place = page.top.findIndex((v) => v.name === 'Buyer') + 1;
+      assert.ok(place > 0, 'Buyer is on the leaderboard');
+      assert.deepEqual(page.viewer, { name: 'Buyer', balance: 700, rank: place });
+      assert.equal((await fetch(`${BASE}/v1/public/nobody_here`)).status, 404);
+
+      const tried = await (await post(`${base}/bot/try`, { message: '!redeem 1', level: 'everyone' })).json();
+      assert.deepEqual(tried, { reply: 'Maple redeemed Hydrate for 100 leaves.', command: 'redeem' });
+
+      await post(`${base}/loyalty/store`, { ...saved.settings, enabled: false });
+      const quiet = sent().length;
+      await say('!redeem 1', mod);
+      assert.equal(sent().length, quiet, 'the store can be turned off');
+      const closed = await (await fetch(`${BASE}/v1/public/${FAKE_USER.login}`)).json();
+      assert.deepEqual([closed.storeOn, closed.items.length], [false, 0]);
+    } finally {
+      await post(`${base}/loyalty`, { ...points, enabled: false });
+      await post(`${base}/bot`, bot);
     }
   });
 

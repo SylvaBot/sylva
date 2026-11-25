@@ -10,6 +10,7 @@ import { Landing } from './Landing';
 import { navigate, usePath } from './router';
 import { Shell } from './Shell';
 import { PrivacyPage } from './site';
+import { PublicStorePage } from './store';
 
 const SIGNIN_ERRORS: Record<string, string> = {
   denied: 'You cancelled on Twitch, so nothing changed. Sign in when you are ready.',
@@ -45,11 +46,13 @@ export function App() {
   }, [inApp, me]);
 
   useEffect(() => {
-    if (!inApp && path !== '/device' && path !== '/privacy') document.title = 'Sylva: alerts, overlays and activity for Twitch';
+    if (!inApp && path !== '/device' && path !== '/privacy' && !path.startsWith('/s/')) document.title = 'Sylva: alerts, overlays and activity for Twitch';
   }, [inApp, path]);
 
   if (path === '/device') return <DevicePage me={me} />;
   if (path === '/privacy') return <PrivacyPage signedIn={!!me} />;
+  const store = /^\/s\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
+  if (store) return <PublicStorePage login={store[1].toLowerCase()} signedIn={!!me} />;
   if (inApp) {
     if (!me) return <div className="loading" role="status">Loading your channel</div>;
     return (

@@ -989,3 +989,48 @@ h1, h2, h3, p { margin: 0; }
   .points-ledger li { grid-template-columns: 70px minmax(0, 1fr); }
   .points-ledger time { grid-column: 2; }
 }
+
+/* Store */
+.store-settings { display: flex; align-items: center; gap: 12px 28px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+.store-settings .field.inline { height: 36px; gap: 12px; justify-content: flex-start; color: var(--text-2); align-self: center; }
+.store-link { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.store-link a { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.store-link a svg { width: 14px; height: 14px; flex: none; }
+.type-main b .store-who { display: inline; margin-left: 8px; font-weight: 400; color: var(--muted); }
+.type-main .store-input { color: var(--text-2); font-size: 13px; overflow-wrap: anywhere; }
+.type-main .store-refunded { display: inline; color: var(--danger); }
+.store-actions { display: flex; gap: 6px; flex: none; }
+.store-items .type.off .quote-id { color: var(--faint); }
+.reward-cost, .reward-stock { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 400; }
+.reward-cost .num-input, .reward-stock .num-input { width: 110px; height: 36px; }
+.reward-stock .select { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 560px) {
+  .store-list .type-row { flex-wrap: wrap; }
+  .store-actions { width: 100%; justify-content: flex-end; }
+}
+
+/* Public points page */
+.pub { padding-block: 48px 72px; }
+.pub-head { max-width: 720px; }
+.pub-eyebrow { font-size: 13px; color: var(--faint); font-weight: 500; }
+.pub-head h1 { margin-top: 6px; font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
+.pub-head .prose-lede code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .9em; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.pub-look { display: flex; gap: 8px; margin-top: 24px; max-width: 460px; }
+.pub-look .input { flex: 1 1 auto; min-width: 0; }
+.pub-found { min-height: 22px; margin-top: 10px; font-size: 14px; color: var(--text-2); }
+.pub-found b { color: var(--text); font-variant-numeric: tabular-nums; }
+.pub-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 32px; align-items: start; }
+.pub-grid .card-head code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .9em; }
+.pub-items, .pub-top { list-style: none; margin: 0; padding: 0 0 8px; }
+.pub-items li, .pub-top li { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-top: 1px solid var(--border); }
+.pub-items li.sold { opacity: .6; }
+.pub-num { min-width: 24px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.pub-item { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pub-item b, .pub-top b { font-size: 14px; font-weight: 600; }
+.pub-item span { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.pub-item .pub-tags { font-size: 12px; color: var(--faint); }
+.pub-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pub-cost { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) { .pub-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) { .pub { padding-block: 32px 48px; } .pub-head h1 { font-size: 28px; } .pub-items li, .pub-top li { padding-inline: 16px; } }
+.store-queue .segmented button { white-space: nowrap; }

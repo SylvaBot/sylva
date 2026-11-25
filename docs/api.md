@@ -58,6 +58,10 @@ Send `Authorization: Bearer sylva_...` on every request. API tokens do not expir
 | `GET /v1/channels/{key}/loyalty/viewers?q=&limit=50&offset=0` | Viewers with points, most first: `id`, `login`, `name`, `balance`, `earned`, and `total`. |
 | `POST /v1/channels/{key}/loyalty/viewers/{id}/adjust` | `{"delta": 100, "reason": "Won the raffle"}`. A minus delta takes points away, never below zero. |
 | `GET /v1/channels/{key}/loyalty/viewers/{id}/ledger` | The viewer's newest 100 changes, with their reasons. |
+| `GET` / `POST /v1/channels/{key}/loyalty/store` | The points store: `enabled` and `items` (`id`, `name`, `description`, `cost`, `enabled`, `stock` or null, `cooldown` in minutes, `input`). Ids are the server's. The answer adds `pointsOn`, `pointsName`, `botOn`, `login` and `pending`. |
+| `GET /v1/channels/{key}/loyalty/redemptions?status=pending&before=&limit=50` | Redemptions: waiting ones oldest first, or `status=done` for done and refunded, newest first. |
+| `POST /v1/channels/{key}/loyalty/redemptions/{id}/done`, `.../reopen`, `.../refund` | Settle a redemption. A refund gives the points back and returns a limited reward to the stock. 409 when it is already in that state. |
+| `GET /v1/public/{login}?viewer=` | No sign in. A channel's rewards, its top ten and, with `viewer`, one viewer's points. 404 when the channel has no points. |
 | `GET /v1/channels/{key}/scene` | The overlay layout: `draft`, `published` (with `version`) and `versions`. |
 | `POST /v1/channels/{key}/scene`, `.../scene/publish`, `.../scene/restore/{version}` | Save the draft, publish it, or bring a version back into the draft. |
 | `GET /v1/channels/{key}/ws` | The live socket. Send `{"type":"hello","role":"feed","lastSeq":N}` first; see `crates/sylva-core/src/protocol.rs`. |

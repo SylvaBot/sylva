@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BotPage } from './bot';
 import { useChannel } from './channel';
 import { LoyaltyPage } from './loyalty';
+import { StorePage } from './store';
 import { ModerationPage } from './moderation';
 import { OverlayPage } from './overlay';
 import { ActivityPage, AlertsPage, ChatPage, NotFoundPage, OverviewPage, SettingsPage } from './pages';
@@ -20,6 +21,7 @@ const PAGES = [
   { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage },
   { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage },
   { path: '/app/loyalty', label: 'Loyalty', icon: 'gem', view: LoyaltyPage },
+  { path: '/app/store', label: 'Store', icon: 'gift', view: StorePage },
 ];
 const SETTINGS = { path: '/app/settings', label: 'Settings', icon: 'settings', view: SettingsPage };
 

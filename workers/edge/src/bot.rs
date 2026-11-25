@@ -433,10 +433,13 @@ impl ChannelDo {
             let user = short(t.user.as_deref(), "Maple");
             let reply = match self.community_reply(&mut settings, &trigger, &args, &ask)? {
                 Some(r) => Some(r),
-                None => {
-                    self.loyalty_reply(&trigger, &args, &ask, None, &user)
-                        .await?
-                }
+                None => match self
+                    .loyalty_reply(&trigger, &args, &ask, None, &user)
+                    .await?
+                {
+                    Some(r) => Some(r),
+                    None => self.store_reply(&trigger, &args, &ask, None, &user)?,
+                },
             };
             return Ok(Ok(match reply {
                 Some(reply) => TryResult {
@@ -493,18 +496,20 @@ impl ChannelDo {
             .unwrap_or_else(|| "This channel".into()))
     }
 
-    /// Keep the streamer's display name current from Twitch's payloads.
+    /// Keep the streamer's display name and login current from Twitch's payloads.
     pub(crate) fn remember_channel_name(&self, e: &sylva_core::Event) -> Result<()> {
         if e.platform != sylva_core::Platform::Twitch {
             return Ok(());
         }
-        let name = e.raw["broadcaster_user_name"]
-            .as_str()
-            .or_else(|| e.raw["to_broadcaster_user_name"].as_str())
-            .filter(|n| !n.is_empty());
-        if let Some(n) = name {
-            if self.config("channel_name")?.as_deref() != Some(n) {
-                self.set_config("channel_name", n)?;
+        for (field, key) in [("name", "channel_name"), ("login", "channel_login")] {
+            let value = e.raw[format!("broadcaster_user_{field}")]
+                .as_str()
+                .or_else(|| e.raw[format!("to_broadcaster_user_{field}")].as_str())
+                .filter(|n| !n.is_empty());
+            if let Some(v) = value {
+                if self.config(key)?.as_deref() != Some(v) {
+                    self.set_config(key, v)?;
+                }
             }
         }
         Ok(())
@@ -561,10 +566,15 @@ impl ChannelDo {
             };
             let reply = match self.community_reply(&mut settings, &trigger, &args, &ask)? {
                 Some(r) => Some(r),
-                None => {
-                    self.loyalty_reply(&trigger, &args, &ask, Some(actor), &actor.display_name)
-                        .await?
-                }
+                None => match self
+                    .loyalty_reply(&trigger, &args, &ask, Some(actor), &actor.display_name)
+                    .await?
+                {
+                    Some(r) => Some(r),
+                    None => {
+                        self.store_reply(&trigger, &args, &ask, Some(actor), &actor.display_name)?
+                    }
+                },
             };
             if let Some(reply) = reply {
                 self.say(&broadcaster, &from, &reply, now).await?;

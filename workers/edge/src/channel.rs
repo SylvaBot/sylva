@@ -240,9 +240,10 @@ impl DurableObject for ChannelDo {
                     .unwrap_or(100u64)
                     .clamp(1, 500);
                 let filter = q.get("filter").map(String::as_str).unwrap_or("all");
+                let search = q.get("q").map(|s| s.trim()).filter(|s| !s.is_empty());
                 Response::from_json(&History {
                     head_seq: self.head.get(),
-                    events: self.history(before, limit, filter)?,
+                    events: self.history(before, limit, filter, search)?,
                 })
             }
             (Method::Get, ["summary"]) => {
@@ -555,21 +556,47 @@ impl ChannelDo {
     }
 
     /// Events before `before`, newest first. `filter` is `alerts` (everything
-    /// but chat), `chat`, or `all`.
-    fn history(&self, before: u64, limit: u64, filter: &str) -> Result<Vec<StoredEvent>> {
+    /// but chat), `chat`, or `all`. `search` matches the name of who did it or
+    /// the message, ignoring case.
+    fn history(
+        &self,
+        before: u64,
+        limit: u64,
+        filter: &str,
+        search: Option<&str>,
+    ) -> Result<Vec<StoredEvent>> {
         let kind_clause = match filter {
             "chat" => "AND kind = 'chat'",
             "alerts" => "AND kind != 'chat'",
             _ => "",
         };
+        let mut args: Vec<SqlStorageValue> = vec![(before as i64).into()];
+        let search_clause = match search {
+            Some(text) => {
+                // Treat the text literally: escape LIKE's wildcards.
+                let escaped = text
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_");
+                let pattern = format!("%{escaped}%");
+                args.push(pattern.clone().into());
+                args.push(pattern.clone().into());
+                args.push(pattern.into());
+                "AND (json_extract(body, '$.actor.displayName') LIKE ? ESCAPE '\\'
+                      OR json_extract(body, '$.actor.login') LIKE ? ESCAPE '\\'
+                      OR json_extract(body, '$.message') LIKE ? ESCAPE '\\')"
+            }
+            None => "",
+        };
+        args.push((limit as i64).into());
         let rows = self
             .sql
             .exec(
                 &format!(
-                    "SELECT seq, received_at, body FROM events WHERE seq < ? {kind_clause}
+                    "SELECT seq, received_at, body FROM events WHERE seq < ? {kind_clause} {search_clause}
                      ORDER BY seq DESC LIMIT ?"
                 ),
-                vec![(before as i64).into(), (limit as i64).into()],
+                args,
             )?
             .to_array::<EventRow>()?;
         rows.into_iter()

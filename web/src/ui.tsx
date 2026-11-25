@@ -11,12 +11,12 @@ export function Icon({ id }: { id: string }) {
   );
 }
 
-export function Avatar({ name, url }: { name: string; url?: string }) {
+export function Avatar({ name, url, large }: { name: string; url?: string; large?: boolean }) {
   const [broken, setBroken] = useState(false);
   const letter = (name || '?').trim().charAt(0).toUpperCase() || '?';
   const src = url && url.startsWith('https://') && !broken ? url : null;
   return (
-    <span className="avatar">
+    <span className={large ? 'avatar lg' : 'avatar'}>
       {src ? <img src={src} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} /> : letter}
     </span>
   );

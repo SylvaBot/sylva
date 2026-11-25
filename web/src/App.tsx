@@ -1,10 +1,13 @@
+// Top level routing. "/" is the public landing page. "/app/..." is the
+// dashboard, which needs a Sylva session: without one it sends you to the
+// landing page, which offers Continue with Twitch.
+
 import { useEffect, useState } from 'react';
 import { api, ApiError, type Me } from './api';
-import { Dashboard } from './Dashboard';
-import { Icon } from './ui';
-
-// What the scopes in sylva-core's TWITCH_SCOPES are for, in the streamer's words.
-const ASKS = ['See new followers', 'See new subs, resubs and gifted subs', 'See cheers', 'Read your chat'];
+import { ChannelProvider } from './channel';
+import { Landing } from './Landing';
+import { navigate, usePath } from './router';
+import { Shell } from './Shell';
 
 const SIGNIN_ERRORS: Record<string, string> = {
   denied: 'You cancelled on Twitch, so nothing changed. Sign in when you are ready.',
@@ -14,43 +17,41 @@ const SIGNIN_ERRORS: Record<string, string> = {
 };
 
 export function App() {
+  const path = usePath();
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const reason = params.get('signin');
+    const reason = new URLSearchParams(location.search).get('signin');
     if (reason) {
       setError(SIGNIN_ERRORS[reason] || SIGNIN_ERRORS.failed);
       history.replaceState(null, '', location.pathname);
     }
     api.me()
-      .then(setMe)
+      .then((m) => setMe(m.channels.length ? m : null))
       .catch((x) => {
         setMe(null);
         if (!(x instanceof ApiError && x.status === 401)) setError('Sylva could not be reached. Refresh to try again.');
       });
   }, []);
 
-  if (me === undefined) return null;
-  if (me && me.channels.length) return <Dashboard me={me} onSignedOut={() => setMe(null)} />;
-  return <SignIn error={error} />;
-}
+  const inApp = path === '/app' || path.startsWith('/app/');
 
-function SignIn({ error }: { error: string | null }) {
-  return (
-    <div className="overlay welcome">
-      <div className="dialog">
-        <img src="/logo.svg" alt="" width="40" height="40" />
-        <h1>Sign in to Sylva</h1>
-        <p>Alerts, your overlay and your activity feed in one calm place. Sign in with Twitch to start.</p>
-        <ul className="signin-list" aria-label="What Twitch will ask you to allow">
-          {ASKS.map((a) => <li key={a}><Icon id="check" />{a}</li>)}
-        </ul>
-        <p className="hint">Sylva does not post in your chat or change your channel.</p>
-        {error && <p className="error" role="alert">{error}</p>}
-        <a className="btn primary" href="/auth/twitch/start"><Icon id="twitch" />Continue with Twitch</a>
-      </div>
-    </div>
-  );
+  useEffect(() => {
+    if (inApp && me === null) navigate('/', true);
+  }, [inApp, me]);
+
+  useEffect(() => {
+    if (!inApp) document.title = 'Sylva: alerts, overlays and activity for Twitch';
+  }, [inApp]);
+
+  if (inApp) {
+    if (!me) return <div className="loading" role="status">Loading your channel</div>;
+    return (
+      <ChannelProvider me={me} onSignedOut={() => { setMe(null); navigate('/', true); }}>
+        <Shell path={path} />
+      </ChannelProvider>
+    );
+  }
+  return <Landing signedIn={!!me} error={error} notFound={path !== '/'} />;
 }

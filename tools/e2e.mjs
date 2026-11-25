@@ -6,7 +6,7 @@
 // :8788, so the sign in checks run too. Against plain `npm run dev` they are
 // skipped. Set SKIP_SLOW=1 to skip the 30 second alarm test.
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ADMIN, BASE, admin, chat, chatLine, Client, follow, getJson, randomChannelId, sendEventSub, sleep } from './lib.mjs';
 import { FAKE_PORT, FAKE_USER, LOYALTY_SCOPES, startFakeTwitch } from './fake-twitch.mjs';
 
@@ -798,6 +798,81 @@ if (!fake || !usesFake) {
     assert.equal(sent().length, off, 'points can be turned off');
   });
 
+  await check('giveaways take entries from chat and draw winners anyone can check', async () => {
+    const gid = randomChannelId();
+    const base = `/v1/channels/twitch:${gid}`;
+    const post = (p, body) => fetch(`${BASE}${p}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    const sent = () => fake.state.chatSent.filter((m) => m.broadcaster_id === gid).map((m) => m.message);
+    const say = (text, who) => sendEventSub(chatLine(gid, { text, ...who }));
+    const hazel = { id: '8201', name: 'Hazel' };
+    const rowan = { id: '8202', name: 'Rowan', badges: ['subscriber'] };
+    const sha = (s) => createHash('sha256').update(s).digest();
+
+    assert.equal((await getJson(`${base}/giveaways`)).current, undefined);
+    await post(`${base}/bot`, { ...(await getJson(`${base}/bot`)).settings, enabled: true });
+    assert.match(await (await post(`${base}/giveaways`, { prize: 'Key', keyword: 'quote' })).text(), /Sylva's own chat words/);
+    assert.match(await (await post(`${base}/giveaways`, { prize: '  ', keyword: 'join' })).text(), /Name the prize/);
+    assert.match(await (await post(`${base}/giveaways`, { prize: 'Key', keyword: 'join', cost: 10 })).text(), /Turn loyalty points on/);
+    const started = await (await post(`${base}/giveaways`, { prize: 'A game key', keyword: '!Join', subLuck: 2 })).json();
+    const g = started.current;
+    assert.deepEqual([g.status, g.settings.keyword, g.settings.subLuck, g.seed], ['open', 'join', 2, undefined]);
+    assert.match(g.seedHash, /^[0-9a-f]{64}$/);
+    assert.equal(sent().at(-1), 'Giveaway: A game key! Type !join to enter.');
+    assert.equal((await post(`${base}/giveaways`, { prize: 'Another', keyword: 'enter' })).status, 409);
+
+    await say('!join', hazel);
+    await say('!join', rowan);
+    await say('!join', hazel);
+    await say('!join', { id: gid, name: 'Streamer' });
+    let view = await getJson(`${base}/giveaways`);
+    assert.deepEqual([view.current.entries, view.current.tickets], [2, 3], 'one entry each, two tickets for the subscriber, none for the streamer');
+    assert.deepEqual(view.entries.map((e) => [e.name, e.tickets]), [['Rowan', 2], ['Hazel', 1]]);
+
+    view = await (await post(`${base}/giveaways/${g.id}/draw`)).json();
+    const drawn = view.current;
+    assert.equal(drawn.status, 'closed', 'drawing closes entries');
+    assert.equal(sha(drawn.seed).toString('hex'), g.seedHash, 'the seed matches the hash shown at the start');
+    // Check the draw by hand: first 8 bytes of sha256("seed:1"), modulo the 3 tickets.
+    const n = Number(sha(`${drawn.seed}:1`).readBigUInt64BE(0) % 3n);
+    const expected = n < 1 ? 'Hazel' : 'Rowan';
+    assert.equal(drawn.winners[0].name, expected);
+    assert.equal(sent().at(-1), `@${expected} won A game key! Congratulations!`);
+    await say('!join', { id: '8203', name: 'Late' });
+    assert.equal((await getJson(`${base}/giveaways`)).current.entries, 2, 'no entries once closed');
+    view = await (await post(`${base}/giveaways/${g.id}/draw`)).json();
+    assert.deepEqual(view.current.winners.map((w) => w.name).sort(), ['Hazel', 'Rowan'], 'a winner cannot win twice');
+    assert.match(await (await post(`${base}/giveaways/${g.id}/draw`)).text(), /already won/);
+    assert.equal((await post(`${base}/giveaways/${g.id}/close`)).status, 409);
+    assert.equal((await post(`${base}/giveaways/${g.id}/cancel`)).status, 409, 'a giveaway with a winner ends instead');
+    view = await (await post(`${base}/giveaways/${g.id}/end`)).json();
+    assert.equal(view.current, undefined);
+    assert.deepEqual([view.past[0].status, view.past[0].winners.length, view.past[0].seed], ['ended', 2, drawn.seed]);
+    assert.equal((await post(`${base}/giveaways/${g.id}/draw`)).status, 409);
+
+    // An entry that costs points, refunded when the giveaway is cancelled.
+    const points = (await getJson(`${base}/loyalty`)).settings;
+    await post(`${base}/loyalty`, { ...points, enabled: true });
+    await sendEventSub({ subType: 'channel.follow', condition: { broadcaster_user_id: gid },
+      event: { user_id: '8201', user_login: 'hazel', user_name: 'Hazel', broadcaster_user_id: gid, followed_at: new Date().toISOString() } });
+    const paid = (await (await post(`${base}/giveaways`, { prize: 'Signed poster', keyword: 'enter', cost: 30, level: 'everyone' })).json()).current;
+    assert.equal(sent().at(-1), 'Giveaway: Signed poster! Type !enter to enter. It costs 30 points.');
+    await say('!enter', hazel);
+    const balance = async () => (await getJson(`${base}/loyalty/viewers?q=hazel`)).viewers[0].balance;
+    assert.equal(await balance(), 20);
+    await say('!enter', { id: '8204', name: 'Poor' });
+    assert.equal(sent().at(-1), 'Poor, entering costs 30 points and you have 0.');
+    const before = sent().length;
+    await say('!enter', { id: '8204', name: 'Poor' });
+    assert.equal(sent().length, before, 'told once, not on every try');
+    view = await (await post(`${base}/giveaways/${paid.id}/cancel`)).json();
+    assert.equal(await balance(), 50, 'cancelling gives the points back');
+    assert.deepEqual([view.past[0].status, typeof view.past[0].seed], ['cancelled', 'string']);
+    assert.equal(sent().at(-1), 'The giveaway for Signed poster was cancelled.');
+  });
+
   await check('timers wait for chat and going live, and Send now posts at once', async () => {
     const tid = randomChannelId();
     const path = `/v1/channels/twitch:${tid}/bot`;
@@ -1113,8 +1188,10 @@ if (!fake || !usesFake) {
     const bot = (await getJson(`${base}/bot`)).settings;
     await post(`${base}/bot`, { ...bot, enabled: true });
     try {
-      const first = await getJson(`${base}/loyalty/store`);
+      // Start empty, whatever an earlier run left.
+      const first = await (await post(`${base}/loyalty/store`, { enabled: false, items: [] })).json();
       assert.deepEqual(first.settings, { enabled: false, items: [] });
+      for (const r of (await getJson(`${base}/loyalty/redemptions`)).redemptions) await post(`${base}/loyalty/redemptions/${r.id}/refund`);
       assert.equal(first.pointsOn, true);
       assert.equal(first.login, FAKE_USER.login, 'the login comes from Twitch events');
       assert.match(await (await post(`${base}/loyalty/store`, { enabled: true, items: [{ name: '1up', cost: 5 }] })).text(), /starts with a number/);
@@ -1159,7 +1236,8 @@ if (!fake || !usesFake) {
       assert.equal((await post(`${base}/loyalty/redemptions/999999/done`)).status, 404);
       assert.equal(await balance(), 700, 'a refund gives the points back');
       assert.equal((await getJson(`${base}/loyalty/store`)).settings.items[2].stock, 1, 'and the reward back to the stock');
-      assert.deepEqual((await getJson(`${base}/loyalty/redemptions?status=done`)).redemptions.map((r) => r.status), ['refunded']);
+      // History is newest first; earlier runs on this channel may sit below this one.
+      assert.deepEqual((await getJson(`${base}/loyalty/redemptions?status=done`)).redemptions.filter((r) => r.id >= song.id).map((r) => [r.id, r.status]), [[shout.id, 'refunded']]);
       assert.equal((await getJson(`${base}/loyalty/store`)).pending, 1);
 
       const pub = await fetch(`${BASE}/v1/public/${FAKE_USER.login}?viewer=@Buyer`);

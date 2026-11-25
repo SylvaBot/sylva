@@ -147,6 +147,31 @@ CREATE TABLE IF NOT EXISTS redemptions (
 );
 CREATE INDEX IF NOT EXISTS redemptions_status ON redemptions(status, id);
 CREATE INDEX IF NOT EXISTS redemptions_user ON redemptions(item_id, user_id, id);
+CREATE TABLE IF NOT EXISTS giveaways (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    prize     TEXT NOT NULL,
+    keyword   TEXT NOT NULL,
+    level     TEXT NOT NULL,
+    cost      INTEGER NOT NULL,
+    sub_luck  INTEGER NOT NULL,
+    seed      TEXT NOT NULL,
+    seed_hash TEXT NOT NULL,
+    status    TEXT NOT NULL,
+    opened_at INTEGER NOT NULL,
+    closed_at INTEGER,
+    ended_at  INTEGER,
+    winners   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS giveaway_entries (
+    seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+    giveaway_id INTEGER NOT NULL,
+    user_id     TEXT NOT NULL,
+    login       TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    tickets     INTEGER NOT NULL,
+    at          INTEGER NOT NULL,
+    UNIQUE (giveaway_id, user_id)
+);
 CREATE INDEX IF NOT EXISTS events_kind ON events(kind, seq);
 CREATE INDEX IF NOT EXISTS events_received ON events(received_at);
 ";
@@ -591,6 +616,25 @@ impl DurableObject for ChannelDo {
                     Err((status, message)) => Response::error(message, status),
                 }
             }
+            (Method::Get, ["giveaways"]) => Response::from_json(&self.giveaways_view()?),
+            (Method::Post, ["giveaways"]) => {
+                let Ok(body) = req.json::<sylva_core::giveaway::GiveawaySettings>().await else {
+                    return Response::error("That giveaway could not be read", 400);
+                };
+                match self.start_giveaway(body).await? {
+                    Ok(()) => Response::from_json(&self.giveaways_view()?),
+                    Err((status, message)) => Response::error(message, status),
+                }
+            }
+            (Method::Post, ["giveaways", id, action]) => {
+                let Ok(id) = id.parse::<i64>() else {
+                    return Response::error("That giveaway is over", 409);
+                };
+                match self.giveaway_action(id, action).await? {
+                    Ok(()) => Response::from_json(&self.giveaways_view()?),
+                    Err((status, message)) => Response::error(message, status),
+                }
+            }
             (Method::Get, ["loyalty", "viewers"]) => {
                 let num =
                     |k: &str, d: i64| q.get(k).and_then(|v| v.parse::<i64>().ok()).unwrap_or(d);
@@ -685,6 +729,8 @@ impl DurableObject for ChannelDo {
                     "points_ledger",
                     "points_active",
                     "redemptions",
+                    "giveaways",
+                    "giveaway_entries",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }

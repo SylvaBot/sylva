@@ -9,6 +9,7 @@ pub mod auth;
 pub mod bot;
 pub mod community;
 pub mod event;
+pub mod giveaway;
 pub mod loyalty;
 pub mod moderation;
 pub mod protocol;

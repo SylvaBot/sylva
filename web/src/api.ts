@@ -156,6 +156,17 @@ export interface PublicStore {
   top: PublicViewer[]; viewer?: PublicViewer;
 }
 
+export interface GiveawaySettings { prize: string; keyword: string; level: UserLevel; cost: number; subLuck: number }
+export interface Giveaway {
+  id: number; settings: GiveawaySettings; status: 'open' | 'closed' | 'ended' | 'cancelled'; seedHash: string; seed?: string;
+  openedAt: number; closedAt?: number; endedAt?: number;
+  winners: { userId: string; name: string; round: number; at: number }[]; entries: number; tickets: number;
+}
+export interface GiveawaysView {
+  current?: Giveaway; entries: { userId: string; name: string; tickets: number; at: number }[]; past: Giveaway[];
+  pointsOn: boolean; pointsName: string; botOn: boolean;
+}
+
 export interface AppToken { id: string; name: string; createdAt: number; lastUsedAt?: number | null }
 
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
@@ -256,6 +267,10 @@ export const api = {
     request<Redemption>('POST', `${ch(key)}/loyalty/redemptions/${id}/${action}`),
   publicStore: (login: string, viewer?: string) =>
     request<PublicStore>('GET', `/v1/public/${encodeURIComponent(login)}${viewer ? `?viewer=${encodeURIComponent(viewer)}` : ''}`),
+  giveaways: (key: string) => request<GiveawaysView>('GET', `${ch(key)}/giveaways`),
+  startGiveaway: (key: string, s: GiveawaySettings) => request<GiveawaysView>('POST', `${ch(key)}/giveaways`, s),
+  giveawayAction: (key: string, id: number, action: 'close' | 'draw' | 'end' | 'cancel') =>
+    request<GiveawaysView>('POST', `${ch(key)}/giveaways/${id}/${action}`),
   scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),
   saveScene: (key: string, scene: Scene) => request<SceneState>('POST', `${ch(key)}/scene`, scene),
   publishScene: (key: string) => request<SceneState>('POST', `${ch(key)}/scene/publish`),

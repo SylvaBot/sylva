@@ -36,6 +36,7 @@ mod bot;
 mod channel;
 mod community;
 mod delete;
+mod giveaway;
 mod grants;
 mod loyalty;
 mod moderation;
@@ -187,6 +188,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["bot", ..])
                 | (Method::Get, ["moderation", ..])
                 | (Method::Post, ["moderation", ..])
+                | (Method::Get, ["giveaways"])
+                | (Method::Post, ["giveaways", ..])
                 | (Method::Get, ["loyalty", ..])
                 | (Method::Post, ["loyalty", ..])
                 | (Method::Get, ["scene"])

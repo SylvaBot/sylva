@@ -35,6 +35,22 @@ await check('webhook verification answers the challenge as plain text', async ()
   assert.match(res.headers.get('content-type'), /text\/plain/);
 });
 
+await check('the website sends its security headers and versioned files', async () => {
+  const res = await fetch(`${BASE}/app`);
+  assert.equal(res.status, 200);
+  const csp = res.headers.get('content-security-policy') || '';
+  assert.match(csp, /script-src 'self' 'sha256-[A-Za-z0-9+/]+=*'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.equal(res.headers.get('x-frame-options'), 'DENY');
+  const html = await res.text();
+  const js = html.match(/\/assets\/app\.js\?v=[0-9a-f]{12}/)?.[0];
+  assert.ok(js, 'index.html links a versioned app.js');
+  const asset = await fetch(BASE + js);
+  assert.equal(asset.status, 200);
+  assert.match(asset.headers.get('cache-control'), /immutable/);
+  assert.equal((await fetch(`${BASE}/assets/app.js`)).headers.get('cache-control'), 'public, max-age=60');
+});
+
 await check('a bad signature is rejected with 403', async () => {
   const res = await sendEventSub({ ...follow(id, 0), secret: 'wrong-secret' });
   assert.equal(res.status, 403);

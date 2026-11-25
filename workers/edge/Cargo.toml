@@ -15,6 +15,9 @@ serde.workspace = true
 serde_json.workspace = true
 sylva-core.workspace = true
 
+[build-dependencies]
+sha2 = "0.10"
+
 [package.metadata.wasm-pack.profile.release]
 # Drop function names from the release module to keep it small. Use ["-Oz", "-g"]
 # while profiling to keep names in stack traces.

@@ -1,7 +1,7 @@
 // The dashboard frame: a sidebar with the pages, the channel and the live
 // connection, and on phones a top bar that opens the sidebar as a drawer.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useChannel } from './channel';
 import { OverlayPage } from './overlay';
 import { ActivityPage, AlertsPage, ChatPage, NotFoundPage, OverviewPage, SettingsPage } from './pages';
@@ -20,6 +20,9 @@ const SETTINGS = { path: '/app/settings', label: 'Settings', icon: 'settings', v
 export function Shell({ path }: { path: string }) {
   const ch = useChannel();
   const [open, setOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
+  const wasOpen = useRef(false);
   const clean = path.replace(/\/+$/, '') || '/app';
   const page = [...PAGES, SETTINGS].find((p) => p.path === clean);
   const View = page?.view ?? NotFoundPage;
@@ -29,11 +32,23 @@ export function Shell({ path }: { path: string }) {
     setOpen(false);
   }, [page]);
 
+  // The phone drawer: focus moves into it when it opens and back to the menu
+  // button when it closes; the page behind it is inert meanwhile.
   useEffect(() => {
+    if (open) sidebar.current?.querySelector<HTMLElement>('nav a')?.focus();
+    else if (wasOpen.current) menuButton.current?.focus();
+    wasOpen.current = open;
     if (!open) return;
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    // Wider than a phone there is no drawer, so nothing may stay inert.
+    const wide = matchMedia('(min-width: 861px)');
+    const resized = () => wide.matches && setOpen(false);
     addEventListener('keydown', esc);
-    return () => removeEventListener('keydown', esc);
+    wide.addEventListener('change', resized);
+    return () => {
+      removeEventListener('keydown', esc);
+      wide.removeEventListener('change', resized);
+    };
   }, [open]);
 
   const queued = ch.alerts?.queued ?? 0;
@@ -45,8 +60,8 @@ export function Shell({ path }: { path: string }) {
 
   return (
     <div className={'shell' + (open ? ' open' : '')}>
-      <header className="topbar">
-        <button className="icon-btn" type="button" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}>
+      <header className="topbar" inert={open}>
+        <button ref={menuButton} className="icon-btn" type="button" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}>
           <Icon id="menu" />
         </button>
         <Link className="brand" href="/app"><img src="/logo.svg" alt="" width="24" height="24" /><span>Sylva</span></Link>
@@ -54,7 +69,7 @@ export function Shell({ path }: { path: string }) {
       </header>
       <div className="drawer-scrim" onClick={() => setOpen(false)} />
 
-      <aside className="sidebar" aria-label="Dashboard">
+      <aside ref={sidebar} className="sidebar" aria-label="Dashboard">
         <Link className="brand" href="/app"><img src="/logo.svg" alt="" width="26" height="26" /><span>Sylva</span></Link>
         <nav className="nav" aria-label="Pages">
           {PAGES.map((p) => (
@@ -78,7 +93,7 @@ export function Shell({ path }: { path: string }) {
         </div>
       </aside>
 
-      <main className="main" id="content">
+      <main className="main" id="content" inert={open}>
         {!ch.connected && <div className="notice reconnect" role="status">Reconnecting to live events. Nothing is lost while this shows.</div>}
         <View />
       </main>

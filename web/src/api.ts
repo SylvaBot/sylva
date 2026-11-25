@@ -67,6 +67,8 @@ export type GoalKind = 'follows' | 'subs' | 'bits';
 export interface Goal { title: string; kind: GoalKind; target: number; since: number }
 export interface WidgetSettings { goal?: Goal | null }
 
+export interface AppToken { id: string; name: string; createdAt: number; lastUsedAt?: number | null }
+
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
 export interface FeatureStatus { feature: Feature; on: boolean; problems: string[] }
 
@@ -120,6 +122,12 @@ export const api = {
   saveAlertSettings: (key: string, s: AlertSettings) => request<AlertSettings>('POST', `${ch(key)}/alert-settings`, s),
   widgetSettings: (key: string) => request<WidgetSettings>('GET', `${ch(key)}/widget-settings`),
   saveWidgetSettings: (key: string, s: WidgetSettings) => request<WidgetSettings>('POST', `${ch(key)}/widget-settings`, s),
+  deviceLookup: (code: string) =>
+    request<{ userCode: string; appName: string }>('GET', `/v1/device?code=${encodeURIComponent(code)}`),
+  deviceDecide: (userCode: string, approve: boolean) =>
+    request<{ approved: boolean }>('POST', '/v1/device', { userCode, approve }),
+  apps: () => request<AppToken[]>('GET', '/v1/apps'),
+  revokeApp: (id: string) => request<unknown>('POST', `/v1/apps/${encodeURIComponent(id)}/revoke`),
   overlay: (key: string) => request<{ url: string }>('GET', `${ch(key)}/overlay`),
   rotateOverlay: (key: string) => request<{ url: string }>('POST', `${ch(key)}/overlay/rotate`),
   twitch: (key: string) => request<{ features: FeatureStatus[] }>('GET', `${ch(key)}/twitch`),

@@ -1,7 +1,7 @@
 // The dashboard's pages. Each reads the live channel from useChannel().
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, ApiError, type AlertState, type FeatureStatus, type Kind, type SylvaEvent } from './api';
+import { api, ApiError, type AlertState, type AppToken, type FeatureStatus, type Kind, type SylvaEvent } from './api';
 import { AlertTypes } from './alertTypes';
 import { PAGE, useChannel } from './channel';
 import { FeedList, Filters, lastDay, matchesShown, MixBar, useShown, useTick } from './feed';
@@ -528,6 +528,60 @@ function TwitchEvents() {
   );
 }
 
+function ConnectedApps() {
+  const toast = useToast();
+  const [apps, setApps] = useState<AppToken[] | null>(null);
+  const [armed, setArmed] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.apps().then(setApps).catch(() => setApps([]));
+  }, []);
+
+  const revoke = async (a: AppToken) => {
+    if (armed !== a.id) {
+      setArmed(a.id);
+      return;
+    }
+    setArmed(null);
+    try {
+      await api.revokeApp(a.id);
+      setApps((list) => (list || []).filter((x) => x.id !== a.id));
+      toast(`${a.name} can no longer use your Sylva`);
+    } catch (x) {
+      toast(errorText(x), true);
+    }
+  };
+
+  return (
+    <Card id="apps" title="Connected apps" desc="Apps such as Cortex that you allowed to use your Sylva.">
+      {apps === null && <div className="card-body"><p className="card-text">Loading</p></div>}
+      {apps && apps.length === 0 && (
+        <div className="card-body">
+          <p className="card-text">No apps yet. To connect one, sign in to Sylva from the app and enter its code at <Link href="/device">{location.host}/device</Link>.</p>
+        </div>
+      )}
+      {apps && apps.length > 0 && (
+        <ul className="apps-list">
+          {apps.map((a) => (
+            <li key={a.id}>
+              <div>
+                <b>{a.name}</b>
+                <span>
+                  Connected {new Date(a.createdAt).toLocaleDateString()}
+                  {a.lastUsedAt ? `, last used ${ago(new Date(a.lastUsedAt).toISOString())}` : ', not used yet'}
+                </span>
+              </div>
+              <button className={'btn sm' + (armed === a.id ? ' armed' : ' danger')} type="button" onClick={() => revoke(a)} onBlur={() => setArmed(null)}>
+                {armed === a.id ? 'Click again to remove' : 'Remove'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const ch = useChannel();
   const [theme, set] = useState<Theme>(getTheme);
@@ -577,6 +631,7 @@ export function SettingsPage() {
             </div>
           </div>
         </Card>
+        <ConnectedApps />
         <TwitchEvents />
       </div>
     </div>

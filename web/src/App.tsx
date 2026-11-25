@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, type Me } from './api';
 import { ChannelProvider } from './channel';
+import { DevicePage } from './device';
 import { Landing } from './Landing';
 import { navigate, usePath } from './router';
 import { Shell } from './Shell';
@@ -42,9 +43,10 @@ export function App() {
   }, [inApp, me]);
 
   useEffect(() => {
-    if (!inApp) document.title = 'Sylva: alerts, overlays and activity for Twitch';
-  }, [inApp]);
+    if (!inApp && path !== '/device') document.title = 'Sylva: alerts, overlays and activity for Twitch';
+  }, [inApp, path]);
 
+  if (path === '/device') return <DevicePage me={me} />;
   if (inApp) {
     if (!me) return <div className="loading" role="status">Loading your channel</div>;
     return (

@@ -2,7 +2,7 @@
 
 A friendly web toolkit for streamers: alerts, overlays, an activity feed, and later a chatbot and loyalty points. Twitch first, with room for YouTube, Kick, TikTok, Rumble and Facebook. Cortex (the desktop app in `haruxee/pine`) will connect to Sylva instead of StreamElements.
 
-This repository is in **Phase 1**. Streamers sign in with Twitch, and Sylva picks up their follows, subs, cheers, raids and chat, plays alerts on an overlay for OBS, and shows everything on its website: a landing page at `/` and a dashboard at `/app`. Read [docs/phase-1.md](docs/phase-1.md) and [docs/site.md](docs/site.md) for what is built and what comes next, and [docs/phase-0-findings.md](docs/phase-0-findings.md) for the tests behind the architecture.
+This repository is in **Phase 1**. Streamers sign in with Twitch, and Sylva picks up their follows, subs, cheers, raids and chat, plays alerts on an overlay for OBS, and shows everything on its website: a landing page at `/` and a dashboard at `/app`. Read [docs/phase-1.md](docs/phase-1.md), [docs/site.md](docs/site.md) and, for Cortex, [docs/api.md](docs/api.md) for what is built and what comes next, and [docs/phase-0-findings.md](docs/phase-0-findings.md) for the tests behind the architecture.
 
 ## Layout
 

@@ -10,6 +10,12 @@
 //!
 //! Problems send the browser back to `/?signin=<reason>`, where the sign in
 //! page says what happened in plain words.
+//!
+//! `start?next=/device?code=...` returns to that page after signing in, for
+//! approving an app. Only Sylva's own `/app` and `/device` pages are allowed.
+//!
+//! Apps such as Cortex authenticate with an API token instead of the cookie
+//! (`Authorization: Bearer sylva_...`, see `sylva_core::apps`).
 
 use serde_json::json;
 use sylva_core::auth::{
@@ -28,6 +34,22 @@ use crate::util::{random_bytes, random_hex};
 pub struct Session {
     pub token: SessionToken,
     pub me: Me,
+    /// True when the request used an API token rather than the browser cookie.
+    pub via_token: bool,
+}
+
+const NEXT_COOKIE: &str = "sylva_next";
+
+/// Where a sign in may return to: Sylva's own dashboard or device page.
+fn safe_next(next: &str) -> Option<&str> {
+    let ok_path = next == "/app"
+        || next.starts_with("/app/")
+        || next == "/device"
+        || next.starts_with("/device?");
+    let ok_chars = next
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b"/?=&-_".contains(&b));
+    (ok_path && ok_chars).then_some(next)
 }
 
 fn is_https(req: &Request) -> bool {
@@ -97,7 +119,49 @@ pub async fn session(req: &Request, env: &Env) -> Result<Option<Session>> {
         return Ok(None);
     }
     let me: Me = res.json().await?;
-    Ok(Some(Session { token, me }))
+    Ok(Some(Session {
+        token,
+        me,
+        via_token: false,
+    }))
+}
+
+/// The account behind this request: an app's API token, or else the cookie.
+pub async fn caller(req: &Request, env: &Env) -> Result<Option<Session>> {
+    let header = req.headers().get("Authorization")?.unwrap_or_default();
+    let Some(token) = sylva_core::apps::parse_api_token(&header) else {
+        return session(req, env).await;
+    };
+    let mut res = call(
+        &account_stub(env, &token.account_id)?,
+        "/tokens/check",
+        &SessionRequest {
+            hash: hash_secret(&token.secret),
+            expires_at: 0,
+        },
+    )
+    .await?;
+    if res.status_code() != 200 {
+        return Ok(None);
+    }
+    let me: Me = res.json().await?;
+    Ok(Some(Session {
+        token,
+        me,
+        via_token: true,
+    }))
+}
+
+pub(crate) fn account(env: &Env, account_id: &str) -> Result<Stub> {
+    account_stub(env, account_id)
+}
+
+pub(crate) async fn post<T: serde::Serialize>(
+    stub: &Stub,
+    path: &str,
+    body: &T,
+) -> Result<Response> {
+    call(stub, path, body).await
 }
 
 pub async fn start(req: &Request, env: &Env) -> Result<Response> {
@@ -108,25 +172,40 @@ pub async fn start(req: &Request, env: &Env) -> Result<Response> {
         &format!("{}/auth/twitch/callback", origin(req)?),
         &state,
     );
-    redirect(
-        &url,
-        &[set_cookie(
-            STATE_COOKIE,
-            &state,
+    let next = req
+        .url()?
+        .query_pairs()
+        .find(|(k, _)| k == "next")
+        .map(|(_, v)| v.into_owned())
+        .unwrap_or_default();
+    let mut cookies = vec![set_cookie(
+        STATE_COOKIE,
+        &state,
+        "/auth",
+        600,
+        is_https(req),
+    )];
+    // Cookie values cannot hold every character, so the path goes in as hex.
+    if let Some(next) = safe_next(&next) {
+        cookies.push(set_cookie(
+            NEXT_COOKIE,
+            &sylva_core::hex::encode(next),
             "/auth",
             600,
             is_https(req),
-        )],
-    )
+        ));
+    }
+    redirect(&url, &cookies)
 }
 
 pub async fn callback(req: &Request, env: &Env) -> Result<Response> {
     let secure = is_https(req);
     let clear_state = set_cookie(STATE_COOKIE, "", "/auth", 0, secure);
+    let clear_next = set_cookie(NEXT_COOKIE, "", "/auth", 0, secure);
     let fail = |reason: &str| {
         redirect(
             &format!("/?signin={reason}"),
-            std::slice::from_ref(&clear_state),
+            &[clear_state.clone(), clear_next.clone()],
         )
     };
 
@@ -137,6 +216,11 @@ pub async fn callback(req: &Request, env: &Env) -> Result<Response> {
         return fail("denied");
     }
     let header = req.headers().get("Cookie")?.unwrap_or_default();
+    let next = cookie(&header, NEXT_COOKIE)
+        .and_then(|h| sylva_core::hex::decode(h).ok())
+        .and_then(|b| String::from_utf8(b).ok())
+        .filter(|n| safe_next(n).is_some())
+        .unwrap_or_else(|| "/app".into());
     let expected = cookie(&header, STATE_COOKIE).unwrap_or_default();
     let got = q.get("state").map(String::as_str).unwrap_or_default();
     if expected.is_empty() || !crate::constant_time_eq(expected.as_bytes(), got.as_bytes()) {
@@ -150,9 +234,10 @@ pub async fn callback(req: &Request, env: &Env) -> Result<Response> {
         Ok(SignIn::Done(token)) => {
             let max_age = SESSION_DAYS * 86_400;
             redirect(
-                "/app",
+                &next,
                 &[
                     clear_state,
+                    clear_next,
                     set_cookie(
                         SESSION_COOKIE,
                         &token.to_cookie_value(),

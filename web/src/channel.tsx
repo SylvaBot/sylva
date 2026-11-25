@@ -1,9 +1,12 @@
-// The signed in channel, shared by every dashboard page: one live socket, the
+// The open channel, shared by every dashboard page: one live socket, the
 // recent activity and chat it fills, the 24 hour numbers, and the alert
 // queue's state. Pages read it with useChannel().
+//
+// An account can open its own channel and any it helps run. The choice is
+// remembered in this browser, and switching remounts everything below.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type AlertState, type Identity, type Me, type Summary, type SylvaEvent } from './api';
+import { api, type AlertState, type ChannelRef, type Identity, type Me, type Role, type Summary, type SylvaEvent } from './api';
 import { connect } from './realtime';
 import { errorText, useToast } from './ui';
 
@@ -11,11 +14,39 @@ export const PAGE = 100;
 const CHAT_MAX = 300;
 const DAY = 86_400_000;
 
+/** What the signed in person may do on the open channel. The server checks
+ * the same rules (sylva_core::team::allows); this only hides what would fail. */
+export interface Can {
+  /** Change settings: alerts, overlays, the bot, rules, rewards. */
+  edit: boolean;
+  /** Run the live parts: the alert queue, points, the store queue, giveaways. */
+  moderate: boolean;
+  /** Manage the team and the overlay link. */
+  own: boolean;
+}
+
+export function permissions(role: Role): Can {
+  return { own: role === 'owner', edit: role === 'owner' || role === 'editor', moderate: role !== 'viewer' };
+}
+
+export const ROLE_NAMES: Record<Role, string> = { owner: 'Owner', editor: 'Editor', moderator: 'Moderator', viewer: 'Viewer' };
+
 export interface Channel {
   key: string;
   me: Me;
+  /** The signed in person's own Twitch identity. */
   twitch?: Identity;
+  /** The signed in person's own name. */
+  you: string;
+  /** The open channel's name, Twitch login and picture. */
   name: string;
+  login: string;
+  avatar: string;
+  role: Role;
+  can: Can;
+  /** Every channel this account can open. */
+  channels: ChannelRef[];
+  switchTo(key: string): void;
   events: SylvaEvent[];
   chat: SylvaEvent[];
   summary: Summary | null;
@@ -40,10 +71,35 @@ export function useChannel(): Channel {
   return c;
 }
 
+const CHOICE = 'sylva.channel';
+
+function remembered(me: Me): ChannelRef {
+  let key: string | null = null;
+  try { key = localStorage.getItem(CHOICE); } catch { /* private mode */ }
+  return me.channels.find((c) => c.key === key) ?? me.channels[0];
+}
+
 export function ChannelProvider({ me, onSignedOut, children }: { me: Me; onSignedOut(): void; children: ReactNode }) {
-  const key = me.channels[0].key;
+  const [current, setCurrent] = useState(() => remembered(me).key);
+  const open = me.channels.find((c) => c.key === current) ?? me.channels[0];
+  const switchTo = useCallback((key: string) => {
+    try { localStorage.setItem(CHOICE, key); } catch { /* private mode */ }
+    setCurrent(key);
+  }, []);
+  return <OpenChannel key={open.key} me={me} open={open} switchTo={switchTo} onSignedOut={onSignedOut}>{children}</OpenChannel>;
+}
+
+function OpenChannel({ me, open, switchTo, onSignedOut, children }: {
+  me: Me; open: ChannelRef; switchTo(key: string): void; onSignedOut(): void; children: ReactNode;
+}) {
+  const key = open.key;
   const twitch = me.identities.find((i) => i.platform === 'twitch');
-  const name = twitch?.displayName || twitch?.login || 'Streamer';
+  const you = twitch?.displayName || twitch?.login || 'Streamer';
+  const name = open.name || open.login || you;
+  const login = open.login || twitch?.login || '';
+  const avatar = open.avatar;
+  const role = open.role;
+  const can = useMemo(() => permissions(role), [role]);
   const toast = useToast();
 
   const [events, setEvents] = useState<SylvaEvent[]>([]);
@@ -145,9 +201,10 @@ export function ChannelProvider({ me, onSignedOut, children }: { me: Me; onSigne
   }, [onSignedOut]);
 
   const value = useMemo<Channel>(() => ({
-    key, me, twitch, name, events, chat, summary, alerts, setAlerts, connected, loaded,
+    key, me, twitch, you, name, login, avatar, role, can, channels: me.channels, switchTo,
+    events, chat, summary, alerts, setAlerts, connected, loaded,
     freshFrom, hasMore, loadingMore, loadMore, replay, signOut,
-  }), [key, me, twitch, name, events, chat, summary, alerts, connected, loaded, freshFrom, hasMore, loadingMore, loadMore, replay, signOut]);
+  }), [key, me, twitch, you, name, login, avatar, role, can, switchTo, events, chat, summary, alerts, connected, loaded, freshFrom, hasMore, loadingMore, loadMore, replay, signOut]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, type BotCounter, type BotSettings, type BotView, type Quote, type UserLevel } from './api';
 import { useChannel } from './channel';
 import { Card } from './pages';
-import { errorText, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, useToast } from './ui';
 
 type Save = (next: BotSettings, done?: string, undo?: BotSettings) => Promise<boolean>;
 
@@ -41,7 +41,7 @@ export function Counters({ view, onSave, onView }: { view: BotView; onSave: Save
       title="Counters"
       desc={<>Numbers your chat can see, such as deaths or wins. Anyone can type <code>!deaths</code>; moderators change it with <code>!deaths +</code>, <code>!deaths -</code> or <code>!deaths = 10</code>.</>}
       action={
-        <button className="btn sm" type="button" onClick={() => setAdding(true)} disabled={adding || settings.counters.length >= 30}>
+        <button className="btn sm" type="button" onClick={() => setAdding(true)} disabled={!ch.can.edit || adding || settings.counters.length >= 30}>
           <Icon id="plus" />New counter
         </button>
       }
@@ -77,16 +77,19 @@ export function Counters({ view, onSave, onView }: { view: BotView; onSave: Save
                 <b className="cmd-name">!{c.name}</b>
                 <span className="cmd-reply">{c.label}: {num(c.value)}</span>
               </div>
-              <div className="stepper" role="group" aria-label={`${c.label} value`}>
-                <button className="btn sm" type="button" aria-label={`One less ${c.label}`} onClick={() => void change(c, c.value - 1)}>−</button>
-                <CounterValue counter={c} onSet={(v) => void change(c, v)} />
-                <button className="btn sm" type="button" aria-label={`One more ${c.label}`} onClick={() => void change(c, c.value + 1)}><Icon id="plus" /></button>
-              </div>
+              <Gate on={ch.can.moderate}>
+                <div className="stepper" role="group" aria-label={`${c.label} value`}>
+                  <button className="btn sm" type="button" aria-label={`One less ${c.label}`} onClick={() => void change(c, c.value - 1)}>−</button>
+                  <CounterValue counter={c} onSet={(v) => void change(c, v)} />
+                  <button className="btn sm" type="button" aria-label={`One more ${c.label}`} onClick={() => void change(c, c.value + 1)}><Icon id="plus" /></button>
+                </div>
+              </Gate>
               <button
                 className="btn sm ghost"
                 type="button"
                 aria-label={`Delete !${c.name}`}
                 title="Delete"
+                disabled={!ch.can.edit}
                 onClick={() => void onSave({ ...settings, counters: settings.counters.filter((_, j) => j !== i) }, `!${c.name} deleted`, settings)}
               >
                 <Icon id="trash" />
@@ -97,6 +100,7 @@ export function Counters({ view, onSave, onView }: { view: BotView; onSave: Save
                 role="switch"
                 aria-checked={c.enabled}
                 aria-label={`!${c.name}`}
+                disabled={!ch.can.edit}
                 onClick={() => void onSave(
                   { ...settings, counters: settings.counters.map((x, j) => (j === i ? { ...x, enabled: !x.enabled } : x)) },
                   `!${c.name} ${c.enabled ? 'off' : 'on'}`,
@@ -191,7 +195,7 @@ export function Quotes({ view, onSave }: { view: BotView; onSave: Save }) {
       title="Quotes"
       desc={<>Viewers type <code>!quote</code> for a random one, <code>!quote 12</code> for that one, or <code>!quote word</code> to search. <code>!addquote</code> and <code>!delquote 12</code> add and remove them from chat.</>}
       action={
-        <button className="btn sm" type="button" onClick={() => setEditing('new')} disabled={editing === 'new'}>
+        <button className="btn sm" type="button" onClick={() => setEditing('new')} disabled={!ch.can.moderate || editing === 'new'}>
           <Icon id="plus" />New quote
         </button>
       }
@@ -199,12 +203,12 @@ export function Quotes({ view, onSave }: { view: BotView; onSave: Save }) {
       <div className="card-body quote-settings">
         <div className="field inline">
           <span>Quotes in chat</span>
-          <button className="switch" type="button" role="switch" aria-checked={qs.enabled} aria-label="Quotes in chat"
+          <button className="switch" type="button" role="switch" aria-checked={qs.enabled} aria-label="Quotes in chat" disabled={!ch.can.edit}
             onClick={() => void onSave({ ...view.settings, quotes: { ...qs, enabled: !qs.enabled } }, qs.enabled ? 'Quotes are off in chat' : 'Quotes are on in chat')} />
         </div>
         <label className="field" htmlFor="quote-level">
           Who can add and remove from chat
-          <select id="quote-level" className="select" value={qs.addLevel} disabled={!qs.enabled}
+          <select id="quote-level" className="select" value={qs.addLevel} disabled={!qs.enabled || !ch.can.edit}
             onChange={(e) => void onSave({ ...view.settings, quotes: { ...qs, addLevel: e.target.value as UserLevel } }, 'Saved')}>
             {ADD_LEVELS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
           </select>
@@ -244,10 +248,14 @@ export function Quotes({ view, onSave }: { view: BotView; onSave: Save }) {
                 <span className="quote-text">&ldquo;{q.text}&rdquo;</span>
                 <span className="cmd-meta">{[q.by || ch.name, q.game, day(q.at)].filter(Boolean).join(' · ')}</span>
               </div>
-              <button className="btn sm ghost" type="button" aria-expanded={editing === q.id} onClick={() => setEditing(editing === q.id ? null : q.id)}>
-                {editing === q.id ? 'Close' : 'Edit'}
-              </button>
-              <button className="btn sm ghost" type="button" aria-label={`Remove quote #${q.id}`} title="Remove" onClick={() => void remove(q)}><Icon id="trash" /></button>
+              {ch.can.moderate && (
+                <>
+                  <button className="btn sm ghost" type="button" aria-expanded={editing === q.id} onClick={() => setEditing(editing === q.id ? null : q.id)}>
+                    {editing === q.id ? 'Close' : 'Edit'}
+                  </button>
+                  <button className="btn sm ghost" type="button" aria-label={`Remove quote #${q.id}`} title="Remove" onClick={() => void remove(q)}><Icon id="trash" /></button>
+                </>
+              )}
             </div>
             {editing === q.id && (
               <QuoteEditor

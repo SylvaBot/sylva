@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BotPage } from './bot';
-import { useChannel } from './channel';
+import { ROLE_NAMES, useChannel } from './channel';
 import { GiveawaysPage } from './giveaways';
 import { LoyaltyPage } from './loyalty';
 import { StorePage } from './store';
@@ -93,11 +93,23 @@ export function Shell({ path }: { path: string }) {
         </nav>
         <div className="sidebar-foot">
           {conn}
-          <Link className="me-card" href="/app/settings" title="Account settings">
-            <Avatar name={ch.name} url={ch.twitch?.avatar} />
+          {ch.channels.length > 1 && (
+            <label className="channel-pick">
+              <span className="sr-only">Channel</span>
+              <select className="select" value={ch.key} onChange={(e) => ch.switchTo(e.target.value)}>
+                {ch.channels.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {(c.name || c.login || 'Your channel') + (c.role === 'owner' ? '' : ` (${ROLE_NAMES[c.role]})`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <Link className="me-card" href="/app/settings" title="Settings">
+            <Avatar name={ch.name} url={ch.avatar} />
             <div>
               <b>{ch.name}</b>
-              <span>twitch.tv/{ch.twitch?.login}</span>
+              <span>{ch.role === 'owner' ? `twitch.tv/${ch.login}` : `${ROLE_NAMES[ch.role]} · twitch.tv/${ch.login}`}</span>
             </div>
           </Link>
         </div>
@@ -105,6 +117,13 @@ export function Shell({ path }: { path: string }) {
 
       <main className="main" id="content" inert={open}>
         {!ch.connected && <div className="notice reconnect" role="status">Reconnecting to live events. Nothing is lost while this shows.</div>}
+        {!ch.can.edit && (
+          <div className="notice role-note">
+            {ch.can.moderate
+              ? <>You are a moderator for {ch.name}. Settings are read only here; the alert queue, points, the store queue, giveaways, quotes and counters work as usual.</>
+              : <>You can see everything on {ch.name}&apos;s channel, but only the owner and editors can change it.</>}
+          </div>
+        )}
         <View />
       </main>
     </div>

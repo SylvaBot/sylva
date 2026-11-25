@@ -6,8 +6,9 @@ import { AlertTypes } from './alertTypes';
 import { PAGE, useChannel } from './channel';
 import { FeedList, Filters, lastDay, matchesShown, MixBar, useShown, useTick } from './feed';
 import { Link } from './router';
+import { TeamCard } from './team';
 import { getTheme, setTheme, type Theme } from './theme';
-import { ago, Avatar, errorText, Icon, num, useToast } from './ui';
+import { ago, Avatar, errorText, Gate, Icon, num, useToast } from './ui';
 
 export function PageHead({ title, desc, children }: { title: string; desc?: ReactNode; children?: ReactNode }) {
   return (
@@ -56,11 +57,11 @@ export function OverviewPage() {
   const c = ch.summary?.counts || {};
   const s = ch.summary;
   const { counts, total } = lastDay(ch.events);
-  const first = ch.name.split(/\s+/)[0];
+  const first = ch.you.split(/\s+/)[0];
 
   return (
     <div className="page">
-      <PageHead title={`Welcome back, ${first}`} desc="Here is your channel over the last 24 hours." />
+      <PageHead title={`Welcome back, ${first}`} desc={ch.role === 'owner' ? 'Here is your channel over the last 24 hours.' : `Here is ${ch.name}'s channel over the last 24 hours.`} />
       <div className="stats" role="group" aria-label="Last 24 hours">
         <Stat c="c-follow" label="New followers" value={s ? c.follow || 0 : null} />
         <Stat c="c-sub" label="Subs" value={s ? (c.subscriber || 0) + (c.giftedSub || 0) : null} />
@@ -79,7 +80,7 @@ export function OverviewPage() {
           <FeedList
             events={ch.events.slice(0, 8)}
             freshFrom={ch.freshFrom}
-            onReplay={ch.replay}
+            onReplay={ch.can.moderate ? ch.replay : undefined}
             empty={ch.loaded ? 'No activity yet. Follows, subs, cheers and raids appear here the moment they happen.' : 'Loading activity'}
           />
         </Card>
@@ -116,7 +117,7 @@ function GetStarted() {
   const [hidden, setHidden] = useState(() => read('sylva.setupHidden'));
   const overlayDone = (ch.alerts?.overlaysConnected ?? 0) > 0 || read('sylva.overlayCopied');
   const testDone = ch.events.some((e) => e.platform === 'sylva');
-  if (hidden || !ch.loaded || (overlayDone && testDone)) return null;
+  if (!ch.can.edit || hidden || !ch.loaded || (overlayDone && testDone)) return null;
   return (
     <section className="card setup" aria-labelledby="setup-title">
       <div className="setup-head">
@@ -186,7 +187,7 @@ function AlertControls({ wide }: { wide?: boolean }) {
   };
 
   return (
-    <>
+    <Gate on={ch.can.moderate}>
       <p className="state-line" aria-live="polite">{stateNote(s)}</p>
       <div className={'qa-grid' + (wide ? ' four' : '')}>
         <button
@@ -217,7 +218,7 @@ function AlertControls({ wide }: { wide?: boolean }) {
         </button>
         <TestButton />
       </div>
-    </>
+    </Gate>
   );
 }
 
@@ -241,7 +242,7 @@ function TestButton() {
     <button
       className="qa-btn"
       type="button"
-      disabled={busy}
+      disabled={busy || !ch.can.edit}
       onClick={async () => {
         setBusy(true);
         try {
@@ -274,7 +275,7 @@ export function AlertsPage() {
         </Card>
         <AlertTypes />
         <Card id="tests" title="Send a test alert" desc="Test alerts play like real ones and are marked Test in your activity.">
-          <div className="card-body">
+          <Gate on={ch.can.edit} className="card-body">
             <div className="try-grid">
               {TESTS.map((t) => (
                 <button
@@ -300,13 +301,13 @@ export function AlertsPage() {
                 </button>
               ))}
             </div>
-          </div>
+          </Gate>
         </Card>
         <Card id="replay" title="Replay a recent alert" desc="Replays go to the front of the queue.">
           <FeedList
             events={recent}
             freshFrom={ch.freshFrom}
-            onReplay={ch.replay}
+            onReplay={ch.can.moderate ? ch.replay : undefined}
             empty="Alerts you can replay show up here."
           />
         </Card>
@@ -398,7 +399,7 @@ export function ActivityPage() {
           </label>
           <Filters shown={shown} toggle={toggle} counts={counts} total={total} />
         </div>
-        <FeedList events={visible} freshFrom={ch.freshFrom} onReplay={ch.replay} empty={empty} />
+        <FeedList events={visible} freshFrom={ch.freshFrom} onReplay={ch.can.moderate ? ch.replay : undefined} empty={empty} />
         {hasMore && visible.length > 0 && (
           <div className="feed-more">
             <button className="btn" type="button" disabled={busy} onClick={results ? searchMore : ch.loadMore}>
@@ -450,7 +451,7 @@ export function ChatPage() {
   return (
     <div className="page">
       <PageHead title="Chat" desc="Your Twitch chat, live. Scroll up to pause, scroll down to follow again." />
-      <Card id="chat" title={`twitch.tv/${ch.twitch?.login ?? ''}`} desc="Read only">
+      <Card id="chat" title={`twitch.tv/${ch.login}`} desc="Read only">
         <ChatList lines={ch.chat} freshFrom={ch.freshFrom} size="tall" />
       </Card>
     </div>
@@ -511,14 +512,19 @@ function TwitchEvents() {
             ))}
           </div>
         )}
-        {(off.length > 0 || failed) && (
+        {(off.length > 0 || failed) && !ch.can.edit && (
+          <p className="card-text">Some events are not reaching Sylva. The owner or an editor can turn them back on here.</p>
+        )}
+        {(off.length > 0 || failed) && ch.can.edit && (
           <div className="notice">
             <span>
               {needsSignIn
-                ? 'Twitch says Sylva no longer has permission. Sign in again to turn these back on.'
+                ? ch.can.own
+                  ? 'Twitch says Sylva no longer has permission. Sign in again to turn these back on.'
+                  : `Twitch says Sylva no longer has permission. ${ch.name} needs to sign in to Sylva again to turn these back on.`
                 : 'Some events are not reaching Sylva.'}
             </span>
-            {needsSignIn
+            {needsSignIn && !ch.can.own ? null : needsSignIn
               ? <a className="btn primary sm" href="/auth/twitch/start"><Icon id="twitch" />Sign in again</a>
               : <button className="btn sm" type="button" disabled={busy} onClick={turnOn}>{busy ? 'Turning on' : 'Turn on again'}</button>}
           </div>
@@ -658,14 +664,14 @@ export function SettingsPage() {
 
   return (
     <div className="page">
-      <PageHead title="Settings" desc="Your account, how Sylva looks, and your connection to Twitch." />
+      <PageHead title="Settings" desc={ch.can.own ? 'Your account, your team, how Sylva looks, and your connection to Twitch.' : 'Your account, how Sylva looks, and this channel\'s connection to Twitch.'} />
       <div className="stack">
         <Card id="account" title="Account">
           <div className="setting">
             <div className="account">
-              <Avatar name={ch.name} url={ch.twitch?.avatar} large />
+              <Avatar name={ch.you} url={ch.twitch?.avatar} large />
               <div>
-                <b>{ch.name}</b>
+                <b>{ch.you}</b>
                 <span>Signed in with Twitch as {ch.twitch?.login}</span>
               </div>
             </div>
@@ -679,6 +685,7 @@ export function SettingsPage() {
             </button>
           </div>
         </Card>
+        {ch.can.own && <TeamCard />}
         <Card id="appearance" title="Appearance">
           <div className="setting">
             <div>

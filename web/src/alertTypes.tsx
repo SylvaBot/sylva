@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { api, type AlertSettings, type Kind, type KindSettings } from './api';
 import { useChannel } from './channel';
-import { errorText, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, useToast } from './ui';
 
 const META: Partial<Record<Kind, { name: string; c: string; icon: string; unit?: string; sample: number; hint?: string }>> = {
   follow: { name: 'Follows', c: 'c-follow', icon: 'heart', sample: 0 },
@@ -91,7 +91,7 @@ export function AlertTypes() {
                     aria-controls={`edit-${k.kind}`}
                     onClick={() => setOpen(isOpen ? null : k.kind)}
                   >
-                    {isOpen ? 'Close' : 'Edit'}
+                    {isOpen ? 'Close' : ch.can.edit ? 'Edit' : 'View'}
                   </button>
                   <button
                     className="switch"
@@ -99,18 +99,21 @@ export function AlertTypes() {
                     role="switch"
                     aria-checked={k.enabled}
                     aria-label={`${m.name} alerts`}
+                    disabled={!ch.can.edit}
                     onClick={() => save({ ...k, enabled: !k.enabled }, `${m.name} alerts ${k.enabled ? 'off' : 'on'}`)}
                   />
                 </div>
                 {isOpen && (
-                  <Editor
-                    k={k}
-                    login={ch.name}
-                    onCancel={() => setOpen(null)}
-                    onSave={async (next) => {
-                      if (await save(next, `${m.name} saved`)) setOpen(null);
-                    }}
-                  />
+                  <Gate on={ch.can.edit}>
+                    <Editor
+                      k={k}
+                      login={ch.name}
+                      onCancel={() => setOpen(null)}
+                      onSave={async (next) => {
+                        if (await save(next, `${m.name} saved`)) setOpen(null);
+                      }}
+                    />
+                  </Gate>
                 )}
               </li>
             );

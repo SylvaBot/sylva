@@ -58,7 +58,7 @@ export function StorePage() {
     }
   };
 
-  const login = view?.login ?? ch.twitch?.login;
+  const login = view?.login || ch.login;
   const link = login ? `${location.origin}/s/${login}` : null;
 
   return (
@@ -186,13 +186,13 @@ function Queue({ view, name, onChanged }: { view: StoreView; name: string; onCha
                   </span>
                 </div>
                 <div className="store-actions">
-                  {r.status !== 'refunded' && (
+                  {ch.can.moderate && r.status !== 'refunded' && (
                     <button className="btn sm ghost" type="button" aria-label={`Refund ${r.itemName} for ${r.name}`} onClick={() => void act(r, 'refund')}>Refund</button>
                   )}
-                  {r.status === 'pending' && (
+                  {ch.can.moderate && r.status === 'pending' && (
                     <button className="btn sm primary" type="button" aria-label={`Mark ${r.itemName} for ${r.name} done`} onClick={() => void act(r, 'done')}><Icon id="tick" />Done</button>
                   )}
-                  {r.status === 'done' && (
+                  {ch.can.moderate && r.status === 'done' && (
                     <button className="btn sm" type="button" aria-label={`Put ${r.itemName} for ${r.name} back in the queue`} onClick={() => void act(r, 'reopen')}><Icon id="undo" />Not done</button>
                   )}
                 </div>
@@ -210,6 +210,7 @@ function Rewards({ view, link, busy, onSave }: {
   view: StoreView; link: string | null; busy: boolean;
   onSave(s: StoreSettings, done: string): Promise<boolean>;
 }) {
+  const ch = useChannel();
   const toast = useToast();
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const s = view.settings;
@@ -256,7 +257,7 @@ function Rewards({ view, link, busy, onSave }: {
       title="Rewards"
       desc={<>Viewers see them with <code>!store</code> and buy one with <code>!redeem</code> and its number or name, such as <code>!redeem 1</code>.</>}
       action={
-        <button className="btn sm" type="button" onClick={() => setEditing('new')} disabled={editing === 'new'}>
+        <button className="btn sm" type="button" onClick={() => setEditing('new')} disabled={!ch.can.edit || editing === 'new'}>
           <Icon id="plus" />New reward
         </button>
       }
@@ -264,7 +265,7 @@ function Rewards({ view, link, busy, onSave }: {
       <div className="card-body store-settings">
         <div className="field inline">
           <span>Store open</span>
-          <button className="switch" type="button" role="switch" aria-checked={s.enabled} aria-label="Store open" disabled={busy}
+          <button className="switch" type="button" role="switch" aria-checked={s.enabled} aria-label="Store open" disabled={busy || !ch.can.edit}
             onClick={() => void onSave({ ...s, enabled: !s.enabled }, s.enabled ? 'The store is closed' : 'The store is open')} />
         </div>
         {link && (
@@ -302,10 +303,12 @@ function Rewards({ view, link, busy, onSave }: {
                     ].filter(Boolean).join(' · ')}
                   </span>
                 </div>
-                <button className="btn sm ghost" type="button" aria-expanded={editing === item.id} aria-label={`${editing === item.id ? 'Close' : 'Edit'} ${item.name}`}
-                  onClick={() => setEditing(editing === item.id ? null : item.id)}>
-                  {editing === item.id ? 'Close' : 'Edit'}
-                </button>
+                {ch.can.edit && (
+                  <button className="btn sm ghost" type="button" aria-expanded={editing === item.id} aria-label={`${editing === item.id ? 'Close' : 'Edit'} ${item.name}`}
+                    onClick={() => setEditing(editing === item.id ? null : item.id)}>
+                    {editing === item.id ? 'Close' : 'Edit'}
+                  </button>
+                )}
               </div>
               {editing === item.id && (
                 <RewardEditor item={item} name={name} onCancel={() => setEditing(null)} onDelete={() => remove(item)}

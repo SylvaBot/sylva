@@ -410,8 +410,8 @@ async fn finish_sign_in(req: &Request, env: &Env, code: &str) -> Result<SignIn> 
                 platform: "twitch".into(),
                 platform_user_id: who.user_id.clone(),
                 login: who.login.clone(),
-                display_name,
-                avatar,
+                display_name: display_name.clone(),
+                avatar: avatar.clone(),
                 scopes: who.scopes.clone(),
                 access_token: seal(&key, random_bytes()?, &tokens.access_token),
                 refresh_token: seal(&key, random_bytes()?, &tokens.refresh_token),
@@ -425,6 +425,18 @@ async fn finish_sign_in(req: &Request, env: &Env, code: &str) -> Result<SignIn> 
             "could not save the account ({})",
             res.status_code()
         )));
+    }
+
+    // The channels this person helps run. A failure keeps what the account
+    // already had, and the next sign in tries again.
+    let person = crate::account::Person {
+        id: who.user_id.clone(),
+        login: who.login.clone(),
+        name: display_name,
+        avatar,
+    };
+    if let Err(e) = crate::team::sync(env, &resolved.account_id, person, channel.clone()).await {
+        console_error!("Could not list teams for {channel}: {e}");
     }
 
     // Turn on follows, subs, cheers, chat and the public events. A failure here

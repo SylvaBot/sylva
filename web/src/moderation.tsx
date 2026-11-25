@@ -9,7 +9,7 @@ import {
 } from './api';
 import { useChannel } from './channel';
 import { Card, PageHead } from './pages';
-import { errorText, Icon, useToast } from './ui';
+import { errorText, Gate, Icon, useToast } from './ui';
 
 const PRESETS: { id: ModPreset; label: string; what: string }[] = [
   { id: 'off', label: 'Off', what: 'Sylva leaves your chat alone. Twitch AutoMod and your moderators still work as usual.' },
@@ -121,106 +121,112 @@ export function ModerationPage() {
           {view.permission !== 'ok' && (
             <div className="notice">
               <span>
-                {view.permission === 'expired'
-                  ? 'Twitch no longer accepts Sylva’s permission to moderate. Allow it again to keep your rules working.'
-                  : 'Sylva needs your permission to remove messages and time out chatters in your chat.'}
+                {!ch.can.own
+                  ? `Sylva cannot moderate ${ch.name}'s chat until ${ch.name} allows it on this page.`
+                  : view.permission === 'expired'
+                    ? 'Twitch no longer accepts Sylva’s permission to moderate. Allow it again to keep your rules working.'
+                    : 'Sylva needs your permission to remove messages and time out chatters in your chat.'}
               </span>
-              <a className="btn primary sm" href={ALLOW_URL}><Icon id="twitch" />Allow moderation</a>
+              {ch.can.own && <a className="btn primary sm" href={ALLOW_URL}><Icon id="twitch" />Allow moderation</a>}
             </div>
           )}
 
-          <Card id="mod-level" title="How strict" desc={what}>
-            <div className="card-body mod-presets">
-              <div className="segmented" role="group" aria-label="How strict">
-                {PRESETS.map((p) => (
-                  <button key={p.id} type="button" aria-pressed={draft.preset === p.id} onClick={() => pick(p.id)}>{p.label}</button>
-                ))}
+          <Gate on={ch.can.edit}>
+            <Card id="mod-level" title="How strict" desc={what}>
+              <div className="card-body mod-presets">
+                <div className="segmented" role="group" aria-label="How strict">
+                  {PRESETS.map((p) => (
+                    <button key={p.id} type="button" aria-pressed={draft.preset === p.id} onClick={() => pick(p.id)}>{p.label}</button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <fieldset className="mod-rules" disabled={off}>
-              <legend className="sr-only">Rules</legend>
-              <ul className="types">
-                <RuleRow name="Links" desc="Any website that is not on your allowed list below." on={draft.rules.links} onToggle={(v) => rule('links', v)} />
-                <RuleRow name="Capital letters" on={draft.rules.caps.on} onToggle={(v) => rule('caps', { ...draft.rules.caps, on: v })}>
-                  <NumberField label="Percent capitals" value={draft.rules.caps.percent} min={10} max={100} onChange={(n) => rule('caps', { ...draft.rules.caps, percent: n })} />
-                  <span>% or more, in messages with at least</span>
-                  <NumberField label="Letters" value={draft.rules.caps.min} min={1} max={500} onChange={(n) => rule('caps', { ...draft.rules.caps, min: n })} />
-                  <span>letters</span>
-                </RuleRow>
-                <RuleRow name="Symbols" on={draft.rules.symbols.on} onToggle={(v) => rule('symbols', { ...draft.rules.symbols, on: v })}>
-                  <NumberField label="Percent symbols" value={draft.rules.symbols.percent} min={10} max={100} onChange={(n) => rule('symbols', { ...draft.rules.symbols, percent: n })} />
-                  <span>% or more, in messages with at least</span>
-                  <NumberField label="Characters" value={draft.rules.symbols.min} min={1} max={500} onChange={(n) => rule('symbols', { ...draft.rules.symbols, min: n })} />
-                  <span>characters</span>
-                </RuleRow>
-                <RuleRow name="Emotes" on={draft.rules.emotes.on} onToggle={(v) => rule('emotes', { ...draft.rules.emotes, on: v })}>
-                  <span>More than</span>
-                  <NumberField label="Most emotes" value={draft.rules.emotes.max} min={1} max={100} onChange={(n) => rule('emotes', { ...draft.rules.emotes, max: n })} />
-                  <span>in one message</span>
-                </RuleRow>
-                <RuleRow name="Long messages" on={draft.rules.length.on} onToggle={(v) => rule('length', { ...draft.rules.length, on: v })}>
-                  <span>More than</span>
-                  <NumberField label="Most characters" value={draft.rules.length.max} min={20} max={500} onChange={(n) => rule('length', { ...draft.rules.length, max: n })} />
-                  <span>characters</span>
-                </RuleRow>
-                <RuleRow name="Repeated characters" on={draft.rules.repeats.on} onToggle={(v) => rule('repeats', { ...draft.rules.repeats, on: v })}>
-                  <span>More than</span>
-                  <NumberField label="Most in a row" value={draft.rules.repeats.max} min={3} max={100} onChange={(n) => rule('repeats', { ...draft.rules.repeats, max: n })} />
-                  <span>of one character in a row</span>
-                </RuleRow>
-                <RuleRow name="Glitched text" desc="Letters with stacked marks, often used to cover up chat." on={draft.rules.zalgo} onToggle={(v) => rule('zalgo', v)} />
-              </ul>
-              <div className="card-body mod-steps">
-                <div className="mod-step-grid">
-                  {(['First time', 'Second time', 'Third time and after'] as const).map((label, i) => (
-                    <label key={label} className="field" htmlFor={`mod-step-${i}`}>
-                      {label}
-                      <select
-                        id={`mod-step-${i}`}
-                        className="select"
-                        value={draft.steps[i]}
-                        onChange={(e) => {
-                          const steps = [...draft.steps] as ModSettings['steps'];
-                          steps[i] = Number(e.target.value);
-                          tune({ steps });
-                        }}
-                      >
-                        {(STEP_CHOICES.includes(draft.steps[i]) ? STEP_CHOICES : [...STEP_CHOICES, draft.steps[i]].sort((a, b) => a - b)).map((s) => (
-                          <option key={s} value={s}>{timeoutText(s)}</option>
-                        ))}
+              <fieldset className="mod-rules" disabled={off}>
+                <legend className="sr-only">Rules</legend>
+                <ul className="types">
+                  <RuleRow name="Links" desc="Any website that is not on your allowed list below." on={draft.rules.links} onToggle={(v) => rule('links', v)} />
+                  <RuleRow name="Capital letters" on={draft.rules.caps.on} onToggle={(v) => rule('caps', { ...draft.rules.caps, on: v })}>
+                    <NumberField label="Percent capitals" value={draft.rules.caps.percent} min={10} max={100} onChange={(n) => rule('caps', { ...draft.rules.caps, percent: n })} />
+                    <span>% or more, in messages with at least</span>
+                    <NumberField label="Letters" value={draft.rules.caps.min} min={1} max={500} onChange={(n) => rule('caps', { ...draft.rules.caps, min: n })} />
+                    <span>letters</span>
+                  </RuleRow>
+                  <RuleRow name="Symbols" on={draft.rules.symbols.on} onToggle={(v) => rule('symbols', { ...draft.rules.symbols, on: v })}>
+                    <NumberField label="Percent symbols" value={draft.rules.symbols.percent} min={10} max={100} onChange={(n) => rule('symbols', { ...draft.rules.symbols, percent: n })} />
+                    <span>% or more, in messages with at least</span>
+                    <NumberField label="Characters" value={draft.rules.symbols.min} min={1} max={500} onChange={(n) => rule('symbols', { ...draft.rules.symbols, min: n })} />
+                    <span>characters</span>
+                  </RuleRow>
+                  <RuleRow name="Emotes" on={draft.rules.emotes.on} onToggle={(v) => rule('emotes', { ...draft.rules.emotes, on: v })}>
+                    <span>More than</span>
+                    <NumberField label="Most emotes" value={draft.rules.emotes.max} min={1} max={100} onChange={(n) => rule('emotes', { ...draft.rules.emotes, max: n })} />
+                    <span>in one message</span>
+                  </RuleRow>
+                  <RuleRow name="Long messages" on={draft.rules.length.on} onToggle={(v) => rule('length', { ...draft.rules.length, on: v })}>
+                    <span>More than</span>
+                    <NumberField label="Most characters" value={draft.rules.length.max} min={20} max={500} onChange={(n) => rule('length', { ...draft.rules.length, max: n })} />
+                    <span>characters</span>
+                  </RuleRow>
+                  <RuleRow name="Repeated characters" on={draft.rules.repeats.on} onToggle={(v) => rule('repeats', { ...draft.rules.repeats, on: v })}>
+                    <span>More than</span>
+                    <NumberField label="Most in a row" value={draft.rules.repeats.max} min={3} max={100} onChange={(n) => rule('repeats', { ...draft.rules.repeats, max: n })} />
+                    <span>of one character in a row</span>
+                  </RuleRow>
+                  <RuleRow name="Glitched text" desc="Letters with stacked marks, often used to cover up chat." on={draft.rules.zalgo} onToggle={(v) => rule('zalgo', v)} />
+                </ul>
+                <div className="card-body mod-steps">
+                  <div className="mod-step-grid">
+                    {(['First time', 'Second time', 'Third time and after'] as const).map((label, i) => (
+                      <label key={label} className="field" htmlFor={`mod-step-${i}`}>
+                        {label}
+                        <select
+                          id={`mod-step-${i}`}
+                          className="select"
+                          value={draft.steps[i]}
+                          onChange={(e) => {
+                            const steps = [...draft.steps] as ModSettings['steps'];
+                            steps[i] = Number(e.target.value);
+                            tune({ steps });
+                          }}
+                        >
+                          {(STEP_CHOICES.includes(draft.steps[i]) ? STEP_CHOICES : [...STEP_CHOICES, draft.steps[i]].sort((a, b) => a - b)).map((s) => (
+                            <option key={s} value={s}>{timeoutText(s)}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                    <label className="field" htmlFor="mod-exempt">
+                      Never moderated
+                      <select id="mod-exempt" className="select" value={draft.exempt} onChange={(e) => tune({ exempt: e.target.value as UserLevel })}>
+                        {EXEMPT.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
                       </select>
                     </label>
-                  ))}
-                  <label className="field" htmlFor="mod-exempt">
-                    Never moderated
-                    <select id="mod-exempt" className="select" value={draft.exempt} onChange={(e) => tune({ exempt: e.target.value as UserLevel })}>
-                      {EXEMPT.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-                    </select>
-                  </label>
+                  </div>
+                  <p className="field-hint">Strikes are forgotten after an hour without one. You and your moderators are never moderated.</p>
                 </div>
-                <p className="field-hint">Strikes are forgotten after an hour without one. You and your moderators are never moderated.</p>
-              </div>
-            </fieldset>
-          </Card>
+              </fieldset>
+            </Card>
+          </Gate>
 
-          <Card id="mod-lists" title="Words and sites" desc="One per line. Banned words apply whatever the preset, and match whole words, ignoring capitals.">
-            <fieldset className="card-body mod-lists" disabled={off}>
-              <legend className="sr-only">Words and sites</legend>
-              <label className="field" htmlFor="mod-words">
-                <span className="field-row">Banned words and phrases<span className="field-hint">{lines(words).length} / 200</span></span>
-                <textarea id="mod-words" className="input textarea" rows={6} value={words} placeholder={'one word\nor a whole phrase'} onChange={(e) => setWords(e.target.value)} />
-              </label>
-              <label className="field" htmlFor="mod-sites">
-                <span className="field-row">Allowed sites<span className="field-hint">Their subdomains count too</span></span>
-                <textarea id="mod-sites" className="input textarea" rows={6} value={sites} placeholder="clips.twitch.tv" onChange={(e) => setSites(e.target.value)} />
-              </label>
-              <div className="field inline wide">
-                <span>Say why in chat, such as &ldquo;@Maple, links are not allowed here (message removed).&rdquo;</span>
-                <button className="switch" type="button" role="switch" aria-checked={draft.notice} aria-label="Say why in chat"
-                  onClick={() => setDraft({ ...draft, notice: !draft.notice })} />
-              </div>
-            </fieldset>
-          </Card>
+          <Gate on={ch.can.edit}>
+            <Card id="mod-lists" title="Words and sites" desc="One per line. Banned words apply whatever the preset, and match whole words, ignoring capitals.">
+              <fieldset className="card-body mod-lists" disabled={off}>
+                <legend className="sr-only">Words and sites</legend>
+                <label className="field" htmlFor="mod-words">
+                  <span className="field-row">Banned words and phrases<span className="field-hint">{lines(words).length} / 200</span></span>
+                  <textarea id="mod-words" className="input textarea" rows={6} value={words} placeholder={'one word\nor a whole phrase'} onChange={(e) => setWords(e.target.value)} />
+                </label>
+                <label className="field" htmlFor="mod-sites">
+                  <span className="field-row">Allowed sites<span className="field-hint">Their subdomains count too</span></span>
+                  <textarea id="mod-sites" className="input textarea" rows={6} value={sites} placeholder="clips.twitch.tv" onChange={(e) => setSites(e.target.value)} />
+                </label>
+                <div className="field inline wide">
+                  <span>Say why in chat, such as &ldquo;@Maple, links are not allowed here (message removed).&rdquo;</span>
+                  <button className="switch" type="button" role="switch" aria-checked={draft.notice} aria-label="Say why in chat"
+                    onClick={() => setDraft({ ...draft, notice: !draft.notice })} />
+                </div>
+              </fieldset>
+            </Card>
+          </Gate>
 
           {changed && (
             <div className="save-bar" role="region" aria-label="Unsaved changes">
@@ -230,7 +236,7 @@ export function ModerationPage() {
             </div>
           )}
 
-          <TryMessage settings={next} />
+          <Gate on={ch.can.moderate}><TryMessage settings={next} /></Gate>
           <ActionLog permission={view.permission} />
         </div>
       )}
@@ -432,7 +438,7 @@ function ActionLog({ permission }: { permission: ModView['permission'] }) {
                       <time dateTime={new Date(e.at).toISOString()}>{when(e.at)}</time>
                     </span>
                   </div>
-                  {active && <button className="btn sm" type="button" onClick={() => void lift(e)}><Icon id="undo" />Lift timeout</button>}
+                  {active && ch.can.moderate && <button className="btn sm" type="button" onClick={() => void lift(e)}><Icon id="undo" />Lift timeout</button>}
                 </div>
               </li>
             );

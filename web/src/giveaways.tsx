@@ -8,7 +8,7 @@ import { useChannel } from './channel';
 import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
-import { errorText, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, useToast } from './ui';
 
 const LEVELS: { id: UserLevel; label: string }[] = [
   { id: 'everyone', label: 'Everyone' },
@@ -51,9 +51,11 @@ export function GiveawaysPage() {
               <Link className="btn sm" href="/app/bot">Open Chat bot</Link>
             </div>
           )}
-          {view.current
-            ? <Current view={view} g={view.current} onView={setView} />
-            : <Start view={view} onView={setView} />}
+          <Gate on={ch.can.moderate}>
+            {view.current
+              ? <Current view={view} g={view.current} onView={setView} />
+              : <Start view={view} onView={setView} />}
+          </Gate>
           <Past list={view.past} />
         </div>
       )}

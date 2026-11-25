@@ -954,7 +954,7 @@ if (!fake || !usesFake) {
     const me = await res.json();
     accountId = me.accountId;
     assert.equal(me.accountId, session.split('.')[0]);
-    assert.deepEqual(me.channels, [{ key: ownKey, role: 'owner' }]);
+    assert.deepEqual(me.channels, [{ key: ownKey, role: 'owner', name: FAKE_USER.display_name, login: FAKE_USER.login, avatar: '' }]);
     assert.equal(me.identities[0].login, FAKE_USER.login);
     assert.equal(me.identities[0].displayName, FAKE_USER.display_name);
     assert.ok(!JSON.stringify(me).includes('user-'), 'tokens never leave the account');
@@ -966,6 +966,80 @@ if (!fake || !usesFake) {
   await check('the owner can use their channel and no one else\'s', async () => {
     assert.equal((await fetch(`${BASE}/v1/channels/${ownKey}/state`, { headers: asOwner() })).status, 200);
     assert.equal((await fetch(`${BASE}/v1/channels/${key}/state`, { headers: asOwner() })).status, 403);
+  });
+
+  let watcherSession;
+  await check('the owner adds a team, and each role can do only its part', async () => {
+    const helper = { id: '8301', login: 'helper', display_name: 'Helper', profile_image_url: '' };
+    const watcher = { id: '8302', login: 'watcher', display_name: 'Watcher', profile_image_url: '' };
+    fake.state.users.set(helper.login, helper);
+    fake.state.users.set(watcher.login, watcher);
+    const ch = `${BASE}/v1/channels/${ownKey}`;
+    const as = (cookie) => (path, body) => fetch(`${ch}/${path}`, body === undefined
+      ? { headers: { Cookie: `sylva_session=${cookie}` } }
+      : { method: 'POST', headers: { Cookie: `sylva_session=${cookie}`, Origin: BASE, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const owner = as(session);
+    const signInAs = async (user) => {
+      fake.state.as = user;
+      try { return cookieOf(await signIn(), 'sylva_session'); } finally { fake.state.as = null; }
+    };
+    const me = async (cookie) => (await fetch(`${BASE}/v1/me`, { headers: { Cookie: `sylva_session=${cookie}` } })).json();
+
+    // Start from no team, whatever an earlier run left.
+    for (const m of (await (await owner('team')).json()).team) await owner(`team/${m.id}/remove`, {});
+    assert.equal((await owner('team', { login: 'nobody_here', role: 'editor' })).status, 404);
+    assert.match(await (await owner('team', { login: FAKE_USER.login, role: 'editor' })).text(), /own this channel/);
+    assert.equal((await owner('team', { login: 'helper', role: 'owner' })).status, 400);
+    assert.equal((await owner('team', { login: 'two words', role: 'editor' })).status, 400);
+    let team = (await (await owner('team', { login: '@Helper', role: 'editor' })).json()).team;
+    // `joined` may already be true here when an earlier run signed Helper in.
+    assert.deepEqual(team.map((m) => [m.login, m.name, m.role]), [['helper', 'Helper', 'editor']]);
+
+    // Helper signs in and finds the channel next to their own.
+    const helperSession = await signInAs(helper);
+    assert.deepEqual((await me(helperSession)).channels.map((c) => [c.key, c.role, c.name]),
+      [['twitch:8301', 'owner', 'Helper'], [ownKey, 'editor', FAKE_USER.display_name]]);
+    assert.equal((await (await owner('team')).json()).team[0].joined, true);
+    const asHelper = as(helperSession);
+
+    // An editor changes settings, but not the team or the overlay link.
+    const alertSettings = (await (await asHelper('alert-settings')).json()).settings;
+    assert.equal((await asHelper('alert-settings', alertSettings)).status, 200);
+    assert.equal((await asHelper('overlay')).status, 200);
+    assert.equal((await asHelper('overlay/rotate', {})).status, 403);
+    assert.equal((await asHelper('team')).status, 403);
+    assert.equal((await asHelper('team', { login: 'watcher', role: 'editor' })).status, 403);
+    assert.equal((await fetch(`${BASE}/v1/channels/twitch:8301/state`, { headers: { Cookie: `sylva_session=${session}` } })).status, 403,
+      'the owner cannot open the helper\'s own channel');
+
+    // A moderator runs the live parts only, and the change applies at once.
+    await owner('team', { login: 'helper', role: 'moderator' });
+    assert.equal((await asHelper('alerts/pause', {})).status, 200);
+    assert.equal((await asHelper('alerts/resume', {})).status, 200);
+    const bot = await asHelper('bot', (await (await asHelper('bot')).json()).settings);
+    assert.equal(bot.status, 403);
+    assert.equal(await bot.text(), 'A moderator cannot do that on this channel');
+    assert.equal((await asHelper('overlay')).status, 403, 'the overlay link stays with editors');
+
+    // A viewer only looks.
+    await owner('team', { login: 'helper', role: 'viewer' });
+    assert.equal((await asHelper('history?filter=alerts')).status, 200);
+    assert.equal((await asHelper('alerts/pause', {})).status, 403);
+
+    // Someone added before they ever sign in sees the channel when they do.
+    team = (await (await owner('team', { login: 'watcher', role: 'viewer' })).json()).team;
+    assert.deepEqual(team.map((m) => [m.login, m.role]), [['helper', 'viewer'], ['watcher', 'viewer']]);
+    assert.equal(team[0].joined, true);
+    watcherSession = await signInAs(watcher);
+    assert.deepEqual((await me(watcherSession)).channels.map((c) => [c.key, c.role]), [['twitch:8302', 'owner'], [ownKey, 'viewer']]);
+
+    // Removing someone takes the channel away at once.
+    assert.deepEqual((await (await owner('team/8301/remove', {})).json()).team.map((m) => m.login), ['watcher']);
+    assert.equal((await owner('team/8301/remove', {})).status, 404);
+    assert.equal(await (await asHelper('state')).text(), 'This is not your channel');
+    assert.deepEqual((await me(helperSession)).channels.map((c) => c.key), ['twitch:8301']);
+    // And signing in again does not bring it back.
+    assert.deepEqual((await me(await signInAs(helper))).channels.map((c) => c.key), ['twitch:8301']);
   });
 
   await check('changes with a cookie must come from Sylva\'s own pages', async () => {
@@ -1417,6 +1491,9 @@ if (!fake || !usesFake) {
     const hist = await fetch(`${chUrl}/history?filter=alerts`, { headers: { Authorization: `Bearer ${ADMIN}` } });
     assert.deepEqual((await hist.json()).events, []);
     assert.deepEqual((await getJson(`/v1/channels/${encodeURIComponent(mine)}/moderation/log`)).entries, [], 'the moderation log is erased');
+    const watcherMe = await (await fetch(`${BASE}/v1/me`, { headers: { Cookie: `sylva_session=${watcherSession}` } })).json();
+    assert.deepEqual(watcherMe.channels.map((c) => c.key), ['twitch:8302'], 'teammates lose the deleted channel');
+    assert.deepEqual((await getJson(`/v1/channels/${encodeURIComponent(mine)}/team`)).team, [], 'and the team is gone');
 
     // Signing in again starts a new, empty account.
     session = cookieOf(await signIn(), 'sylva_session');

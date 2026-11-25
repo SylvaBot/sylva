@@ -522,6 +522,34 @@ h1, h2, h3, p { margin: 0; }
 .account > div > b { display: block; font-size: 15px; }
 .account > div > span { display: block; font-size: 13px; color: var(--muted); }
 
+/* Alert types */
+.types { list-style: none; margin: 0; padding: 0 0 8px; }
+.type { border-top: 1px solid var(--border); }
+.type-row { display: flex; align-items: center; gap: 12px; padding: 12px 20px; }
+.type-row .tile { color: var(--c); }
+.type-main { flex: 1; min-width: 0; }
+.type-main b { display: block; font-size: 13.5px; font-weight: 600; }
+.type-main span { display: block; font-size: 12.5px; color: var(--muted); }
+.type.open { background: var(--bg-2); }
+.type-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 20px; padding: 4px 20px 20px 64px; }
+.type-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; align-content: start; }
+.type-fields > .field-hint { grid-column: 1 / -1; }
+.field.inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; align-self: end; height: 36px; }
+.type-preview { align-self: start; }
+.stage.small { aspect-ratio: 16 / 10; }
+.stage.small .alert-card { transform: scale(.72); min-width: 0; width: 130%; max-width: none; }
+.alert-card .message { margin-top: 6px; color: #ededef; }
+.type-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 32px; }
+@media (max-width: 1100px) {
+  .type-edit { grid-template-columns: minmax(0, 1fr); padding-left: 20px; }
+}
+@media (max-width: 560px) {
+  .type-row { padding: 12px 16px; gap: 10px; }
+  .type-edit { padding: 4px 16px 16px; }
+  .type-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ---------- Menus, toasts, dialogs ---------- */
 .menu-wrap { position: relative; }
 .menu {

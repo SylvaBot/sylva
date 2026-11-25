@@ -230,6 +230,51 @@ await check('history search matches names and messages, literally', async () => 
   assert.equal(blank.events.length, plain.events.length);
 });
 
+await check('alert settings: defaults, validation, switches, minimums and the view', async () => {
+  const sid = randomChannelId();
+  const skey = `twitch:${sid}`;
+  const defaults = await getJson(`/v1/channels/${skey}/alert-settings`);
+  assert.deepEqual(defaults.kinds.map((k) => k.kind),
+    ['follow', 'subscriber', 'communityGift', 'cheer', 'raid', 'tip', 'redemption']);
+  assert.ok(defaults.kinds.every((k) => k.enabled && k.durationMs === 5000));
+
+  const post = (body) => fetch(`${BASE}/v1/channels/${skey}/alert-settings`, {
+    method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const tooLong = await post({ kinds: defaults.kinds.map((k) => ({ ...k, durationMs: 60000 })) });
+  assert.equal(tooLong.status, 400);
+  assert.match(await tooLong.text(), /2 to 20 seconds/);
+  assert.equal((await post('nonsense')).status, 400);
+
+  const kinds = defaults.kinds.map((k) => {
+    if (k.kind === 'follow') return { ...k, enabled: false };
+    if (k.kind === 'cheer') return { ...k, minAmount: 100, durationMs: 8000, label: 'Bits!', template: '{name} gave {amount}' };
+    return k;
+  });
+  const saved = await post({ kinds });
+  assert.equal(saved.status, 200);
+  const again = await getJson(`/v1/channels/${skey}/alert-settings`);
+  assert.equal(again.kinds.find((k) => k.kind === 'cheer').minAmount, 100);
+
+  const overlay = new Client(skey, 'overlay', undefined, { headers: { Authorization: `Bearer ${ADMIN}` } });
+  await overlay.opened;
+  await overlay.ready();
+  const follow = await admin(`/v1/channels/${skey}/test-event`, { kind: 'follow', name: 'Quiet' });
+  assert.equal(follow.alert, false, 'follows are off');
+  const small = await admin(`/v1/channels/${skey}/test-event`, { kind: 'cheer', name: 'Small', amount: 99 });
+  assert.equal(small.alert, false, 'under the minimum');
+  const big = await admin(`/v1/channels/${skey}/test-event`, { kind: 'cheer', name: 'Big', amount: 12000 });
+  assert.equal(big.alert, true);
+  const play = await overlay.next((f) => f.type === 'play');
+  assert.equal(play.event.seq, big.seq, 'only the cheer over the minimum plays');
+  assert.deepEqual(play.view, { label: 'Bits!', name: 'Big', detail: 'Big gave 12,000', durationMs: 8000 });
+  overlay.ack(play.alertId);
+  await overlay.close();
+  const feed = await getJson(`/v1/channels/${skey}/history?filter=alerts`);
+  assert.equal(feed.events.length, 3, 'everything still reaches the activity feed');
+});
+
 await check('a gift of 2 subs plays one alert, not three', async () => {
   const gid = randomChannelId();
   const gkey = `twitch:${gid}`;

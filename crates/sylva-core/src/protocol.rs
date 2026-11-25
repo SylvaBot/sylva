@@ -96,6 +96,8 @@ pub enum ServerFrame {
         alert_id: u64,
         muted: bool,
         event: StoredEvent,
+        /// What to show, from the channel's alert settings.
+        view: crate::alerts::AlertView,
     },
     #[serde(rename_all = "camelCase")]
     Stop {

@@ -52,6 +52,17 @@ export interface Me {
 
 export interface Summary { since: number; counts: Partial<Record<Kind, number>>; bits: number }
 
+export interface KindSettings {
+  kind: Kind;
+  enabled: boolean;
+  minAmount: number;
+  durationMs: number;
+  label: string;
+  template: string;
+  showMessage: boolean;
+}
+export interface AlertSettings { kinds: KindSettings[] }
+
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
 export interface FeatureStatus { feature: Feature; on: boolean; problems: string[] }
 
@@ -100,7 +111,9 @@ export const api = {
     request<AlertState>('POST', `${ch(key)}/alerts/${action}`),
   replay: (key: string, seq: number) => request<AlertState>('POST', `${ch(key)}/alerts/replay/${seq}`),
   testEvent: (key: string, e: { kind: Kind; name: string; amount?: number; message?: string }) =>
-    request<unknown>('POST', `${ch(key)}/test-event`, e),
+    request<{ seq: number; duplicate: boolean; alert: boolean }>('POST', `${ch(key)}/test-event`, e),
+  alertSettings: (key: string) => request<AlertSettings>('GET', `${ch(key)}/alert-settings`),
+  saveAlertSettings: (key: string, s: AlertSettings) => request<AlertSettings>('POST', `${ch(key)}/alert-settings`, s),
   overlay: (key: string) => request<{ url: string }>('GET', `${ch(key)}/overlay`),
   rotateOverlay: (key: string) => request<{ url: string }>('POST', `${ch(key)}/overlay/rotate`),
   twitch: (key: string) => request<{ features: FeatureStatus[] }>('GET', `${ch(key)}/twitch`),

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError, type AlertState, type FeatureStatus, type Kind, type SylvaEvent } from './api';
+import { AlertTypes } from './alertTypes';
 import { PAGE, useChannel } from './channel';
 import { FeedList, Filters, lastDay, matchesShown, MixBar, useShown, useTick } from './feed';
 import { Link } from './router';
@@ -244,8 +245,8 @@ function TestButton() {
       onClick={async () => {
         setBusy(true);
         try {
-          await sendTest(ch.key, TESTS[Math.floor(Math.random() * TESTS.length)]);
-          toast('Test alert sent');
+          const r = await sendTest(ch.key, TESTS[Math.floor(Math.random() * TESTS.length)]);
+          toast(r.alert ? 'Test alert sent' : 'That kind of alert is off, so the test only went to your activity');
         } catch (x) {
           toast(errorText(x), true);
         } finally {
@@ -271,6 +272,7 @@ export function AlertsPage() {
         <Card id="controls" title="Controls" desc="Changes apply to every connected overlay at once.">
           <div className="card-body"><AlertControls wide /></div>
         </Card>
+        <AlertTypes />
         <Card id="tests" title="Send a test alert" desc="Test alerts play like real ones and are marked Test in your activity.">
           <div className="card-body">
             <div className="try-grid">
@@ -283,8 +285,10 @@ export function AlertsPage() {
                   onClick={async () => {
                     setBusy(t.kind);
                     try {
-                      await sendTest(ch.key, t);
-                      toast(`Test ${t.label.toLowerCase()} sent`);
+                      const r = await sendTest(ch.key, t);
+                      toast(r.alert
+                        ? `Test ${t.label.toLowerCase()} sent`
+                        : `${t.label} alerts are off${t.amount ? ' or need a higher amount' : ''}, so the test only went to your activity`);
                     } catch (x) {
                       toast(errorText(x), true);
                     } finally {

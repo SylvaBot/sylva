@@ -44,6 +44,8 @@ Send `Authorization: Bearer sylva_...` on every request. API tokens do not expir
 | `POST /v1/channels/{key}/test-event` | `{"kind": "follow", "name": "Maple", "amount": 5, "message": "..."}`. The reply says whether it went into the alert queue (`alert`). |
 | `GET` / `POST /v1/channels/{key}/alert-settings` | Per kind alert settings. |
 | `GET` / `POST /v1/channels/{key}/widget-settings` | The goal. |
+| `GET /v1/channels/{key}/scene` | The overlay layout: `draft`, `published` (with `version`) and `versions`. |
+| `POST /v1/channels/{key}/scene`, `.../scene/publish`, `.../scene/restore/{version}` | Save the draft, publish it, or bring a version back into the draft. |
 | `GET /v1/channels/{key}/ws` | The live socket. Send `{"type":"hello","role":"feed","lastSeq":N}` first; see `crates/sylva-core/src/protocol.rs`. |
 
 An app cannot approve other apps or list or remove them; those need the streamer in the browser.

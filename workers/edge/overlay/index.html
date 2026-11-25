@@ -6,8 +6,10 @@
 <title>Sylva overlay</title>
 <style>
   /* Sylva's overlay for OBS. One page, several widgets: the alert box (the
-     default), and with ?widget= an event list, a latest label, a goal bar or
-     a chat box. Flat surfaces, 1px borders, one color per kind of event. */
+     default); with ?widget= an event list, a latest or top label, a goal bar
+     or a chat box; and with ?scene every widget at once, placed the way the
+     streamer published it in the editor. Flat surfaces, 1px borders, one
+     color per kind of event. */
   @font-face {
     font-family: "Inter";
     src: url("/fonts/inter-latin-wght.woff2") format("woff2");
@@ -30,7 +32,7 @@
   .k { --c: var(--other); }
 
   /* Alert box */
-  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  #stage, .stage { position: absolute; inset: 0; display: grid; place-items: center; }
   .card {
     min-width: 320px; max-width: 560px; padding: 20px 24px; border-radius: 12px;
     background: color-mix(in srgb, var(--c) 14%, var(--surface));
@@ -44,7 +46,7 @@
   .message { margin-top: 6px; }
 
   /* Event list */
-  .list { position: fixed; inset: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .list { position: absolute; inset: 12px; display: flex; flex-direction: column; gap: 8px; }
   .row {
     display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px;
     background: color-mix(in srgb, var(--c) 14%, var(--surface));
@@ -56,14 +58,14 @@
   .row span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Latest label */
-  .latest { position: fixed; inset: 6px; display: flex; align-items: center; padding: 0 16px; gap: 12px; white-space: nowrap; border-radius: 10px; background: color-mix(in srgb, var(--c) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--border)); }
+  .latest { position: absolute; inset: 6px; display: flex; align-items: center; padding: 0 16px; gap: 12px; white-space: nowrap; border-radius: 10px; background: color-mix(in srgb, var(--c) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--border)); }
   .latest .label { font-size: 13px; }
   .latest .who { font-size: 22px; font-weight: 650; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; }
   .latest .who.fresh { animation: arrive 450ms var(--ease) both; }
   .latest .amount { color: var(--muted); font-size: 18px; font-variant-numeric: tabular-nums; }
 
   /* Goal bar */
-  .goal { position: fixed; inset: 6px; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: 10px; background: var(--surface); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--border)); }
+  .goal { position: absolute; inset: 6px; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: 10px; background: var(--surface); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--border)); }
   .goal:empty { display: none; }
   .goal-top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
   .goal-title { font-size: 18px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -73,9 +75,16 @@
   .fill { height: 100%; width: 0; background: var(--c); border-radius: 7px; transition: width 800ms var(--ease); }
 
   /* Chat box */
-  .chat { position: fixed; inset: 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; overflow: hidden; }
+  .chat { position: absolute; inset: 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; overflow: hidden; }
   .line { padding: 6px 12px; border-radius: 8px; background: rgba(22, 22, 24, .82); border: 1px solid #2a2a2f; animation: slide 300ms var(--ease) both; overflow-wrap: anywhere; }
   .line b { font-weight: 650; margin-right: 6px; color: #c9b8ff; }
+
+  /* Scene: a 1920 by 1080 canvas scaled to the source, items placed on it. */
+  .fill-page { position: fixed; inset: 0; }
+  #scene { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+  .item { position: absolute; }
+  body.debug .item { outline: 1px dashed rgba(255, 255, 255, .35); }
+  body.debug .item::before { content: attr(data-label); position: absolute; left: 6px; top: -20px; font-size: 12px; color: rgba(255, 255, 255, .6); }
 </style>
 </head>
 <body>
@@ -85,7 +94,8 @@
 (() => {
   const key = decodeURIComponent(location.pathname.split('/').pop());
   const params = new URLSearchParams(location.search);
-  const widget = params.get('widget') || 'alerts';
+  const sceneMode = params.has('scene');
+  const widget = sceneMode ? 'scene' : (params.get('widget') || 'alerts');
   if (params.has('debug')) document.body.classList.add('debug');
   const root = document.getElementById('root');
   const status = document.getElementById('status');
@@ -93,6 +103,7 @@
   const kindClass = (k) => KINDS.includes(k) ? k : 'other';
   const fmt = new Intl.NumberFormat();
   const n = (x) => fmt.format(x || 0);
+  const clamp = (v, lo, hi, d) => Math.min(Math.max(Number(v) || d, lo), hi);
   const el = (tag, cls, text) => {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -102,7 +113,7 @@
   const nameOf = (e) => (e.actor ? e.actor.displayName : 'Anonymous');
 
   // Exposed for automated tests.
-  window.sylva = { widget, shown: [], acked: [], data: null };
+  window.sylva = { widget, shown: [], acked: [], data: null, scene: null };
 
   /* ---------------- Alert box ---------------- */
   // The channel's alert settings set how long each alert stays. A `duration`
@@ -126,16 +137,17 @@
   const fallbackView = (e) => ({
     label: LABELS[e.kind] || e.rawType, name: nameOf(e), detail: oldDetail(e), message: e.message, durationMs: 5000,
   });
-  let current = null, timer = null;
-  function alertBox() {
-    const stage = el('div');
-    stage.id = 'stage';
-    root.appendChild(stage);
+  // One alert box per page. In a scene it moves into the alert box's place
+  // whenever the layout changes, so an alert on screen is not cut short.
+  function alertBox(ack) {
+    const stage = el('div', 'stage');
+    let current = null, timer = null;
     const hide = () => {
       const card = stage.querySelector('.card');
       if (card) { card.classList.add('leave'); setTimeout(() => card.remove(), 300); }
     };
     return {
+      node: stage,
       play(frame) {
         clearTimeout(timer);
         current = frame.alertId;
@@ -151,10 +163,7 @@
         stage.appendChild(card);
         timer = setTimeout(() => {
           hide();
-          if (ws && ws.readyState === 1 && current === frame.alertId) {
-            ws.send(JSON.stringify({ type: 'ack', alertId: frame.alertId }));
-            window.sylva.acked.push(frame.alertId);
-          }
+          if (current === frame.alertId) ack(frame.alertId);
           current = null;
         }, linkMs || view.durationMs || 5000);
       },
@@ -163,6 +172,8 @@
   }
 
   /* ---------------- Widgets ---------------- */
+  // Each takes the element to draw in and its options, and answers to
+  // data (the full picture on connect), event (live) and top (top labels).
   const sentence = (e) => {
     const who = nameOf(e);
     switch (e.kind) {
@@ -179,10 +190,10 @@
   };
   const LIST = ['follow', 'subscriber', 'communityGift', 'cheer', 'raid', 'tip', 'redemption'];
 
-  function eventList() {
-    const limit = Math.min(Math.max(Number(params.get('limit')) || 5, 1), 20);
+  function eventList(host, opts) {
+    const limit = clamp(opts.limit, 1, 20, 5);
     const box = el('div', 'list');
-    root.appendChild(box);
+    host.appendChild(box);
     const row = (e) => {
       const r = el('div', 'row k');
       r.style.setProperty('--c', `var(--${kindClass(e.kind)})`);
@@ -207,25 +218,46 @@
     };
   }
 
-  const LATEST_LABELS = { follow: 'Latest follower', subscriber: 'Latest sub', communityGift: 'Latest gifter', cheer: 'Latest cheer', raid: 'Latest raid' };
-  function latestLabel() {
-    const kind = LATEST_LABELS[params.get('kind')] ? params.get('kind') : 'follow';
+  // A one line label: the kind, a name and maybe an amount.
+  function labelBox(host, kind, title) {
     const box = el('div', 'latest k');
     box.style.setProperty('--c', `var(--${kind})`);
-    root.appendChild(box);
-    const show = (e, fresh) => {
+    host.appendChild(box);
+    return (name, amount, fresh) => {
       box.textContent = '';
-      box.appendChild(el('span', 'label', LATEST_LABELS[kind]));
-      box.appendChild(el('span', 'who' + (fresh ? ' fresh' : ''), e ? nameOf(e) : 'Nobody yet'));
-      if (e && (kind === 'cheer' || kind === 'raid' || kind === 'communityGift') && e.amount) {
-        box.appendChild(el('span', 'amount', n(e.amount)));
-      }
+      box.appendChild(el('span', 'label', title));
+      box.appendChild(el('span', 'who' + (fresh ? ' fresh' : ''), name || 'Nobody yet'));
+      if (name && amount) box.appendChild(el('span', 'amount', n(amount)));
     };
-    show(null);
+  }
+
+  const LATEST_LABELS = { follow: 'Latest follower', subscriber: 'Latest sub', communityGift: 'Latest gifter', cheer: 'Latest cheer', raid: 'Latest raid' };
+  const WITH_AMOUNT = ['cheer', 'raid', 'communityGift'];
+  function latestLabel(host, opts) {
+    const kind = LATEST_LABELS[opts.kind] ? opts.kind : 'follow';
+    const show = labelBox(host, kind, LATEST_LABELS[kind]);
+    const put = (e, fresh) => show(e ? nameOf(e) : null, e && WITH_AMOUNT.includes(kind) ? e.amount : 0, fresh);
+    put(null);
     return {
-      data(d) { show(d.latest.find((e) => e.kind === kind) || null); },
-      event(e) { if (e.kind === kind) show(e, true); },
+      data(d) { put(d.latest.find((e) => e.kind === kind) || null); },
+      event(e) { if (e.kind === kind) put(e, true); },
     };
+  }
+
+  const TOP_LABELS = { cheer: 'Top cheer', communityGift: 'Top gifter' };
+  function topLabel(host, opts) {
+    const kind = TOP_LABELS[opts.kind] ? opts.kind : 'cheer';
+    const show = labelBox(host, kind, TOP_LABELS[kind]);
+    let shown = null;
+    const put = (list) => {
+      const t = (list || []).find((x) => x.kind === kind) || null;
+      const id = t ? `${t.name}:${t.amount}` : '';
+      if (id === shown) return;
+      show(t && t.name, t && t.amount, shown !== null && !!t);
+      shown = id;
+    };
+    put([]);
+    return { data(d) { put(d.top); }, top(list) { put(list); } };
   }
 
   const GOAL_COLORS = { follows: 'follow', subs: 'subscriber', bits: 'cheer' };
@@ -235,9 +267,9 @@
     if (goal.kind === 'bits') return e.kind === 'cheer' ? Math.max(0, e.amount || 0) : 0;
     return 0;
   };
-  function goalBar() {
+  function goalBar(host) {
     const box = el('div', 'goal k');
-    root.appendChild(box);
+    host.appendChild(box);
     let goal = null;
     const draw = () => {
       box.textContent = '';
@@ -256,7 +288,7 @@
       requestAnimationFrame(() => { fill.style.width = Math.min(100, (goal.current / goal.target) * 100) + '%'; });
     };
     return {
-      data(d) { goal = d.goal || null; draw(); },
+      data(d) { goal = d.goal ? { ...d.goal } : null; draw(); },
       event(e) {
         if (!goal || e.receivedAt < goal.since) return;
         const add = goalCounts(goal, e);
@@ -265,10 +297,10 @@
     };
   }
 
-  function chatBox() {
-    const limit = Math.min(Math.max(Number(params.get('limit')) || 12, 1), 30);
+  function chatBox(host, opts) {
+    const limit = clamp(opts.limit, 1, 30, 12);
     const box = el('div', 'chat');
-    root.appendChild(box);
+    host.appendChild(box);
     const line = (e) => {
       const l = el('div', 'line');
       l.appendChild(el('b', null, nameOf(e)));
@@ -282,54 +314,150 @@
     };
   }
 
-  const WIDGETS = { feed: eventList, latest: latestLabel, goal: goalBar, chat: chatBox };
-  const isAlerts = !WIDGETS[widget];
-  const view = isAlerts ? alertBox() : WIDGETS[widget]();
-  const role = isAlerts ? 'overlay' : 'widget';
-  let lastSeq = 0;
+  const WIDGETS = { feed: eventList, latest: latestLabel, top: topLabel, goal: goalBar, chat: chatBox };
+  const NAMES = { alerts: 'Alert box', feed: 'Event list', latest: 'Latest label', top: 'Top label', goal: 'Goal bar', chat: 'Chat box' };
 
   /* ---------------- Connection ---------------- */
-  let ws, backoff = 500;
-  function connect() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    // The link's token lets this page connect without signing in.
-    const token = params.get('token');
-    const query = token ? `?token=${encodeURIComponent(token)}` : '';
-    ws = new WebSocket(`${proto}://${location.host}/v1/channels/${key}/ws${query}`);
-    ws.onopen = () => {
-      backoff = 500;
-      status.textContent = 'connected';
-      ws.send(JSON.stringify({ type: 'hello', role }));
+  // One socket for a role. The alert box connects as `overlay` (it plays
+  // and acknowledges alerts); widgets connect as `widget`.
+  function socket(role, onFrame) {
+    let ws = null, backoff = 500, closed = false;
+    const open = () => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      // The link's token lets this page connect without signing in.
+      const token = params.get('token');
+      const query = token ? `?token=${encodeURIComponent(token)}` : '';
+      ws = new WebSocket(`${proto}://${location.host}/v1/channels/${key}/ws${query}`);
+      ws.onopen = () => {
+        backoff = 500;
+        ws.send(JSON.stringify({ type: 'hello', role }));
+        onFrame({ type: 'open' });
+      };
+      ws.onmessage = (m) => onFrame(JSON.parse(m.data));
+      ws.onclose = (e) => {
+        if (closed) return;
+        // 4001: the streamer made a new link. Retrying keeps failing until OBS
+        // gets the new one, so retry slowly.
+        if (e.code === 4001) backoff = 10000;
+        onFrame({ type: 'closed', replaced: e.code === 4001 });
+        setTimeout(open, backoff);
+        backoff = Math.min(backoff * 2, 10000);
+      };
     };
-    ws.onmessage = (m) => {
-      const f = JSON.parse(m.data);
-      if (f.type === 'play' && view.play) view.play(f);
-      else if (f.type === 'stop' && view.stop) view.stop(f.alertId);
-      else if (f.type === 'widgets' && view.data) {
-        window.sylva.data = f;
-        lastSeq = Math.max(lastSeq, ...f.recent.map((e) => e.seq), ...f.chat.map((e) => e.seq), 0);
-        view.data(f);
-      } else if (f.type === 'event' && view.event) {
-        if (f.seq <= lastSeq) return;
-        lastSeq = f.seq;
-        view.event(f);
-      } else if (f.type === 'ready' || f.type === 'state') {
-        const s = f.state || f;
-        status.textContent = `connected as ${role}, ${s.queued} queued${s.paused ? ', paused' : ''}${s.muted ? ', muted' : ''}`;
-      }
-    };
-    ws.onclose = (e) => {
-      // 4001: the streamer made a new link. Retrying keeps failing until OBS
-      // gets the new one, so retry slowly.
-      if (e.code === 4001) backoff = 10000;
-      status.textContent = e.code === 4001 ? 'this link was replaced' : 'reconnecting';
-      setTimeout(connect, backoff);
-      backoff = Math.min(backoff * 2, 10000);
+    // Keepalive. The server's runtime answers this without waking the channel.
+    const ping = setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"type":"ping"}'); }, 30000);
+    open();
+    return {
+      send(obj) { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(obj)); return true; } return false; },
+      close() { closed = true; clearInterval(ping); if (ws) ws.close(); },
     };
   }
-  // Keepalive. The server's runtime answers this without waking the channel.
-  setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"type":"ping"}'); }, 30000);
-  connect();
+
+  const states = {};
+  const showStatus = () => {
+    status.textContent = Object.entries(states).map(([r, s]) => `${r}: ${s}`).join(' · ') || 'connecting';
+  };
+  const setState = (role, s) => { states[role] = s; showStatus(); };
+
+  // The alert connection, for the alert box.
+  function alertConnection(box) {
+    const conn = socket('overlay', (f) => {
+      if (f.type === 'play') box.play(f);
+      else if (f.type === 'stop') box.stop(f.alertId);
+      else if (f.type === 'ready' || f.type === 'state') {
+        const s = f.state || f;
+        setState('alerts', `${s.queued} queued${s.paused ? ', paused' : ''}${s.muted ? ', muted' : ''}`);
+      } else if (f.type === 'open') setState('alerts', 'connected');
+      else if (f.type === 'closed') setState('alerts', f.replaced ? 'this link was replaced' : 'reconnecting');
+    });
+    return conn;
+  }
+
+  // The widget connection: data on connect, then live events, fanned out
+  // to every widget drawn now.
+  function widgetConnection(targets, onData) {
+    let lastSeq = 0;
+    return socket('widget', (f) => {
+      if (f.type === 'widgets') {
+        window.sylva.data = f;
+        lastSeq = Math.max(lastSeq, ...f.recent.map((e) => e.seq), ...f.chat.map((e) => e.seq), 0);
+        if (onData) onData(f);
+        targets().forEach((w) => w.data && w.data(f));
+      } else if (f.type === 'event') {
+        if (f.seq <= lastSeq) return;
+        lastSeq = f.seq;
+        targets().forEach((w) => w.event && w.event(f));
+      } else if (f.type === 'top') {
+        if (window.sylva.data) window.sylva.data.top = f.top;
+        targets().forEach((w) => w.top && w.top(f.top));
+      } else if (f.type === 'open') setState('widgets', 'connected');
+      else if (f.type === 'closed') setState('widgets', f.replaced ? 'this link was replaced' : 'reconnecting');
+    });
+  }
+
+  if (!sceneMode) {
+    // One widget filling the source.
+    const host = el('div', 'fill-page');
+    root.appendChild(host);
+    if (!WIDGETS[widget]) {
+      let conn = null;
+      const box = alertBox((id) => { if (conn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); });
+      host.appendChild(box.node);
+      conn = alertConnection(box);
+    } else {
+      const w = WIDGETS[widget](host, { kind: params.get('kind'), limit: params.get('limit') });
+      widgetConnection(() => [w]);
+    }
+    return;
+  }
+
+  /* ---------------- Scene ---------------- */
+  const sceneEl = el('div');
+  sceneEl.id = 'scene';
+  root.appendChild(sceneEl);
+  const fit = () => {
+    const s = Math.min(innerWidth / 1920, innerHeight / 1080) || 1;
+    sceneEl.style.transform = `scale(${s})`;
+  };
+  addEventListener('resize', fit);
+  fit();
+
+  let alertConn = null;
+  const box = alertBox((id) => { if (alertConn && alertConn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); });
+  let drawn = [];
+  let version = null;
+
+  const build = (published, data) => {
+    version = published ? published.version : 0;
+    window.sylva.scene = published || null;
+    sceneEl.textContent = '';
+    drawn = [];
+    const items = published ? published.scene.items : [];
+    for (const it of items) {
+      const node = el('div', 'item');
+      node.dataset.label = NAMES[it.widget] || it.widget;
+      node.dataset.widget = it.widget;
+      Object.assign(node.style, { left: it.x + 'px', top: it.y + 'px', width: it.w + 'px', height: it.h + 'px' });
+      sceneEl.appendChild(node);
+      if (it.widget === 'alerts') node.appendChild(box.node);
+      else if (WIDGETS[it.widget]) {
+        const w = WIDGETS[it.widget](node, it);
+        if (data && w.data) w.data(data);
+        drawn.push(w);
+      }
+    }
+    // The alert box takes alerts only while the scene has one.
+    const wantAlerts = items.some((it) => it.widget === 'alerts');
+    if (wantAlerts && !alertConn) alertConn = alertConnection(box);
+    if (!wantAlerts && alertConn) { alertConn.close(); alertConn = null; delete states.alerts; }
+    setState('scene', published ? `version ${published.version}, ${items.length} widgets` : 'nothing published yet');
+  };
+
+  widgetConnection(() => drawn, (data) => {
+    const v = data.scene ? data.scene.version : 0;
+    // Same layout: the widgets just take the new data.
+    if (v !== version) build(data.scene, null);
+  });
 })();
 </script>
 </body>

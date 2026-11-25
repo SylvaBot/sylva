@@ -110,6 +110,10 @@ pub enum ServerFrame {
     },
     State(AlertState),
     Widgets(crate::widgets::WidgetData),
+    /// The top labels changed (sent to widgets after a cheer or a gift).
+    Top {
+        top: Vec<crate::scene::TopEntry>,
+    },
     #[serde(rename_all = "camelCase")]
     Error {
         message: String,

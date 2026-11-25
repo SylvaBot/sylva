@@ -221,7 +221,7 @@ function AlertControls({ wide }: { wide?: boolean }) {
   );
 }
 
-const TESTS: { kind: Kind; label: string; c: string; icon: string; name: string; amount?: number; message?: string }[] = [
+export const TESTS: { kind: Kind; label: string; c: string; icon: string; name: string; amount?: number; message?: string }[] = [
   { kind: 'follow', label: 'Follow', c: 'c-follow', icon: 'heart', name: 'Maple' },
   { kind: 'subscriber', label: 'Sub', c: 'c-sub', icon: 'star', name: 'Juniper', amount: 6 },
   { kind: 'communityGift', label: 'Gifted subs', c: 'c-gift', icon: 'gift', name: 'Aspen', amount: 5 },
@@ -229,7 +229,7 @@ const TESTS: { kind: Kind; label: string; c: string; icon: string; name: string;
   { kind: 'raid', label: 'Raid', c: 'c-raid', icon: 'swords', name: 'Hazel', amount: 42 },
 ];
 
-function sendTest(key: string, t: (typeof TESTS)[number]) {
+export function sendTest(key: string, t: (typeof TESTS)[number]) {
   return api.testEvent(key, { kind: t.kind, name: t.name, amount: t.amount, message: t.message });
 }
 

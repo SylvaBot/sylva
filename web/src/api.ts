@@ -67,6 +67,19 @@ export type GoalKind = 'follows' | 'subs' | 'bits';
 export interface Goal { title: string; kind: GoalKind; target: number; since: number }
 export interface WidgetSettings { goal?: Goal | null }
 
+export type WidgetKind = 'alerts' | 'feed' | 'latest' | 'top' | 'goal' | 'chat';
+export interface SceneItem {
+  id: string; widget: WidgetKind; x: number; y: number; w: number; h: number;
+  kind?: string | null; limit?: number | null;
+}
+export interface Scene { items: SceneItem[] }
+export interface SceneState {
+  draft: Scene;
+  draftSavedAt: number;
+  published?: { version: number; publishedAt: number; scene: Scene } | null;
+  versions: { version: number; publishedAt: number; items: number }[];
+}
+
 export interface AppToken { id: string; name: string; createdAt: number; lastUsedAt?: number | null }
 
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
@@ -129,6 +142,10 @@ export const api = {
     request<{ approved: boolean }>('POST', '/v1/device', { userCode, approve }),
   apps: () => request<AppToken[]>('GET', '/v1/apps'),
   revokeApp: (id: string) => request<unknown>('POST', `/v1/apps/${encodeURIComponent(id)}/revoke`),
+  scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),
+  saveScene: (key: string, scene: Scene) => request<SceneState>('POST', `${ch(key)}/scene`, scene),
+  publishScene: (key: string) => request<SceneState>('POST', `${ch(key)}/scene/publish`),
+  restoreScene: (key: string, version: number) => request<SceneState>('POST', `${ch(key)}/scene/restore/${version}`),
   overlay: (key: string) => request<{ url: string }>('GET', `${ch(key)}/overlay`),
   rotateOverlay: (key: string) => request<{ url: string }>('POST', `${ch(key)}/overlay/rotate`),
   twitch: (key: string) => request<{ features: FeatureStatus[] }>('GET', `${ch(key)}/twitch`),

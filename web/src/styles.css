@@ -696,3 +696,126 @@ h1, h2, h3, p { margin: 0; }
   .preview-alert { display: none; }
   .site-nav .btn.ghost { display: none; }
 }
+
+/* ---------- Overlay editor ---------- */
+.editor { display: flex; flex-direction: column; }
+.editor-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 20px 14px; }
+.bar-sep { width: 1px; height: 20px; background: var(--border-2); }
+.icon-btn:disabled { opacity: .4; pointer-events: none; }
+.save-state { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.save-state.pending { color: var(--warn); }
+.save-state.bad { color: var(--danger); }
+
+.popover { position: relative; }
+.popover > .btn svg:last-child { width: 14px; height: 14px; margin-right: -2px; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
+.popover > .btn[aria-expanded="true"] svg:last-child { transform: rotate(-90deg); }
+.popover .menu { top: calc(100% + 6px); bottom: auto; right: auto; width: 340px; max-width: calc(100vw - 40px); display: flex; flex-direction: column; gap: 2px; box-shadow: 0 12px 32px rgba(0, 0, 0, .28); }
+.popover .menu-item { align-items: flex-start; padding: 8px; }
+.popover .menu-item:disabled { opacity: .5; }
+.popover .menu-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.menu-item .tile svg { color: var(--c, var(--muted)); width: 15px; height: 15px; }
+.menu-item b { display: block; font-weight: 600; font-size: 13px; }
+.menu-item small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 1px; }
+.tile.sm { width: 28px; height: 28px; }
+.tile.sm svg { width: 15px; height: 15px; }
+
+.editor-main { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; padding: 0 20px 16px; }
+.canvas-wrap { min-width: 0; }
+.canvas {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r);
+  border: 1px solid var(--border-2); touch-action: none; user-select: none;
+  background-color: #0b0b0d;
+  background-image: linear-gradient(45deg, #121215 25%, transparent 25%), linear-gradient(-45deg, #121215 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #121215 75%), linear-gradient(-45deg, transparent 75%, #121215 75%);
+  background-size: 24px 24px; background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  /* The overlay is always dark in OBS, so the canvas is too, in both themes. */
+  --follow: #3ecf74; --sub: #9b7bf7; --gift: #ec5c9e; --bits: #5b8def; --tip: #eab308; --reward: #f08a3c; --raid: #2bbfae; --other: #8b8b94;
+}
+.slot { position: absolute; cursor: grab; outline: 1px dashed rgba(255, 255, 255, .18); }
+.slot:hover { outline-color: rgba(255, 255, 255, .4); }
+.slot:active { cursor: grabbing; }
+.slot.selected { outline: 2px solid var(--focus); z-index: 2; }
+.slot:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.slot-preview { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
+.slot-tag {
+  position: absolute; left: 0; top: 0; transform: translateY(-100%); display: none; align-items: center; gap: 4px;
+  padding: 2px 6px; font-size: 11px; font-weight: 600; white-space: nowrap; color: #fff; background: var(--focus); border-radius: 4px 4px 0 0;
+}
+.slot-tag svg { width: 12px; height: 12px; }
+.slot.selected .slot-tag, .slot:hover .slot-tag { display: inline-flex; }
+.slot.tag-inside .slot-tag { transform: none; border-radius: 0 0 4px 0; }
+.slot-preview { overflow: hidden; }
+.slot.selected .slot-tag { color: #0b1020; }
+.slot:not(.selected):hover .slot-tag { background: rgba(60, 60, 68, .95); }
+.handle { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid var(--focus); border-radius: 3px; z-index: 3; }
+.handle.nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.handle.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.handle.ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.handle.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.guide { position: absolute; background: #f0b3ff; pointer-events: none; z-index: 4; }
+.guide.v { top: 0; bottom: 0; width: 1px; }
+.guide.h { left: 0; right: 0; height: 1px; }
+.canvas-empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 16px; text-align: center; padding: 16px; color: #c4c4ca; font-size: 14px; }
+.canvas-empty b { color: #ededef; }
+.template-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.template-pick { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px; border-radius: var(--r); border: 1px solid #303035; background: rgba(22, 22, 24, .9); color: #ededef; font-size: 13px; }
+.template-pick:hover { border-color: #5b5b63; }
+.template-pick .thumb { width: 128px; }
+.thumb { position: relative; display: block; width: 72px; aspect-ratio: 16 / 9; flex: none; border-radius: 4px; background: #0b0b0d; border: 1px solid var(--border-2); overflow: hidden; }
+.thumb span { position: absolute; border-radius: 2px; background: color-mix(in srgb, var(--c) 55%, transparent); }
+
+.inspector { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.inspector h3 { font-size: 13.5px; font-weight: 600; }
+.insp-head { display: flex; gap: 10px; align-items: flex-start; }
+.insp-head .field-hint { margin-top: 2px; }
+.insp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.insp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.layer { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); color: var(--text); font-size: 13px; text-align: left; }
+.layer:hover { border-color: var(--border-3); }
+.layer small { color: var(--muted); font-size: 12px; }
+
+.editor-foot { border-top: 1px solid var(--border); padding: 14px 20px 18px; display: flex; flex-direction: column; gap: 12px; }
+.overlay-link { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.overlay-link b { display: block; font-size: 13.5px; }
+.overlay-link span { display: block; font-size: 12.5px; color: var(--muted); }
+.versions { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.versions li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r); }
+.versions b { font-size: 13px; }
+.versions small { display: block; font-size: 12px; color: var(--muted); }
+.pill-live { margin-left: 8px; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+
+@media (max-width: 1100px) {
+  .editor-main { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .editor-bar, .editor-main { padding-left: 16px; padding-right: 16px; }
+  .editor-foot { padding-left: 16px; padding-right: 16px; }
+  .save-state { order: 10; width: 100%; }
+  .bar-sep { display: none; }
+}
+
+/* What widgets look like on the canvas, at overlay size (the slot scales them). Always dark, like OBS. */
+.slot-preview { font: 16px/1.5 Inter, system-ui, sans-serif; color: #ededef; --surf: #161618; --bord: #3d3d44; }
+.pv-stage { position: absolute; inset: 0; display: grid; place-items: center; }
+.pv-card { min-width: 320px; max-width: 560px; padding: 20px 24px; border-radius: 12px; background: color-mix(in srgb, var(--c) 14%, var(--surf)); border: 1px solid color-mix(in srgb, var(--c) 45%, var(--bord)); }
+.pv-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, var(--c) 70%, #ffffff); font-weight: 600; }
+.pv-name { font-size: 28px; font-weight: 650; letter-spacing: -.02em; }
+.pv-detail { color: #a4a4ac; }
+.pv-list { position: absolute; inset: 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.pv-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--c) 14%, var(--surf)); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--bord)); }
+.pv-row span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c); flex: none; }
+.pv-label-box { position: absolute; inset: 6px; display: flex; align-items: center; padding: 0 16px; gap: 12px; white-space: nowrap; border-radius: 10px; background: color-mix(in srgb, var(--c) 14%, var(--surf)); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--bord)); overflow: hidden; }
+.pv-label-box .pv-label { font-size: 13px; }
+.pv-who { font-size: 22px; font-weight: 650; }
+.pv-amount { color: #a4a4ac; font-size: 18px; }
+.pv-goal { position: absolute; inset: 6px; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: 10px; background: var(--surf); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--bord)); }
+.pv-goal-top { display: flex; justify-content: space-between; gap: 16px; font-size: 18px; font-weight: 650; white-space: nowrap; }
+.pv-goal-top span:last-child { font-weight: 400; color: #a4a4ac; font-size: 16px; }
+.pv-goal-top b { color: #ededef; }
+.pv-track { height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--c) 18%, #0e0e10); overflow: hidden; }
+.pv-track div { height: 100%; background: var(--c); border-radius: 7px; }
+.pv-chat { position: absolute; inset: 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; overflow: hidden; }
+.pv-line { padding: 6px 12px; border-radius: 8px; background: rgba(22, 22, 24, .82); border: 1px solid #2a2a2f; flex: none; }
+.pv-line b { font-weight: 650; margin-right: 6px; color: #c9b8ff; }

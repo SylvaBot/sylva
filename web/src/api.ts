@@ -89,9 +89,12 @@ const ch = (key: string) => `/v1/channels/${encodeURIComponent(key)}`;
 export const api = {
   me: () => request<Me>('GET', '/v1/me'),
   signOut: () => request<unknown>('POST', '/auth/sign-out'),
-  history: (key: string, filter: 'alerts' | 'chat', limit: number, before?: number) =>
-    request<{ headSeq: number; events: SylvaEvent[] }>(
-      'GET', `${ch(key)}/history?filter=${filter}&limit=${limit}${before ? `&before=${before}` : ''}`),
+  history: (key: string, filter: 'alerts' | 'chat', limit: number, before?: number, q?: string) => {
+    const p = new URLSearchParams({ filter, limit: String(limit) });
+    if (before) p.set('before', String(before));
+    if (q) p.set('q', q);
+    return request<{ headSeq: number; events: SylvaEvent[] }>('GET', `${ch(key)}/history?${p}`);
+  },
   summary: (key: string, since: number) => request<Summary>('GET', `${ch(key)}/summary?since=${since}`),
   alert: (key: string, action: 'pause' | 'resume' | 'mute' | 'unmute' | 'skip') =>
     request<AlertState>('POST', `${ch(key)}/alerts/${action}`),

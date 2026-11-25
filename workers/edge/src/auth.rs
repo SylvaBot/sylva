@@ -150,7 +150,7 @@ pub async fn callback(req: &Request, env: &Env) -> Result<Response> {
         Ok(SignIn::Done(token)) => {
             let max_age = SESSION_DAYS * 86_400;
             redirect(
-                "/",
+                "/app",
                 &[
                     clear_state,
                     set_cookie(

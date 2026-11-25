@@ -216,6 +216,20 @@ await check('history is newest first and filters chat from alerts', async () => 
   assert.deepEqual(older.events.map((e) => e.seq), [2]);
 });
 
+await check('history search matches names and messages, literally', async () => {
+  const tester = await getJson(`/v1/channels/${key}/history?filter=alerts&q=tEsTeR`);
+  assert.ok(tester.events.length >= 1);
+  assert.ok(tester.events.every((e) => e.actor.displayName === 'Tester'));
+  const viewer = await getJson(`/v1/channels/${key}/history?filter=alerts&q=${encodeURIComponent('Viewer7')}`);
+  assert.deepEqual(viewer.events.map((e) => e.actor.displayName), ['Viewer7']);
+  // % and _ are not wildcards.
+  const wild = await getJson(`/v1/channels/${key}/history?q=${encodeURIComponent('%')}`);
+  assert.equal(wild.events.length, 0);
+  const blank = await getJson(`/v1/channels/${key}/history?filter=alerts&q=${encodeURIComponent('  ')}`);
+  const plain = await getJson(`/v1/channels/${key}/history?filter=alerts`);
+  assert.equal(blank.events.length, plain.events.length);
+});
+
 await check('a gift of 2 subs plays one alert, not three', async () => {
   const gid = randomChannelId();
   const gkey = `twitch:${gid}`;
@@ -353,7 +367,7 @@ if (!fake || !usesFake) {
   await check('signing in makes an account, subscribes the channel and starts a session', async () => {
     const res = await signIn();
     assert.equal(res.status, 302);
-    assert.equal(res.headers.get('location'), '/');
+    assert.equal(res.headers.get('location'), '/app');
     session = cookieOf(res, 'sylva_session');
     assert.match(session, /^[0-9a-f]{32}\.[0-9a-f]{64}$/);
     assert.equal(cookieOf(res, 'sylva_oauth'), '', 'the state cookie is cleared');

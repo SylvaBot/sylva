@@ -133,6 +133,40 @@ function Item({ e, fresh, onReplay }: { e: SylvaEvent; fresh: boolean; onReplay(
   );
 }
 
+/** Counts per group for events in the last 24 hours. */
+export function lastDay(events: SylvaEvent[]): { counts: Record<string, number>; total: number } {
+  const counts: Record<string, number> = Object.fromEntries(GROUPS.map((g) => [g.id, 0]));
+  let total = 0;
+  const now = Date.now();
+  for (const e of events) {
+    if (now - Date.parse(e.createdAt) >= DAY) continue;
+    counts[groupOf(e.kind).id]++;
+    total++;
+  }
+  return { counts, total };
+}
+
+/** Re-render every 30 s so "5m ago" and 24 hour counts stay true. */
+export function useTick() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((x) => x + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
+}
+
+export function MixBar({ counts, total }: { counts: Record<string, number>; total: number }) {
+  return (
+    <div className={'mix' + (total === 0 ? ' empty' : '')} aria-hidden="true">
+      {total === 0
+        ? <span style={{ flexGrow: 1 }} />
+        : GROUPS.filter((g) => counts[g.id] > 0).map((g) => (
+          <span key={g.id} className={g.color} style={{ flexGrow: counts[g.id] }} title={`${num(counts[g.id])} ${g.label.toLowerCase()}`} />
+        ))}
+    </div>
+  );
+}
+
 function loadShown(): Set<string> {
   try {
     const v = JSON.parse(localStorage.getItem('shownGroups') || '[]');
@@ -146,28 +180,9 @@ function saveShown(s: Set<string>) {
   try { localStorage.setItem('shownGroups', JSON.stringify([...s])); } catch { /* private window */ }
 }
 
-export function Feed(props: {
-  events: SylvaEvent[];
-  freshFrom: number;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onMore(): void;
-  onReplay(e: SylvaEvent): Promise<void>;
-}) {
+/** Which groups are shown; empty means all. Remembered in this browser. */
+export function useShown(): [Set<string>, (id: string | null) => void] {
   const [shown, setShown] = useState(loadShown);
-  // Re-render every 30 s so "5m ago" and the 24 hour mix stay true.
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((x) => x + 1), 30000);
-    return () => clearInterval(t);
-  }, []);
-
-  const recent = props.events.filter((e) => Date.now() - Date.parse(e.createdAt) < DAY);
-  const counts: Record<string, number> = Object.fromEntries(GROUPS.map((g) => [g.id, 0]));
-  for (const e of recent) counts[groupOf(e.kind).id]++;
-  const total = recent.length;
-  const visible = props.events.filter((e) => !shown.size || shown.has(groupOf(e.kind).id));
-
   const toggle = (id: string | null) => {
     const next = new Set(shown);
     if (id === null) next.clear();
@@ -176,57 +191,47 @@ export function Feed(props: {
     saveShown(next);
     setShown(next);
   };
+  return [shown, toggle];
+}
 
+export function Filters(props: { shown: Set<string>; toggle(id: string | null): void; counts?: Record<string, number>; total?: number }) {
+  const { shown, toggle, counts } = props;
   return (
-    <section className="feed-card" aria-labelledby="feed-title">
-      <div className="feed-head">
-        <div>
-          <h2 id="feed-title">Recent activity</h2>
-          <p className="feed-sub">{total === 1 ? '1 event in the last 24 hours' : `${num(total)} events in the last 24 hours`}</p>
-        </div>
-      </div>
-      <div className={'mix' + (total === 0 ? ' empty' : '')} aria-hidden="true">
-        {total === 0
-          ? <span style={{ flexGrow: 1 }} />
-          : GROUPS.filter((g) => counts[g.id] > 0).map((g) => (
-            <span key={g.id} className={g.color} style={{ flexGrow: counts[g.id] }} title={`${num(counts[g.id])} ${g.label.toLowerCase()}`} />
-          ))}
-      </div>
-      <div className="filters" role="group" aria-label="Filter activity">
-        <button className="filter" type="button" aria-pressed={shown.size === 0} onClick={() => toggle(null)}>
-          All<span className="count">{num(total)}</span>
+    <div className="filters" role="group" aria-label="Filter activity by kind">
+      <button className="filter" type="button" aria-pressed={shown.size === 0} onClick={() => toggle(null)}>
+        All{props.total !== undefined && <span className="count">{num(props.total)}</span>}
+      </button>
+      {GROUPS.filter((g) => g.id !== 'other' || (counts?.other ?? 0) > 0 || shown.has('other')).map((g) => (
+        <button
+          key={g.id}
+          className={'filter ' + g.color}
+          type="button"
+          title={`Show ${g.label.toLowerCase()} (choose more than one to combine)`}
+          aria-pressed={shown.has(g.id)}
+          onClick={() => toggle(g.id)}
+        >
+          <span className="bar" />{g.label}{counts && <span className="count">{num(counts[g.id])}</span>}
         </button>
-        {GROUPS.filter((g) => g.id !== 'other' || counts.other > 0 || shown.has('other')).map((g) => (
-          <button
-            key={g.id}
-            className={'filter ' + g.color}
-            type="button"
-            title={`Show ${g.label.toLowerCase()} (click more than one to combine)`}
-            aria-pressed={shown.has(g.id)}
-            onClick={() => toggle(g.id)}
-          >
-            <span className="bar" />{g.label}<span className="count">{num(counts[g.id])}</span>
-          </button>
-        ))}
-      </div>
-      {visible.length > 0 ? (
-        <ol className="feed" aria-live="polite">
-          {visible.map((e) => <Item key={e.seq} e={e} fresh={e.seq > props.freshFrom} onReplay={props.onReplay} />)}
-        </ol>
-      ) : (
-        <p className="empty">
-          {props.events.length
-            ? 'Nothing here for this filter yet.'
-            : 'No activity yet. Follows, subs, cheers and raids appear here the moment they happen.'}
-        </p>
-      )}
-      {props.hasMore && (
-        <div className="feed-more">
-          <button className="btn" type="button" disabled={props.loadingMore} onClick={props.onMore}>
-            {props.loadingMore ? 'Loading' : 'Show older'}
-          </button>
-        </div>
-      )}
-    </section>
+      ))}
+    </div>
+  );
+}
+
+export const matchesShown = (shown: Set<string>) => (e: SylvaEvent) => !shown.size || shown.has(groupOf(e.kind).id);
+
+export function FeedList(props: {
+  events: SylvaEvent[];
+  freshFrom: number;
+  onReplay(e: SylvaEvent): Promise<void>;
+  empty: ReactNode;
+  flush?: boolean;
+}) {
+  if (!props.events.length) {
+    return <div className="empty"><Icon id="activity" />{props.empty}</div>;
+  }
+  return (
+    <ol className={'feed' + (props.flush ? ' flush' : '')} aria-live="polite">
+      {props.events.map((e) => <Item key={e.seq} e={e} fresh={e.seq > props.freshFrom} onReplay={props.onReplay} />)}
+    </ol>
   );
 }

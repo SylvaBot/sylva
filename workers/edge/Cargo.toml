@@ -1,0 +1,21 @@
+[package]
+name = "sylva-edge"
+description = "Sylva's Cloudflare Worker: Twitch EventSub webhooks, the realtime API and one Durable Object per channel."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = "0.9.0"
+serde.workspace = true
+serde_json.workspace = true
+sylva-core.workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+# Drop function names from the release module to keep it small. Use ["-Oz", "-g"]
+# while profiling to keep names in stack traces.
+wasm-opt = ["-Oz"]

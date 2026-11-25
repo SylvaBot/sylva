@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sylva overlay</title>
+<style>
+  /* Phase 0 test overlay. Colors and shapes follow Cortex: flat surfaces, 1px
+     borders, one color per event kind, 12px card radius, 450ms arrive. */
+  :root {
+    --surface: #161618; --border: #3d3d44; --text: #ededef; --muted: #94949c;
+    --follow: #3ecf74; --subscriber: #9b7bf7; --giftedSub: #ec5c9e; --communityGift: #ec5c9e;
+    --cheer: #5b8def; --tip: #eab308; --redemption: #f08a3c; --raid: #2bbfae; --other: #8b8b94;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+  }
+  html, body { margin: 0; background: transparent; font: 14px/1.5 Inter, system-ui, sans-serif; color: var(--text); }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  .card {
+    --c: var(--other);
+    min-width: 320px; max-width: 560px; padding: 20px 24px; border-radius: 12px;
+    background: color-mix(in srgb, var(--c) 14%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--c) 45%, var(--border));
+    animation: arrive 450ms var(--ease) both;
+  }
+  .card.leave { animation: leave 300ms var(--ease) both; }
+  .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--c); }
+  .name { font-size: 28px; font-weight: 650; letter-spacing: -.02em; }
+  .detail { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .message { margin-top: 6px; }
+  #status { position: fixed; left: 8px; bottom: 8px; font-size: 11px; color: var(--muted); display: none; }
+  body.debug #status { display: block; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(12px) scale(.98); } }
+  @keyframes leave { to { opacity: 0; transform: translateY(-8px); } }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="status">connecting</div>
+<script>
+(() => {
+  const key = decodeURIComponent(location.pathname.split('/').pop());
+  const params = new URLSearchParams(location.search);
+  const showMs = Number(params.get('duration') || 5000);
+  if (params.has('debug')) document.body.classList.add('debug');
+  const stage = document.getElementById('stage');
+  const status = document.getElementById('status');
+
+  const LABELS = {
+    follow: 'New follower', subscriber: 'New subscriber', giftedSub: 'Gifted sub',
+    communityGift: 'Gifted subs', cheer: 'Cheer', tip: 'Tip', redemption: 'Redemption', raid: 'Raid',
+  };
+  const detail = (e) => {
+    switch (e.kind) {
+      case 'cheer': return `${e.amount} bits`;
+      case 'raid': return `with ${e.amount} viewers`;
+      case 'communityGift': return `gave ${e.amount} subs`;
+      case 'subscriber': return e.amount ? `${e.amount} months` : '';
+      case 'redemption': return e.redemption || '';
+      default: return '';
+    }
+  };
+
+  let ws, current = null, timer = null, backoff = 500;
+  // Exposed for automated tests.
+  window.sylva = { shown: [], acked: [] };
+
+  function render(alertId, e) {
+    stage.textContent = '';
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.alertId = alertId;
+    card.style.setProperty('--c', `var(--${e.kind in LABELS ? e.kind : 'other'})`);
+    const add = (cls, text) => {
+      if (!text) return;
+      const el = document.createElement('div');
+      el.className = cls; el.textContent = text; card.appendChild(el);
+    };
+    add('label', LABELS[e.kind] || e.rawType);
+    add('name', e.actor ? e.actor.displayName : 'Anonymous');
+    add('detail', detail(e));
+    add('message', e.message);
+    stage.appendChild(card);
+  }
+
+  function hide() {
+    const card = stage.querySelector('.card');
+    if (card) { card.classList.add('leave'); setTimeout(() => card.remove(), 300); }
+  }
+
+  function play(frame) {
+    clearTimeout(timer);
+    current = frame.alertId;
+    window.sylva.shown.push(frame.alertId);
+    render(frame.alertId, frame.event);
+    timer = setTimeout(() => {
+      hide();
+      if (ws && ws.readyState === 1 && current === frame.alertId) {
+        ws.send(JSON.stringify({ type: 'ack', alertId: frame.alertId }));
+        window.sylva.acked.push(frame.alertId);
+      }
+      current = null;
+    }, showMs);
+  }
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/v1/channels/${key}/ws`);
+    ws.onopen = () => {
+      backoff = 500;
+      status.textContent = 'connected';
+      ws.send(JSON.stringify({ type: 'hello', role: 'overlay' }));
+    };
+    ws.onmessage = (m) => {
+      const f = JSON.parse(m.data);
+      if (f.type === 'play') play(f);
+      else if (f.type === 'stop' && f.alertId === current) { clearTimeout(timer); hide(); current = null; }
+      else if (f.type === 'ready' || f.type === 'state') {
+        const s = f.state || f;
+        status.textContent = `connected, ${s.queued} queued${s.paused ? ', paused' : ''}${s.muted ? ', muted' : ''}`;
+      }
+    };
+    ws.onclose = () => {
+      status.textContent = 'reconnecting';
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 10000);
+    };
+  }
+  // Keepalive. The server's runtime answers this without waking the channel.
+  setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"type":"ping"}'); }, 30000);
+  connect();
+})();
+</script>
+</body>
+</html>

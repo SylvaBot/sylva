@@ -47,6 +47,10 @@ Send `Authorization: Bearer sylva_...` on every request. API tokens do not expir
 | `GET` / `POST /v1/channels/{key}/bot` | The chat bot: on or off, its commands and its timers. The answer also says when each timer posts next, or what it waits for. |
 | `POST /v1/channels/{key}/bot/try` | `{"message": "!lurk", "level": "everyone"}`. What the bot would answer, without sending. |
 | `POST /v1/channels/{key}/bot/timers/{id}/send` | Posts a timer now and restarts its clock. 404 for an unknown timer, 409 while the bot is off. |
+| `GET` / `POST /v1/channels/{key}/moderation` | Moderation rules: `preset`, `rules`, `exempt`, `steps`, `words`, `allowedLinks`, `notice`. The answer adds `permission` (`ok`, `missing` or `expired`) and what each preset sets. |
+| `POST /v1/channels/{key}/moderation/try` | `{"message": "...", "level": "everyone", "settings": {...}}`. Which rule the message breaks, if any, without acting. `settings` is optional, to try unsaved rules. |
+| `GET /v1/channels/{key}/moderation/log?before=&limit=50` | What Sylva did, newest first. |
+| `POST /v1/channels/{key}/moderation/log/{id}/undo` | Lifts a timeout that is still running. 409 for a removed message, which Twitch cannot bring back. |
 | `GET /v1/channels/{key}/scene` | The overlay layout: `draft`, `published` (with `version`) and `versions`. |
 | `POST /v1/channels/{key}/scene`, `.../scene/publish`, `.../scene/restore/{version}` | Save the draft, publish it, or bring a version back into the draft. |
 | `GET /v1/channels/{key}/ws` | The live socket. Send `{"type":"hello","role":"feed","lastSeq":N}` first; see `crates/sylva-core/src/protocol.rs`. |

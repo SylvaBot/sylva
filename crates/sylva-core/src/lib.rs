@@ -8,6 +8,7 @@ pub mod apps;
 pub mod auth;
 pub mod bot;
 pub mod event;
+pub mod moderation;
 pub mod protocol;
 pub mod scene;
 pub mod twitch;

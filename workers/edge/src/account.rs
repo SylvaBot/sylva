@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS channels (
     role     TEXT NOT NULL,
     added_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS grants (
+    purpose          TEXT NOT NULL,
+    platform         TEXT NOT NULL,
+    platform_user_id TEXT NOT NULL,
+    scopes           TEXT NOT NULL,
+    access_token     TEXT NOT NULL,
+    refresh_token    TEXT NOT NULL,
+    expires_at       INTEGER NOT NULL,
+    PRIMARY KEY (purpose, platform, platform_user_id)
+);
 ";
 
 const DIRECTORY_SCHEMA: &str = "
@@ -170,6 +180,34 @@ pub struct TokenCreate {
 #[derive(Serialize, Deserialize)]
 pub struct TokenDelete {
     pub id: String,
+}
+
+/// Tokens kept for one purpose, such as `moderation`, separate from the sign
+/// in tokens. A later sign in that asks for fewer scopes replaces the sign in
+/// tokens but leaves these alone, so moderation keeps working. Tokens are
+/// sealed with `SYLVA_TOKEN_KEY`.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Grant {
+    pub purpose: String,
+    pub platform: String,
+    pub platform_user_id: String,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default)]
+    pub access_token: String,
+    #[serde(default)]
+    pub refresh_token: String,
+    #[serde(default)]
+    pub expires_at: i64,
+}
+
+#[derive(Deserialize)]
+struct GrantRow {
+    scopes: String,
+    access_token: String,
+    refresh_token: String,
+    expires_at: f64,
 }
 
 /// What an account held that the Worker still has to clean up elsewhere.
@@ -305,17 +343,72 @@ impl DurableObject for AccountDo {
                     .exec("DELETE FROM api_tokens WHERE id = ?", vec![t.id.into()])?;
                 Response::empty().map(|r| r.with_status(204))
             }
+            (Method::Post, "/grant") => {
+                let g: Grant = req.json().await?;
+                let row = self
+                    .sql
+                    .exec(
+                        "SELECT scopes, access_token, refresh_token, expires_at FROM grants
+                         WHERE purpose = ? AND platform = ? AND platform_user_id = ?",
+                        vec![
+                            g.purpose.clone().into(),
+                            g.platform.clone().into(),
+                            g.platform_user_id.clone().into(),
+                        ],
+                    )?
+                    .to_array::<GrantRow>()?
+                    .into_iter()
+                    .next();
+                match row {
+                    Some(r) => Response::from_json(&Grant {
+                        scopes: r.scopes.split_whitespace().map(String::from).collect(),
+                        access_token: r.access_token,
+                        refresh_token: r.refresh_token,
+                        expires_at: r.expires_at as i64,
+                        ..g
+                    }),
+                    None => Response::error("No grant", 404),
+                }
+            }
+            (Method::Post, "/grant/save") => {
+                let g: Grant = req.json().await?;
+                self.save_grant(&g)?;
+                Response::empty().map(|r| r.with_status(204))
+            }
+            (Method::Post, "/grant/delete") => {
+                let g: Grant = req.json().await?;
+                self.sql.exec(
+                    "DELETE FROM grants WHERE purpose = ? AND platform = ? AND platform_user_id = ?",
+                    vec![
+                        g.purpose.into(),
+                        g.platform.into(),
+                        g.platform_user_id.into(),
+                    ],
+                )?;
+                Response::empty().map(|r| r.with_status(204))
+            }
             (Method::Post, "/erase") => {
                 // Hand back the sealed Twitch tokens so the Worker can revoke
                 // them, then forget everything.
                 let tokens: Vec<String> = self
                     .sql
-                    .exec("SELECT access_token AS value FROM identities", None)?
+                    .exec(
+                        "SELECT access_token AS value FROM identities
+                         UNION SELECT access_token AS value FROM grants",
+                        None,
+                    )?
                     .to_array::<TextRow>()?
                     .into_iter()
                     .map(|r| r.value)
                     .collect();
-                for table in ["identities", "sessions", "api_tokens", "channels", "meta"] {
+                for table in [
+                    "identities",
+                    "grants",
+                    "sessions",
+                    "api_tokens",
+                    "channels",
+                    "meta",
+                ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
                 Response::from_json(&Erased {
@@ -334,6 +427,27 @@ impl DurableObject for AccountDo {
 }
 
 impl AccountDo {
+    fn save_grant(&self, g: &Grant) -> Result<()> {
+        self.sql.exec(
+            "INSERT INTO grants (purpose, platform, platform_user_id, scopes, access_token,
+                                 refresh_token, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(purpose, platform, platform_user_id) DO UPDATE SET
+                scopes = excluded.scopes, access_token = excluded.access_token,
+                refresh_token = excluded.refresh_token, expires_at = excluded.expires_at",
+            vec![
+                g.purpose.clone().into(),
+                g.platform.clone().into(),
+                g.platform_user_id.clone().into(),
+                g.scopes.join(" ").into(),
+                g.access_token.clone().into(),
+                g.refresh_token.clone().into(),
+                g.expires_at.into(),
+            ],
+        )?;
+        Ok(())
+    }
+
     fn link(&self, link: LinkRequest) -> Result<()> {
         let now = now_ms();
         self.sql.exec(
@@ -345,6 +459,17 @@ impl AccountDo {
             vec![now.to_string().into()],
         )?;
         let i = link.identity;
+        if sylva_core::auth::can_moderate(&i.scopes) {
+            self.save_grant(&Grant {
+                purpose: "moderation".into(),
+                platform: i.platform.clone(),
+                platform_user_id: i.platform_user_id.clone(),
+                scopes: i.scopes.clone(),
+                access_token: i.access_token.clone(),
+                refresh_token: i.refresh_token.clone(),
+                expires_at: i.expires_at,
+            })?;
+        }
         self.sql.exec(
             "INSERT INTO identities (platform, platform_user_id, login, display_name, avatar, scopes,
                                      access_token, refresh_token, expires_at, updated_at)
@@ -436,6 +561,14 @@ pub struct ResolveResult {
     pub created: bool,
 }
 
+/// Which account holds a platform identity, without making one.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Lookup {
+    pub platform: String,
+    pub platform_user_id: String,
+}
+
 #[durable_object]
 pub struct DirectoryDo {
     sql: SqlStorage,
@@ -454,6 +587,25 @@ impl DurableObject for DirectoryDo {
         }
         match req.path().as_str() {
             "/resolve" => self.resolve(req.json().await?),
+            "/lookup" => {
+                let r: Lookup = req.json().await?;
+                let found = self
+                    .sql
+                    .exec(
+                        "SELECT account_id AS value FROM identities
+                         WHERE platform = ? AND platform_user_id = ?",
+                        vec![r.platform.into(), r.platform_user_id.into()],
+                    )?
+                    .to_array::<TextRow>()?
+                    .into_iter()
+                    .next();
+                match found {
+                    Some(row) => {
+                        Response::from_json(&serde_json::json!({ "accountId": row.value }))
+                    }
+                    None => Response::error("No account", 404),
+                }
+            }
             "/device/start" => self.device_start(req.json().await?),
             "/device/lookup" => self.device_lookup(req.json().await?),
             "/device/decide" => self.device_decide(req.json().await?),

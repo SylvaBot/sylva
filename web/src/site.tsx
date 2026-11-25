@@ -59,12 +59,20 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             they are stored. Sylva uses them only to receive your channel's events and chat.
           </li>
           <li>
+            <b>Moderation permission, if you allow it:</b> a second pair of Twitch tokens that may remove
+            messages and time out chatters, encrypted the same way and used only for the moderation rules you turn on.
+          </li>
+          <li>
             <b>Your channel's activity:</b> follows, subs, gifted subs, cheers, raids, chat messages, and
             when your stream starts, ends or changes title, with the viewer names Twitch sends. This is your
             Activity feed and history.
           </li>
           <li><b>Your settings:</b> alert settings, your goal, your overlay layouts, whether alerts are paused or muted, and your overlay link.</li>
-          <li><b>Your chat bot:</b> its commands, how often each was used, and when each was last used, for cooldowns.</li>
+          <li><b>Your chat bot:</b> its commands and timers, how often each command was used, and when each was last used, for cooldowns.</li>
+          <li>
+            <b>Moderation:</b> your rules and word lists, and a log of the last 500 actions with the message
+            that broke a rule and who sent it. Strikes against a chatter are forgotten after an hour.
+          </li>
           <li>
             <b>Sign ins:</b> for each browser session and each connected app (such as Cortex), a one way hash
             of its secret, when it was made and when an app was last used. Sylva cannot recover the secret from it.
@@ -73,7 +81,7 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
 
         <h2>What Sylva does not do</h2>
         <ul>
-          <li>It posts in your chat only when you turn on the chat bot, and then only to answer commands you set up. It does not change anything else on your channel.</li>
+          <li>It posts in your chat only when you turn on the chat bot (to answer your commands and post your timers) or moderation notices, and it removes messages or times out chatters only under moderation rules you turn on. It does not change anything else on your channel.</li>
           <li>It does not sell your data, show ads, or share data with anyone for advertising.</li>
           <li>It has no analytics or tracking scripts, and loads nothing from other sites except Twitch profile pictures.</li>
         </ul>

@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, BASE, admin, chat, chatLine, Client, follow, getJson, randomChannelId, sendEventSub, sleep } from './lib.mjs';
-import { FAKE_PORT, FAKE_USER, startFakeTwitch } from './fake-twitch.mjs';
+import { FAKE_PORT, FAKE_USER, MOD_SCOPES, startFakeTwitch } from './fake-twitch.mjs';
 
 const results = [];
 async function check(name, fn) {
@@ -781,8 +781,108 @@ if (!fake || !usesFake) {
       assert.equal(cookieOf(res, 'sylva_session'), null);
     } finally {
       fake.state.grant = ['moderator:read:followers', 'channel:read:subscriptions', 'bits:read',
-                          'user:read:chat', 'user:bot', 'channel:bot'];
+                          'user:read:chat', 'user:bot', 'channel:bot', ...MOD_SCOPES];
     }
+  });
+
+  await check('moderation deletes, then times out, logs it, and lifts a timeout', async () => {
+    const tid = FAKE_USER.id;
+    const path = `/v1/channels/twitch:${tid}/moderation`;
+    const post = (p, body) => fetch(`${BASE}${p}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+    const log = async () => (await getJson(`${path}/log`)).entries;
+    const acts = () => fake.state.modActions.filter((a) => a.broadcaster_id === tid);
+    const say = (text, opts = {}) => sendEventSub(chatLine(tid, { text, ...opts }));
+
+    const first = await getJson(path);
+    assert.equal(first.settings.preset, 'off');
+    assert.equal(first.permission, 'missing', 'a plain sign in does not allow moderation');
+    assert.deepEqual(first.presets.map(([p]) => p), ['relaxed', 'standard', 'strict']);
+
+    const bad = await post(path, { ...first.settings, preset: 'custom', allowedLinks: ['not a site'] });
+    assert.equal(bad.status, 400);
+    const saved = await (await post(path, { ...first.settings, preset: 'standard', words: ['Badword'] })).json();
+    assert.equal(saved.settings.preset, 'standard');
+    assert.equal(saved.settings.rules.caps.on, true);
+    assert.deepEqual(saved.settings.steps, [0, 300, 1800]);
+    assert.deepEqual(saved.settings.words, ['badword']);
+
+    const tried = await (await post(`${path}/try`, { message: 'WHY IS EVERYONE SHOUTING TODAY' })).json();
+    assert.deepEqual(tried, { rule: 'caps', skipped: false, steps: [0, 300, 1800] });
+    const vip = await (await post(`${path}/try`, { message: 'WHY IS EVERYONE SHOUTING TODAY', level: 'vip' })).json();
+    assert.equal(vip.skipped, true);
+
+    // Not allowed yet: the line is logged as failed and nothing reaches Twitch.
+    await say('cheap followers at spam.xyz', { id: '9001', name: 'Spammy' });
+    let entries = await log();
+    assert.equal(entries[0].rule, 'links');
+    assert.equal(entries[0].result, 'failed');
+    assert.match(entries[0].detail, /Allow moderation/);
+    assert.deepEqual(acts(), []);
+
+    // Allow moderation. The token is already expired, so Sylva must refresh it.
+    const start = await fetch(`${BASE}/auth/twitch/start?scopes=moderation&next=/app/moderation`, { redirect: 'manual' });
+    assert.match(new URL(start.headers.get('location')).searchParams.get('scope'), / moderator:manage:chat_messages moderator:manage:banned_users$/);
+    fake.state.tokenTtl = 0;
+    let done;
+    try {
+      const approve = await fetch(start.headers.get('location'), { redirect: 'manual' });
+      done = await fetch(approve.headers.get('location'), { redirect: 'manual', headers: { Cookie: `sylva_oauth=${cookieOf(start, 'sylva_oauth')}; sylva_next=${cookieOf(start, 'sylva_next')}` } });
+    } finally {
+      fake.state.tokenTtl = 14000;
+    }
+    assert.equal(done.headers.get('location'), '/app/moderation');
+    const refreshes = () => fake.state.tokenRequests.filter((r) => r.grant_type === 'refresh_token').length;
+    const before = refreshes();
+    assert.equal((await getJson(path)).permission, 'ok');
+    assert.equal(refreshes(), before + 1, 'the expired token was refreshed');
+    // A later plain sign in asks for less, but moderation keeps working.
+    await signIn();
+    assert.equal((await getJson(path)).permission, 'ok');
+
+    const sent = () => fake.state.chatSent.filter((m) => m.broadcaster_id === tid).map((m) => m.message);
+    const chatBefore = sent().length;
+    await say('cheap followers at spam.xyz', { id: '9001', name: 'Spammy' });
+    assert.equal(acts().at(-1).type, 'delete', 'a strike that never reached Twitch does not count');
+    await say('this badword here', { id: '9002', name: 'Rude' });
+    assert.equal(acts().length, 2);
+    assert.equal(acts()[1].type, 'delete');
+    assert.ok(acts()[1].message_id);
+    assert.deepEqual(sent().slice(chatBefore), ['@Spammy, links are not allowed here (message removed).'],
+      'notices are spaced out, so the second one is not sent');
+
+    // Again within the hour: a timeout.
+    await say('BUY NOW cheap.xyz', { id: '9002', name: 'Rude' });
+    const timeout = acts().at(-1);
+    assert.deepEqual([timeout.type, timeout.user_id, timeout.duration], ['timeout', '9002', 300]);
+    entries = await log();
+    assert.deepEqual([entries[0].action, entries[0].seconds, entries[0].result, entries[0].user], ['timeout', 300, 'done', 'Rude']);
+
+    // Moderators, VIPs and the streamer are left alone; subscribers are not.
+    const count = acts().length;
+    await say('spam.xyz', { id: '9003', name: 'Mod', badges: ['moderator'] });
+    await say('spam.xyz', { id: '9004', name: 'Vippy', badges: ['vip'] });
+    await say('spam.xyz', { id: tid, name: FAKE_USER.display_name });
+    assert.equal(acts().length, count);
+    await say('spam.xyz', { id: '9005', name: 'Subby', badges: ['subscriber'] });
+    assert.equal(acts().length, count + 1);
+
+    // Lift the timeout from the log; a deleted message cannot come back.
+    const undo = await post(`${path}/log/${entries[0].id}/undo`);
+    assert.equal(undo.status, 200);
+    assert.ok((await undo.json()).undoneAt);
+    assert.deepEqual(acts().at(-1), { type: 'unban', broadcaster_id: tid, moderator_id: tid, user_id: '9002' });
+    assert.equal((await post(`${path}/log/${entries[0].id}/undo`)).status, 409);
+    const deleted = (await log()).find((e) => e.action === 'delete' && e.result === 'done');
+    assert.match(await (await post(`${path}/log/${deleted.id}/undo`)).text(), /cannot bring back/);
+    assert.equal((await post(`${path}/log/999999/undo`)).status, 404);
+
+    // Off again, so the rest of the run is not moderated.
+    await post(path, { ...saved.settings, preset: 'off' });
+    await say('spam.xyz', { id: '9006', name: 'Late' });
+    assert.equal(acts().length, count + 2);
   });
 
   const json = (body) => ({ 'Content-Type': 'application/json', ...body });
@@ -935,6 +1035,7 @@ if (!fake || !usesFake) {
     assert.ok(fake.state.revoked.length > before, 'the Twitch token was revoked');
     const hist = await fetch(`${chUrl}/history?filter=alerts`, { headers: { Authorization: `Bearer ${ADMIN}` } });
     assert.deepEqual((await hist.json()).events, []);
+    assert.deepEqual((await getJson(`/v1/channels/${encodeURIComponent(mine)}/moderation/log`)).entries, [], 'the moderation log is erased');
 
     // Signing in again starts a new, empty account.
     session = cookieOf(await signIn(), 'sylva_session');

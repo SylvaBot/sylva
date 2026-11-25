@@ -24,6 +24,10 @@ use sylva_core::alerts::{AlertSettings, Invalid};
 use sylva_core::protocol::{
     AlertAction, AlertState, ClientFrame, Role, ServerFrame, PING, PONG, REPLAY_LIMIT,
 };
+use sylva_core::widgets::{
+    GoalKind, GoalView, WidgetData, WidgetSettings, CHAT_LIMIT, LATEST_KINDS, LIST_KINDS,
+    RECENT_LIMIT,
+};
 use sylva_core::{Event, StoredEvent};
 use worker::*;
 
@@ -282,6 +286,32 @@ impl DurableObject for ChannelDo {
                     Err(Invalid(message)) => Response::error(message, 400),
                 }
             }
+            (Method::Get, ["widget-settings"]) => Response::from_json(&self.widget_settings()?),
+            (Method::Post, ["widget-settings"]) => {
+                let Ok(body) = req.json::<WidgetSettings>().await else {
+                    return Response::error("Those settings could not be read", 400);
+                };
+                match body.validated() {
+                    Ok(settings) => {
+                        self.sql.exec(
+                            "INSERT INTO config (key, value) VALUES ('widget_settings', ?)
+                             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            vec![serde_json::to_string(&settings)?.into()],
+                        )?;
+                        // Widgets on screen pick up the new goal at once.
+                        let sockets = self.sockets(Role::Widget);
+                        if !sockets.is_empty() {
+                            let text =
+                                serde_json::to_string(&ServerFrame::Widgets(self.widget_data()?))?;
+                            for ws in sockets {
+                                let _ = ws.send_with_str(&text);
+                            }
+                        }
+                        Response::from_json(&settings)
+                    }
+                    Err(Invalid(message)) => Response::error(message, 400),
+                }
+            }
             (Method::Get, ["overlay-token"]) => {
                 Response::from_json(&serde_json::json!({ "token": self.overlay_token()? }))
             }
@@ -388,11 +418,11 @@ impl DurableObject for ChannelDo {
         match frame {
             ClientFrame::Hello { role, last_seq } => {
                 let access = socket_info(&ws).map_or(Access::Overlay, |i| i.access);
-                if access == Access::Overlay && role != Role::Overlay {
+                if access == Access::Overlay && role == Role::Feed {
                     let _ = send(
                         &ws,
                         &ServerFrame::Error {
-                            message: "This link only works as an overlay.".into(),
+                            message: "This link only works as an overlay or a widget.".into(),
                         },
                     );
                     let _ = ws.close(Some(CLOSE_NOT_ALLOWED), Some("overlay link"));
@@ -424,6 +454,9 @@ impl DurableObject for ChannelDo {
                         state: self.alert_state()?,
                     },
                 )?;
+                if role == Role::Widget {
+                    send(&ws, &ServerFrame::Widgets(self.widget_data()?))?;
+                }
                 if role == Role::Overlay {
                     // An OBS reload lands here: show the alert it was in the middle of.
                     if let Some(p) = self.playing()? {
@@ -702,6 +735,108 @@ impl ChannelDo {
             .into_iter()
             .filter(|ws| socket_info(ws).is_some_and(|i| i.role == Some(role)))
             .collect()
+    }
+
+    fn widget_settings(&self) -> Result<WidgetSettings> {
+        let rows = self
+            .sql
+            .exec(
+                "SELECT value FROM config WHERE key = 'widget_settings'",
+                None,
+            )?
+            .to_array::<TextRow>()?;
+        Ok(rows
+            .first()
+            .and_then(|r| serde_json::from_str(&r.value).ok())
+            .unwrap_or_default())
+    }
+
+    fn kind_list(kinds: &[sylva_core::EventKind]) -> Result<String> {
+        let names: Vec<String> = kinds
+            .iter()
+            .map(|k| {
+                Ok(format!(
+                    "'{}'",
+                    serde_json::to_value(k)?.as_str().unwrap_or("other")
+                ))
+            })
+            .collect::<Result<_>>()?;
+        Ok(names.join(", "))
+    }
+
+    fn rows_to_events(rows: Vec<EventRow>) -> Result<Vec<StoredEvent>> {
+        rows.into_iter()
+            .map(|r| {
+                Ok(StoredEvent {
+                    seq: r.seq as u64,
+                    received_at: r.received_at as i64,
+                    event: serde_json::from_str(&r.body)?,
+                })
+            })
+            .collect()
+    }
+
+    /// What a widget shows when it connects.
+    fn widget_data(&self) -> Result<WidgetData> {
+        let recent = self
+            .sql
+            .exec(
+                &format!(
+                    "SELECT seq, received_at, body FROM events WHERE kind IN ({})
+                     ORDER BY seq DESC LIMIT ?",
+                    Self::kind_list(&LIST_KINDS)?
+                ),
+                vec![(RECENT_LIMIT as i64).into()],
+            )?
+            .to_array::<EventRow>()?;
+        let mut latest = Vec::new();
+        for kind in LATEST_KINDS {
+            let name = serde_json::to_value(kind)?;
+            let rows = self
+                .sql
+                .exec(
+                    "SELECT seq, received_at, body FROM events WHERE kind = ?
+                     ORDER BY seq DESC LIMIT 1",
+                    vec![name.as_str().unwrap_or("other").into()],
+                )?
+                .to_array::<EventRow>()?;
+            latest.extend(Self::rows_to_events(rows)?);
+        }
+        let mut chat = Self::rows_to_events(
+            self.sql
+                .exec(
+                    "SELECT seq, received_at, body FROM events WHERE kind = 'chat'
+                     ORDER BY seq DESC LIMIT ?",
+                    vec![(CHAT_LIMIT as i64).into()],
+                )?
+                .to_array::<EventRow>()?,
+        )?;
+        chat.reverse();
+        let goal = match self.widget_settings()?.goal {
+            Some(g) => {
+                let sum = self.summary(g.since)?;
+                let n = |k: &str| sum.counts.get(k).copied().unwrap_or(0) as f64;
+                let current = match g.kind {
+                    GoalKind::Follows => n("follow"),
+                    GoalKind::Subs => n("subscriber") + n("giftedSub"),
+                    GoalKind::Bits => sum.bits as f64,
+                };
+                Some(GoalView {
+                    title: g.title,
+                    kind: g.kind,
+                    target: g.target,
+                    current,
+                    since: g.since,
+                })
+            }
+            None => None,
+        };
+        Ok(WidgetData {
+            recent: Self::rows_to_events(recent)?,
+            latest,
+            chat,
+            goal,
+        })
     }
 
     fn alert_settings(&self) -> Result<AlertSettings> {

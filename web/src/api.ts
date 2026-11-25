@@ -63,6 +63,10 @@ export interface KindSettings {
 }
 export interface AlertSettings { kinds: KindSettings[] }
 
+export type GoalKind = 'follows' | 'subs' | 'bits';
+export interface Goal { title: string; kind: GoalKind; target: number; since: number }
+export interface WidgetSettings { goal?: Goal | null }
+
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
 export interface FeatureStatus { feature: Feature; on: boolean; problems: string[] }
 
@@ -114,6 +118,8 @@ export const api = {
     request<{ seq: number; duplicate: boolean; alert: boolean }>('POST', `${ch(key)}/test-event`, e),
   alertSettings: (key: string) => request<AlertSettings>('GET', `${ch(key)}/alert-settings`),
   saveAlertSettings: (key: string, s: AlertSettings) => request<AlertSettings>('POST', `${ch(key)}/alert-settings`, s),
+  widgetSettings: (key: string) => request<WidgetSettings>('GET', `${ch(key)}/widget-settings`),
+  saveWidgetSettings: (key: string, s: WidgetSettings) => request<WidgetSettings>('POST', `${ch(key)}/widget-settings`, s),
   overlay: (key: string) => request<{ url: string }>('GET', `${ch(key)}/overlay`),
   rotateOverlay: (key: string) => request<{ url: string }>('POST', `${ch(key)}/overlay/rotate`),
   twitch: (key: string) => request<{ features: FeatureStatus[] }>('GET', `${ch(key)}/twitch`),

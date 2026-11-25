@@ -135,6 +135,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Get, ["history"])
                 | (Method::Get, ["summary"])
                 | (Method::Get, ["alert-settings"])
+                | (Method::Get, ["widget-settings"])
+                | (Method::Post, ["widget-settings"])
                 | (Method::Post, ["alert-settings"])
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,
                 _ => Response::error("Not found", 404),

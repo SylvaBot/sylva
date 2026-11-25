@@ -5,53 +5,114 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sylva overlay</title>
 <style>
-  /* The alert overlay for OBS. Colors and shapes follow Cortex: flat surfaces, 1px
-     borders, one color per event kind, 12px card radius, 450ms arrive. */
+  /* Sylva's overlay for OBS. One page, several widgets: the alert box (the
+     default), and with ?widget= an event list, a latest label, a goal bar or
+     a chat box. Flat surfaces, 1px borders, one color per kind of event. */
+  @font-face {
+    font-family: "Inter";
+    src: url("/fonts/inter-latin-wght.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+  }
   :root {
-    --surface: #161618; --border: #3d3d44; --text: #ededef; --muted: #94949c;
+    --surface: #161618; --border: #3d3d44; --text: #ededef; --muted: #a4a4ac;
     --follow: #3ecf74; --subscriber: #9b7bf7; --giftedSub: #ec5c9e; --communityGift: #ec5c9e;
     --cheer: #5b8def; --tip: #eab308; --redemption: #f08a3c; --raid: #2bbfae; --other: #8b8b94;
     --ease: cubic-bezier(.2, .8, .2, 1);
   }
-  html, body { margin: 0; background: transparent; font: 14px/1.5 Inter, system-ui, sans-serif; color: var(--text); }
+  html, body { margin: 0; background: transparent; font: 16px/1.5 Inter, system-ui, sans-serif; color: var(--text); overflow: hidden; }
+  * { box-sizing: border-box; }
+  #status { position: fixed; left: 8px; bottom: 8px; font-size: 11px; color: var(--muted); display: none; }
+  body.debug #status { display: block; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(12px) scale(.98); } }
+  @keyframes leave { to { opacity: 0; transform: translateY(-8px); } }
+  @keyframes slide { from { opacity: 0; transform: translateX(-12px); } }
+  .k { --c: var(--other); }
+
+  /* Alert box */
   #stage { position: fixed; inset: 0; display: grid; place-items: center; }
   .card {
-    --c: var(--other);
     min-width: 320px; max-width: 560px; padding: 20px 24px; border-radius: 12px;
     background: color-mix(in srgb, var(--c) 14%, var(--surface));
     border: 1px solid color-mix(in srgb, var(--c) 45%, var(--border));
     animation: arrive 450ms var(--ease) both;
   }
   .card.leave { animation: leave 300ms var(--ease) both; }
-  .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--c); }
+  .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--c); font-weight: 600; }
   .name { font-size: 28px; font-weight: 650; letter-spacing: -.02em; }
   .detail { color: var(--muted); font-variant-numeric: tabular-nums; }
   .message { margin-top: 6px; }
-  #status { position: fixed; left: 8px; bottom: 8px; font-size: 11px; color: var(--muted); display: none; }
-  body.debug #status { display: block; }
-  @keyframes arrive { from { opacity: 0; transform: translateY(12px) scale(.98); } }
-  @keyframes leave { to { opacity: 0; transform: translateY(-8px); } }
+
+  /* Event list */
+  .list { position: fixed; inset: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px;
+    background: color-mix(in srgb, var(--c) 14%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--c) 40%, var(--border));
+    animation: slide 450ms var(--ease) both;
+  }
+  .row .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c); flex: none; }
+  .row b { font-weight: 650; }
+  .row span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Latest label */
+  .latest { position: fixed; inset: 6px; display: flex; align-items: center; padding: 0 16px; gap: 12px; white-space: nowrap; border-radius: 10px; background: color-mix(in srgb, var(--c) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--border)); }
+  .latest .label { font-size: 13px; }
+  .latest .who { font-size: 22px; font-weight: 650; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; }
+  .latest .who.fresh { animation: arrive 450ms var(--ease) both; }
+  .latest .amount { color: var(--muted); font-size: 18px; font-variant-numeric: tabular-nums; }
+
+  /* Goal bar */
+  .goal { position: fixed; inset: 6px; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: 10px; background: var(--surface); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--border)); }
+  .goal:empty { display: none; }
+  .goal-top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  .goal-title { font-size: 18px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .goal-num { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+  .goal-num b { color: var(--text); }
+  .track { height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--c) 18%, #0e0e10); overflow: hidden; }
+  .fill { height: 100%; width: 0; background: var(--c); border-radius: 7px; transition: width 800ms var(--ease); }
+
+  /* Chat box */
+  .chat { position: fixed; inset: 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; overflow: hidden; }
+  .line { padding: 6px 12px; border-radius: 8px; background: rgba(22, 22, 24, .82); border: 1px solid #2a2a2f; animation: slide 300ms var(--ease) both; overflow-wrap: anywhere; }
+  .line b { font-weight: 650; margin-right: 6px; color: #c9b8ff; }
 </style>
 </head>
 <body>
-<div id="stage"></div>
+<div id="root"></div>
 <div id="status">connecting</div>
 <script>
 (() => {
   const key = decodeURIComponent(location.pathname.split('/').pop());
   const params = new URLSearchParams(location.search);
+  const widget = params.get('widget') || 'alerts';
+  if (params.has('debug')) document.body.classList.add('debug');
+  const root = document.getElementById('root');
+  const status = document.getElementById('status');
+  const KINDS = ['follow', 'subscriber', 'giftedSub', 'communityGift', 'cheer', 'tip', 'redemption', 'raid'];
+  const kindClass = (k) => KINDS.includes(k) ? k : 'other';
+  const fmt = new Intl.NumberFormat();
+  const n = (x) => fmt.format(x || 0);
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = text;
+    return e;
+  };
+  const nameOf = (e) => (e.actor ? e.actor.displayName : 'Anonymous');
+
+  // Exposed for automated tests.
+  window.sylva = { widget, shown: [], acked: [], data: null };
+
+  /* ---------------- Alert box ---------------- */
   // The channel's alert settings set how long each alert stays. A `duration`
   // in the link (milliseconds) overrides them for this overlay only.
   const linkMs = Number(params.get('duration')) || 0;
-  if (params.has('debug')) document.body.classList.add('debug');
-  const stage = document.getElementById('stage');
-  const status = document.getElementById('status');
-
   const LABELS = {
     follow: 'New follower', subscriber: 'New subscriber', giftedSub: 'Gifted sub',
     communityGift: 'Gifted subs', cheer: 'Cheer', tip: 'Tip', redemption: 'Redemption', raid: 'Raid',
   };
-  const detail = (e) => {
+  const oldDetail = (e) => {
     switch (e.kind) {
       case 'cheer': return `${e.amount} bits`;
       case 'raid': return `with ${e.amount} viewers`;
@@ -61,77 +122,200 @@
       default: return '';
     }
   };
-
-  let ws, current = null, timer = null, backoff = 500;
-  // Exposed for automated tests.
-  window.sylva = { shown: [], acked: [] };
-
   // Older servers send no view: build one the way they used to look.
   const fallbackView = (e) => ({
-    label: LABELS[e.kind] || e.rawType,
-    name: e.actor ? e.actor.displayName : 'Anonymous',
-    detail: detail(e),
-    message: e.message,
-    durationMs: 5000,
+    label: LABELS[e.kind] || e.rawType, name: nameOf(e), detail: oldDetail(e), message: e.message, durationMs: 5000,
   });
-
-  function render(alertId, e, view) {
-    stage.textContent = '';
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.dataset.alertId = alertId;
-    card.style.setProperty('--c', `var(--${e.kind in LABELS ? e.kind : 'other'})`);
-    const add = (cls, text) => {
-      if (!text) return;
-      const el = document.createElement('div');
-      el.className = cls; el.textContent = text; card.appendChild(el);
+  let current = null, timer = null;
+  function alertBox() {
+    const stage = el('div');
+    stage.id = 'stage';
+    root.appendChild(stage);
+    const hide = () => {
+      const card = stage.querySelector('.card');
+      if (card) { card.classList.add('leave'); setTimeout(() => card.remove(), 300); }
     };
-    add('label', view.label);
-    add('name', view.name);
-    add('detail', view.detail);
-    add('message', view.message);
-    stage.appendChild(card);
+    return {
+      play(frame) {
+        clearTimeout(timer);
+        current = frame.alertId;
+        window.sylva.shown.push(frame.alertId);
+        const view = frame.view || fallbackView(frame.event);
+        stage.textContent = '';
+        const card = el('div', 'card k');
+        card.dataset.alertId = frame.alertId;
+        card.style.setProperty('--c', `var(--${kindClass(frame.event.kind)})`);
+        for (const [cls, text] of [['label', view.label], ['name', view.name], ['detail', view.detail], ['message', view.message]]) {
+          if (text) card.appendChild(el('div', cls, text));
+        }
+        stage.appendChild(card);
+        timer = setTimeout(() => {
+          hide();
+          if (ws && ws.readyState === 1 && current === frame.alertId) {
+            ws.send(JSON.stringify({ type: 'ack', alertId: frame.alertId }));
+            window.sylva.acked.push(frame.alertId);
+          }
+          current = null;
+        }, linkMs || view.durationMs || 5000);
+      },
+      stop(id) { if (id === current) { clearTimeout(timer); hide(); current = null; } },
+    };
   }
 
-  function hide() {
-    const card = stage.querySelector('.card');
-    if (card) { card.classList.add('leave'); setTimeout(() => card.remove(), 300); }
+  /* ---------------- Widgets ---------------- */
+  const sentence = (e) => {
+    const who = nameOf(e);
+    switch (e.kind) {
+      case 'follow': return [who, 'followed'];
+      case 'subscriber': return [who, e.amount > 1 ? `resubscribed, ${n(e.amount)} months` : 'subscribed'];
+      case 'giftedSub': return [who, 'got a gifted sub'];
+      case 'communityGift': return [who, e.amount === 1 ? 'gifted a sub' : `gifted ${n(e.amount)} subs`];
+      case 'cheer': return [who, `cheered ${n(e.amount)} bits`];
+      case 'raid': return [who, `raided with ${n(e.amount)} viewers`];
+      case 'tip': return [who, 'tipped'];
+      case 'redemption': return [who, `redeemed ${e.redemption || 'a reward'}`];
+      default: return [who, ''];
+    }
+  };
+  const LIST = ['follow', 'subscriber', 'communityGift', 'cheer', 'raid', 'tip', 'redemption'];
+
+  function eventList() {
+    const limit = Math.min(Math.max(Number(params.get('limit')) || 5, 1), 20);
+    const box = el('div', 'list');
+    root.appendChild(box);
+    const row = (e) => {
+      const r = el('div', 'row k');
+      r.style.setProperty('--c', `var(--${kindClass(e.kind)})`);
+      r.appendChild(el('span', 'dot'));
+      const [who, what] = sentence(e);
+      const t = el('span');
+      t.appendChild(el('b', null, who));
+      t.appendChild(document.createTextNode(' ' + what));
+      r.appendChild(t);
+      return r;
+    };
+    return {
+      data(d) {
+        box.textContent = '';
+        d.recent.slice(0, limit).forEach((e) => box.appendChild(row(e)));
+      },
+      event(e) {
+        if (!LIST.includes(e.kind)) return;
+        box.prepend(row(e));
+        while (box.children.length > limit) box.lastChild.remove();
+      },
+    };
   }
 
-  function play(frame) {
-    clearTimeout(timer);
-    current = frame.alertId;
-    window.sylva.shown.push(frame.alertId);
-    const view = frame.view || fallbackView(frame.event);
-    render(frame.alertId, frame.event, view);
-    timer = setTimeout(() => {
-      hide();
-      if (ws && ws.readyState === 1 && current === frame.alertId) {
-        ws.send(JSON.stringify({ type: 'ack', alertId: frame.alertId }));
-        window.sylva.acked.push(frame.alertId);
+  const LATEST_LABELS = { follow: 'Latest follower', subscriber: 'Latest sub', communityGift: 'Latest gifter', cheer: 'Latest cheer', raid: 'Latest raid' };
+  function latestLabel() {
+    const kind = LATEST_LABELS[params.get('kind')] ? params.get('kind') : 'follow';
+    const box = el('div', 'latest k');
+    box.style.setProperty('--c', `var(--${kind})`);
+    root.appendChild(box);
+    const show = (e, fresh) => {
+      box.textContent = '';
+      box.appendChild(el('span', 'label', LATEST_LABELS[kind]));
+      box.appendChild(el('span', 'who' + (fresh ? ' fresh' : ''), e ? nameOf(e) : 'Nobody yet'));
+      if (e && (kind === 'cheer' || kind === 'raid' || kind === 'communityGift') && e.amount) {
+        box.appendChild(el('span', 'amount', n(e.amount)));
       }
-      current = null;
-    }, linkMs || view.durationMs || 5000);
+    };
+    show(null);
+    return {
+      data(d) { show(d.latest.find((e) => e.kind === kind) || null); },
+      event(e) { if (e.kind === kind) show(e, true); },
+    };
   }
 
+  const GOAL_COLORS = { follows: 'follow', subs: 'subscriber', bits: 'cheer' };
+  const goalCounts = (goal, e) => {
+    if (goal.kind === 'follows') return e.kind === 'follow' ? 1 : 0;
+    if (goal.kind === 'subs') return e.kind === 'subscriber' || e.kind === 'giftedSub' ? 1 : 0;
+    if (goal.kind === 'bits') return e.kind === 'cheer' ? Math.max(0, e.amount || 0) : 0;
+    return 0;
+  };
+  function goalBar() {
+    const box = el('div', 'goal k');
+    root.appendChild(box);
+    let goal = null;
+    const draw = () => {
+      box.textContent = '';
+      if (!goal) return;
+      box.style.setProperty('--c', `var(--${GOAL_COLORS[goal.kind] || 'other'})`);
+      const top = el('div', 'goal-top');
+      top.appendChild(el('span', 'goal-title', goal.title));
+      const num = el('span', 'goal-num');
+      num.appendChild(el('b', null, n(goal.current)));
+      num.appendChild(document.createTextNode(` / ${n(goal.target)}`));
+      top.appendChild(num);
+      const track = el('div', 'track');
+      const fill = el('div', 'fill');
+      track.appendChild(fill);
+      box.append(top, track);
+      requestAnimationFrame(() => { fill.style.width = Math.min(100, (goal.current / goal.target) * 100) + '%'; });
+    };
+    return {
+      data(d) { goal = d.goal || null; draw(); },
+      event(e) {
+        if (!goal || e.receivedAt < goal.since) return;
+        const add = goalCounts(goal, e);
+        if (add) { goal.current += add; draw(); }
+      },
+    };
+  }
+
+  function chatBox() {
+    const limit = Math.min(Math.max(Number(params.get('limit')) || 12, 1), 30);
+    const box = el('div', 'chat');
+    root.appendChild(box);
+    const line = (e) => {
+      const l = el('div', 'line');
+      l.appendChild(el('b', null, nameOf(e)));
+      l.appendChild(document.createTextNode(e.message || ''));
+      return l;
+    };
+    const trim = () => { while (box.children.length > limit) box.firstChild.remove(); };
+    return {
+      data(d) { box.textContent = ''; d.chat.forEach((e) => box.appendChild(line(e))); trim(); },
+      event(e) { if (e.kind === 'chat') { box.appendChild(line(e)); trim(); } },
+    };
+  }
+
+  const WIDGETS = { feed: eventList, latest: latestLabel, goal: goalBar, chat: chatBox };
+  const isAlerts = !WIDGETS[widget];
+  const view = isAlerts ? alertBox() : WIDGETS[widget]();
+  const role = isAlerts ? 'overlay' : 'widget';
+  let lastSeq = 0;
+
+  /* ---------------- Connection ---------------- */
+  let ws, backoff = 500;
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    // The link's token lets this page connect as an overlay without signing in.
+    // The link's token lets this page connect without signing in.
     const token = params.get('token');
     const query = token ? `?token=${encodeURIComponent(token)}` : '';
     ws = new WebSocket(`${proto}://${location.host}/v1/channels/${key}/ws${query}`);
     ws.onopen = () => {
       backoff = 500;
       status.textContent = 'connected';
-      ws.send(JSON.stringify({ type: 'hello', role: 'overlay' }));
+      ws.send(JSON.stringify({ type: 'hello', role }));
     };
     ws.onmessage = (m) => {
       const f = JSON.parse(m.data);
-      if (f.type === 'play') play(f);
-      else if (f.type === 'stop' && f.alertId === current) { clearTimeout(timer); hide(); current = null; }
-      else if (f.type === 'ready' || f.type === 'state') {
+      if (f.type === 'play' && view.play) view.play(f);
+      else if (f.type === 'stop' && view.stop) view.stop(f.alertId);
+      else if (f.type === 'widgets' && view.data) {
+        window.sylva.data = f;
+        lastSeq = Math.max(lastSeq, ...f.recent.map((e) => e.seq), ...f.chat.map((e) => e.seq), 0);
+        view.data(f);
+      } else if (f.type === 'event' && view.event) {
+        if (f.seq <= lastSeq) return;
+        lastSeq = f.seq;
+        view.event(f);
+      } else if (f.type === 'ready' || f.type === 'state') {
         const s = f.state || f;
-        status.textContent = `connected, ${s.queued} queued${s.paused ? ', paused' : ''}${s.muted ? ', muted' : ''}`;
+        status.textContent = `connected as ${role}, ${s.queued} queued${s.paused ? ', paused' : ''}${s.muted ? ', muted' : ''}`;
       }
     };
     ws.onclose = (e) => {

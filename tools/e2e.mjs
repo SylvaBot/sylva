@@ -331,6 +331,51 @@ await check('an overlay link connects as an overlay only, never as a feed', asyn
   assert.equal(feed.frames.filter((f) => f.type === 'event').length, 0);
 });
 
+await check('widgets get their data, follow events live, and never play alerts', async () => {
+  const post = (body) => fetch(`${BASE}/v1/channels/${key}/widget-settings`, {
+    method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  assert.deepEqual(await getJson(`/v1/channels/${key}/widget-settings`), { goal: null });
+  assert.equal((await post({ goal: { title: ' ', kind: 'bits', target: 10, since: 0 } })).status, 400);
+  assert.equal((await post({ goal: { title: 'Bits', kind: 'bits', target: 0, since: 0 } })).status, 400);
+  const since = Date.now() - 1000;
+  const saved = await post({ goal: { title: ' Sub goal ', kind: 'subs', target: 1000, since } });
+  assert.equal(saved.status, 200);
+  assert.equal((await saved.json()).goal.title, 'Sub goal');
+
+  const before = await getJson(`/v1/channels/${key}/state`);
+  const widget = new Client(key, 'widget', 0, { token: overlayToken });
+  await widget.opened;
+  const data = await widget.next((f) => f.type === 'widgets');
+  assert.equal(widget.frames.filter((f) => f.type === 'event').length, 0, 'no history replay');
+  assert.ok(data.recent.length > 0 && data.recent.every((e) => e.kind !== 'chat' && e.kind !== 'other'));
+  assert.ok(data.recent.every((e, i, a) => i === 0 || a[i - 1].seq > e.seq), 'newest first');
+  assert.ok(data.chat.every((e) => e.kind === 'chat'));
+  assert.ok(data.latest.some((e) => e.kind === 'follow'));
+  assert.equal(new Set(data.latest.map((e) => e.kind)).size, data.latest.length, 'one per kind');
+  assert.equal(data.goal.title, 'Sub goal');
+  const start = data.goal.current;
+
+  const state = await getJson(`/v1/channels/${key}/state`);
+  assert.equal(state.overlaysConnected, before.overlaysConnected, 'a widget is not an alert box');
+
+  // A gifted sub's recipient counts toward a sub goal but plays no alert of its own.
+  await admin(`/v1/channels/${key}/test-event`, { kind: 'giftedSub', name: 'Widgetfan' });
+  const live = await widget.next((f) => f.type === 'event' && f.actor?.displayName === 'Widgetfan');
+  assert.equal(live.kind, 'giftedSub');
+  assert.equal(widget.frames.filter((f) => f.type === 'play').length, 0);
+
+  // Saving settings pushes fresh data to widgets on screen, with the gift counted.
+  await post({ goal: { title: 'Sub goal', kind: 'subs', target: 2000, since } });
+  const pushed = await widget.next((f) => f.type === 'widgets' && f.goal?.target === 2000);
+  assert.equal(pushed.goal.current, start + 1);
+  await post({ goal: null });
+  const cleared = await widget.next((f) => f.type === 'widgets' && !f.goal);
+  assert.ok(cleared);
+  await widget.close();
+});
+
 await check('a wrong overlay token is refused', async () => {
   const bad = new Client(key, 'overlay', undefined, { token: 'f'.repeat(48) });
   await assert.rejects(bad.opened);

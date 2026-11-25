@@ -3,7 +3,8 @@
 
 import { useEffect, useState } from 'react';
 import { useChannel } from './channel';
-import { ActivityPage, AlertsPage, ChatPage, NotFoundPage, OverlayPage, OverviewPage, SettingsPage } from './pages';
+import { OverlayPage } from './overlay';
+import { ActivityPage, AlertsPage, ChatPage, NotFoundPage, OverviewPage, SettingsPage } from './pages';
 import { Link } from './router';
 import { Avatar, Icon } from './ui';
 

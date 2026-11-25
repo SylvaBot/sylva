@@ -16,7 +16,9 @@
 //! Server to client:
 //! * `event { seq, ... }` for each new or replayed event, in `seq` order.
 //! * `ready { headSeq, state }` once replay is finished.
-//! * `play { alertId, muted, event }` tells overlays to show one alert.
+//! * `play { alertId, muted, event, view }` tells overlays to show one alert.
+//! * `widgets { recent, latest, chat, goal }` gives a widget what it shows
+//!   when it connects, and again whenever the widget settings change.
 //! * `stop { alertId }` tells overlays to hide an alert that was skipped.
 //! * `state { ... }` whenever pause, mute or the current alert changes.
 
@@ -33,12 +35,14 @@ pub const PING: &str = r#"{"type":"ping"}"#;
 pub const PONG: &str = r#"{"type":"pong"}"#;
 
 /// What kind of client is connected. Overlays receive `play` frames and their
-/// acks drive the alert queue; feeds (dashboard, Cortex) only watch.
+/// acks drive the alert queue; feeds (dashboard, Cortex) only watch; widgets
+/// (event list, labels, goal, chat box) watch and get `widgets` frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Role {
     Overlay,
     Feed,
+    Widget,
 }
 
 impl Role {
@@ -46,6 +50,7 @@ impl Role {
         match self {
             Role::Overlay => "overlay",
             Role::Feed => "feed",
+            Role::Widget => "widget",
         }
     }
 }
@@ -104,6 +109,7 @@ pub enum ServerFrame {
         alert_id: u64,
     },
     State(AlertState),
+    Widgets(crate::widgets::WidgetData),
     #[serde(rename_all = "camelCase")]
     Error {
         message: String,

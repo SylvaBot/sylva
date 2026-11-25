@@ -8,5 +8,6 @@ pub mod auth;
 pub mod event;
 pub mod protocol;
 pub mod twitch;
+pub mod widgets;
 
 pub use event::{Actor, Event, EventKind, Platform, StoredEvent};

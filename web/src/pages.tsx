@@ -9,7 +9,7 @@ import { Link } from './router';
 import { getTheme, setTheme, type Theme } from './theme';
 import { ago, Avatar, errorText, Icon, num, useToast } from './ui';
 
-function PageHead({ title, desc, children }: { title: string; desc?: ReactNode; children?: ReactNode }) {
+export function PageHead({ title, desc, children }: { title: string; desc?: ReactNode; children?: ReactNode }) {
   return (
     <div className="page-head">
       <div>
@@ -21,7 +21,7 @@ function PageHead({ title, desc, children }: { title: string; desc?: ReactNode; 
   );
 }
 
-function Card({ title, desc, action, children, className, id }: {
+export function Card({ title, desc, action, children, className, id }: {
   title?: string; desc?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; id?: string;
 }) {
   const hid = id ? id + '-title' : undefined;
@@ -41,10 +41,10 @@ function Card({ title, desc, action, children, className, id }: {
   );
 }
 
-function read(key: string): boolean {
+export function read(key: string): boolean {
   try { return localStorage.getItem(key) === '1'; } catch { return false; }
 }
-function remember(key: string) {
+export function remember(key: string) {
   try { localStorage.setItem(key, '1'); } catch { /* private window */ }
 }
 
@@ -310,100 +310,6 @@ export function AlertsPage() {
             empty="Alerts you can replay show up here."
           />
         </Card>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------------- Overlay */
-
-export function OverlayPage() {
-  const ch = useChannel();
-  const toast = useToast();
-  const [url, setUrl] = useState<string | null>(null);
-  const [armed, setArmed] = useState(false);
-  const disarm = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  useEffect(() => {
-    api.overlay(ch.key).then((r) => setUrl(r.url)).catch((x) => toast('Could not load the overlay link: ' + errorText(x), true));
-  }, [ch.key, toast]);
-  useEffect(() => () => clearTimeout(disarm.current), []);
-
-  const masked = url ? url.replace(/token=.*/, 'token=' + '•'.repeat(12)) : 'Loading';
-  const connected = ch.alerts?.overlaysConnected ?? 0;
-
-  const copy = async () => {
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      remember('sylva.overlayCopied');
-      toast('Overlay link copied');
-    } catch {
-      toast('Your browser blocked copying. Open the overlay and copy its address instead.', true);
-    }
-  };
-
-  const replace = async () => {
-    if (!armed) {
-      setArmed(true);
-      clearTimeout(disarm.current);
-      disarm.current = setTimeout(() => setArmed(false), 4000);
-      return;
-    }
-    setArmed(false);
-    try {
-      setUrl((await api.rotateOverlay(ch.key)).url);
-      toast('New link made. The old one stopped working, so paste this one into OBS.');
-    } catch (x) {
-      toast(errorText(x), true);
-    }
-  };
-
-  return (
-    <div className="page">
-      <PageHead
-        title="Overlay"
-        desc={connected === 0 ? 'No overlay is connected right now.' : connected === 1 ? '1 overlay is connected right now.' : `${num(connected)} overlays are connected right now.`}
-      />
-      <div className="stack">
-        <Card id="link" title="Your overlay link" desc="Anyone with this link can show your alerts, so keep it private.">
-          <div className="card-body">
-            <div className="link-row">
-              <div className="link-field" title="The link is hidden. Copy it to use it."><span>{masked}</span></div>
-              <button className="btn primary" type="button" disabled={!url} onClick={copy}><Icon id="copy" />Copy link</button>
-              <a className="btn" href={url ? url + '&debug' : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!url}>
-                <Icon id="external" />Open
-              </a>
-              <button className={'btn' + (armed ? ' armed' : '')} type="button" disabled={!url} onClick={replace}>
-                <Icon id="refresh" />{armed ? 'Click again to replace' : 'New link'}
-              </button>
-            </div>
-          </div>
-        </Card>
-        <div className="grid-2">
-          <Card id="obs" title="Add it to OBS">
-            <div className="card-body">
-              <ol className="steps">
-                <li>In OBS, under <b>Sources</b>, click <b>+</b> and choose <b>Browser</b>.</li>
-                <li>Name it <b>Sylva alerts</b> and click <b>OK</b>.</li>
-                <li>Paste your overlay link into <b>URL</b>.</li>
-                <li>Set <b>Width</b> to <b>1920</b> and <b>Height</b> to <b>1080</b>, then click <b>OK</b>.</li>
-                <li>Send a test alert from <Link href="/app/alerts">Alerts</Link> to check it.</li>
-              </ol>
-            </div>
-          </Card>
-          <Card id="look" title="What it looks like" desc="Alerts appear in the middle of the screen, over your scene.">
-            <div className="card-body">
-              <div className="stage" aria-hidden="true">
-                <div className="alert-card c-sub">
-                  <div className="label">New subscriber</div>
-                  <div className="name">Juniper</div>
-                  <div className="detail">6 months</div>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ A sidebar with the pages, the live connection and the signed in channel. On phon
 | Overview | `/app` | The last 24 hours (followers, subs, bits, raids), a setup checklist until the overlay and a test alert are done, recent activity, alert controls and chat. |
 | Activity | `/app/activity` | Every event, newest first, with filters by kind, search by name or message, and Show older. Search runs on the server, so it covers all history. |
 | Alerts | `/app/alerts` | Mute, pause and skip; alert types (on or off, minimum amount, time on screen, label and message, with a live preview); a test alert for each kind; Replay on recent alerts. |
-| Overlay | `/app/overlay` | The overlay link (hidden until copied), Open, New link, and the steps for OBS. |
+| Overlay | `/app/overlay` | Links for the alert box and the widgets (event list, latest label, goal bar, chat box), each with Copy and Open; New links; the goal; and the steps for OBS. |
 | Chat | `/app/chat` | Chat, live and read only. |
 | Settings | `/app/settings` | The account and Sign out, the theme (Dark, Light or System), and which Twitch events reach Sylva. |
 
@@ -49,3 +49,19 @@ Each kind of alert (follows, subs, gifted subs, cheers, raids, tips, channel poi
 * **Show what the viewer wrote**, for cheers, subs and tips.
 
 The channel applies these on the server (`crates/sylva-core/src/alerts.rs`): it decides what goes into the queue, and every `play` frame carries the finished text and time on screen, so all overlays show the same thing and old overlay links need no change. A `duration` in an overlay link still overrides the time for that overlay. Test alerts follow the settings too, and the dashboard says when a test only went to Activity.
+
+## Widgets
+
+Every widget is the overlay page with `&widget=` added to the same private link, so one token covers them all and New links replaces them all at once. Each is its own Browser Source in OBS, at the size the dashboard shows.
+
+| Widget | Link adds | Shows |
+| --- | --- | --- |
+| Alert box | nothing | Alerts, one at a time, as set in Alerts. |
+| Event list | `&widget=feed` (`&limit=` 1 to 20, default 5) | The newest follows, subs, gifts, cheers, raids, tips and redemptions. |
+| Latest label | `&widget=latest&kind=follow` (or `subscriber`, `communityGift`, `cheer`, `raid`) | One line with the latest of that kind. |
+| Goal bar | `&widget=goal` | The goal set on the Overlay page: followers, subs (new, resubs and each gifted sub) or bits, counted from when it was started. |
+| Chat box | `&widget=chat` (`&limit=` 1 to 30, default 12) | Chat lines as they arrive. |
+
+Widgets connect with the `widget` role: on connect they get a `widgets` frame (recent events, the latest of each kind, recent chat and the goal with its progress) and then follow live `event` frames. They never receive `play` frames and do not count as connected alert boxes, so they cannot hold up the alert queue. Saving the goal sends a fresh `widgets` frame to every widget on screen. The goal lives in `GET` and `POST /v1/channels/{key}/widget-settings`.
+
+![Widgets on the Overlay page](site/widgets.png)

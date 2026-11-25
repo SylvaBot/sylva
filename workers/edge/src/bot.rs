@@ -538,7 +538,9 @@ impl ChannelDo {
         };
         let from = sender(&self.env, &broadcaster);
         let now = Date::now().as_millis() as i64;
-        if actor.id == from.id && self.is_echo(text, now)? {
+        // The shared bot never takes commands; the streamer's own account
+        // does, so only its echoes of Sylva's replies are skipped.
+        if actor.id == from.id && (from.kind == "sylva" || self.is_echo(text, now)?) {
             return Ok(());
         }
         // Timers count what viewers say, not what the bot says.

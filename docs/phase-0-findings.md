@@ -2,9 +2,9 @@
 
 Phase 0 had one job: prove the risky parts of the plan before building features on them. The plan picked Rust on Cloudflare Workers, one Durable Object per channel, and Twitch EventSub through webhooks. This page says what was tested, how, and what came out.
 
-**Short version:** nothing blocks the plan. Every Durable Object feature we need works from Rust, the bundle is tiny next to the limit, Twitch webhooks verify and route correctly, and alerts survive an OBS reload in a real browser. The one number we still need is burst throughput on real Cloudflare, which needs a Cloudflare account.
+**Short version:** nothing blocks the plan. Every Durable Object feature we need works from Rust, the bundle is tiny next to the limit and starts in 5 ms, real Twitch verified our webhook shard, alerts survive an OBS reload in a real browser, and one channel takes about 600 to 780 events per second on Cloudflare with nothing lost.
 
-All tests below ran on 25 Nov 2026 with workers-rs 0.9.0, wrangler 4.159.0 and Rust 1.97, locally under `wrangler dev` (the same workerd runtime Cloudflare uses).
+All tests below ran on 25 Nov 2026 with workers-rs 0.9.0, wrangler 4.159.0 and Rust 1.97, locally under `wrangler dev` (the same workerd runtime Cloudflare uses) and on Cloudflare at `sylva-edge.haruxe.workers.dev`.
 
 ## 1. Rust Durable Objects in workers-rs
 
@@ -36,11 +36,11 @@ Things worth knowing for later work:
 
 The plan worried about the old limits of 3 MB (Free) and 10 MB (Paid) compressed. Cloudflare removed those on 4 Sep 2026 and now only checks the uncompressed size against 64 MiB ([changelog](https://developers.cloudflare.com/changelog/post/2026-09-04-increased-worker-size-limit/)). We use under 1 percent of that. The build uses `opt-level = "z"`, LTO and `wasm-opt -Oz`.
 
-The remaining limit to watch is startup time (1 second to run the module's global scope). That can only be measured on Cloudflare. CI reports the bundle size on every pull request and fails above 8 MB, so growth gets noticed long before it matters.
+Startup time is the other limit (1 second to run the module's global scope). Cloudflare measured ours at 5 ms on deploy. CI reports the bundle size on every pull request and fails above 8 MB, so growth gets noticed long before it matters.
 
 ## 3. Twitch EventSub webhooks
 
-**Result: works, with one cross check still to do.** `crates/sylva-core/src/twitch.rs` holds the logic and 15 unit tests. `POST /twitch/eventsub` in the Worker calls it.
+**Result: works, and real Twitch accepted it.** `crates/sylva-core/src/twitch.rs` holds the logic and 15 unit tests. `POST /twitch/eventsub` in the Worker calls it.
 
 * All three message types: `webhook_callback_verification` (replies with the challenge as plain text), `notification`, and `revocation`.
 * HMAC-SHA256 signature over message id, timestamp and raw body, compared in constant time.
@@ -49,7 +49,9 @@ The remaining limit to watch is startup time (1 second to run the module's globa
 * The channel is found from the subscription's `condition`, which works for conduits (one callback for every channel). Raids use the side the subscription was made for, so an incoming raid is an alert and an outgoing raid is not.
 * Normalized so far: follow, sub, resub, gifted sub, community gift, cheer (with anonymous), raid, channel point redemption and chat. Unknown types are kept as `other` with the raw payload, so nothing is dropped.
 
-Still to do: run Twitch's own CLI (`twitch event trigger channel.follow -F <url>/twitch/eventsub -s <secret>`) against the Worker as an independent check of the signature format. Downloading the CLI was blocked in this environment. Our tests sign messages exactly as Twitch documents, but a check against Twitch's own tool is cheap insurance.
+On the real deploy, `POST /admin/twitch/conduit` created the app's conduit and pointed shard 0 at the Worker. Twitch's verification first failed because a conduit shard's challenge has no `subscription` object, which our parser required. With that fixed, Twitch marked the shard `enabled`.
+
+Optional extra check: run Twitch's own CLI (`twitch event trigger channel.follow -F <url>/twitch/eventsub -s <secret>`) against the Worker as an independent check of the signature format. Downloading the CLI was blocked in this environment. Our tests sign messages exactly as Twitch documents, but a check against Twitch's own tool is cheap insurance.
 
 ## 4. Reliable alerts and replay to an OBS overlay
 
@@ -83,32 +85,34 @@ A Playwright run of the real overlay page in Chromium showed alert 1, reloaded t
 
 ## 5. Burst throughput for one channel
 
-**Result: correct under load; the real speed number needs Cloudflare.**
+**Result: one channel sustains about 600 to 780 events per second on real Cloudflare with nothing lost, and that is per channel, not per app.**
 
-`npm run test:burst` plays a raid against one channel: 90 percent chat, 10 percent follows, plus 2 percent Twitch retries. A feed client stays connected and must receive every event exactly once with seq 1 to N and no gaps.
+`npm run test:burst` plays a raid against one channel: 90 percent chat, 10 percent follows, plus 2 percent Twitch retries. Each event is one signed webhook, exactly as Twitch sends them. A feed client stays connected and must receive every event exactly once, with seq 1 to N and no gaps.
 
-Local results (wrangler dev, 4 vCPU container, the load generator on the same machine):
+On Cloudflare (`sylva-edge.haruxe.workers.dev`, 25 Nov 2026, 5,000 events per run):
 
-| Concurrent senders | Events | Requests per second | p50 | p99 | Every event once, in order |
+| Concurrent senders | Events per second | p50 | p99 | Every event once, in order | Errors |
 | --- | --- | --- | --- | --- | --- |
-| 10 | 3,000 | 454 | 19 ms | 71 ms | Yes |
-| 50 | 5,000 | 603 | 81 ms | 118 ms | Yes |
-| 100 | 3,000 | 639 | 148 ms | 313 ms | Yes |
-| 200 | 3,000 | 639 | 284 ms | 669 ms | Yes |
+| 10 | 154 | 57 ms | 154 ms | Yes | 0 |
+| 50 | 599 | 73 ms | 428 ms | Yes | 0 |
+| 200 | 552 | 303 ms | 3.6 s | Yes | 0 |
+| Two channels at once, 100 each | 682 and 779 (1,461 total) | 95 to 101 ms | 0.6 to 2.3 s | Yes | 0 |
 
 How to read this:
 
-* **Correctness held at every level.** No lost events, no duplicates, no gaps, no errors, and retries were dropped.
-* **The ceiling here is the local tooling, not the object.** The same setup tops out at about 1,100 requests per second on a route that does nothing at all, and about 750 on a route that only reads the object's state. So these numbers say little about Cloudflare's real capacity.
-* Cloudflare documents a soft limit of about 1,000 requests per second per Durable Object and says to load test the real workload ([guidance](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)). Each Twitch webhook is one request to the object, and chat is the bulk of a raid.
+* **Correctness held at every level.** No lost events, no duplicates, no gaps, no errors, and Twitch retries were dropped.
+* **The ceiling is per channel.** Two channels together did about twice what one did, so the limit is the one Durable Object, as Cloudflare's guidance predicts ([soft limit of about 1,000 requests per second](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)). Past the ceiling, events queue and get slower; none failed.
+* Our cloud test machine reached the Worker through a proxy, which adds some latency, so real Twitch latency should be a little better.
+* Locally under `wrangler dev` the same test reached about 640 events per second, with the local tooling as the limit.
 
-If a real test shows a channel's object running hot, the first lever is to give chat its own object per channel, so alerts never queue behind chat. The ingest path already accepts batches (`/ingest-batch` inside the object) for anything that can be grouped.
+**What this means for Sylva:** a channel can take several hundred events per second before alerts slow down. Chat is the bulk of a raid's traffic. If a very large channel ever comes close, the first step is to give chat its own Durable Object per channel, so alerts never queue behind chat. The ingest path already accepts batches (`/ingest-batch` inside the object) for anything that can be grouped.
 
 ## Bugs Phase 0 caught
 
 1. Alarm scheduled 56 years out (the `set_alarm` offset issue above).
 2. Browsers encode `:` in `twitch:123` as `%3A`, which made the overlay's socket return 404. The Worker now decodes it, and a check covers it.
 3. After the last alert was acknowledged, clients were not told the queue was empty. Now they are.
+4. Twitch's conduit shard verification has no `subscription` object, so our parser rejected it. Found by real Twitch on the first deploy.
 
 ## Choices made in Phase 0 that you may want to change
 
@@ -119,11 +123,11 @@ If a real test shows a channel's object running hot, the first lever is to give 
 
 ## Not covered yet
 
-* Burst and startup numbers on real Cloudflare (needs an account).
-* Creating a real conduit and shard with a Twitch app token (needs a Twitch app).
+* Events that need the broadcaster's permission (follows, subs, cheers, chat). Those need the broadcaster to sign in to Sylva, which is Phase 1. Raids, stream online and offline, and channel updates need no permission and are wired up now.
 * Copying events to Postgres through Hyperdrive.
 
-## What needs you
+## Deployed
 
-1. **A Cloudflare account** to deploy to and rerun the burst test against. A `workers.dev` address is fine for now.
-2. **A Twitch application** (client id and secret from the Twitch developer console) to create a real conduit and point a webhook shard at the Worker.
+* Worker: `https://sylva-edge.haruxe.workers.dev`, deployed with `npm run deploy`.
+* Worker secrets: `TWITCH_CLIENT_SECRET` (set by Josh in the Cloudflare dashboard), plus `TWITCH_EVENTSUB_SECRET` and `SYLVA_ADMIN_TOKEN` (random, set with `wrangler secret put`). Rotate the last two with `wrangler secret put` whenever needed.
+* Twitch conduit with one webhook shard pointing at `/twitch/eventsub`.

@@ -100,6 +100,12 @@ pub struct WidgetData {
     pub chat: Vec<StoredEvent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<GoalView>,
+    /// The top cheerer and top gifter this stream, when there are any.
+    #[serde(default)]
+    pub top: Vec<crate::scene::TopEntry>,
+    /// The published scene, for `?scene` overlays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<crate::scene::Published>,
 }
 
 /// Kinds that the event list widget shows.

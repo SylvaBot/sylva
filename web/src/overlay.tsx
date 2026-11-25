@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type Goal, type GoalKind } from './api';
 import { useChannel } from './channel';
+import { LATEST_KINDS, SceneEditor, TOP_KINDS } from './editor';
 import { Card, PageHead, remember } from './pages';
 import { Link } from './router';
 import { errorText, Icon, num, useToast } from './ui';
@@ -18,13 +19,6 @@ interface WidgetDef {
   query: string;
 }
 
-const LATEST_KINDS: { id: string; label: string }[] = [
-  { id: 'follow', label: 'Follower' },
-  { id: 'subscriber', label: 'Sub' },
-  { id: 'communityGift', label: 'Gifter' },
-  { id: 'cheer', label: 'Cheer' },
-  { id: 'raid', label: 'Raid' },
-];
 
 const GOAL_KINDS: { id: GoalKind; label: string; unit: string }[] = [
   { id: 'follows', label: 'Followers', unit: 'followers' },
@@ -38,6 +32,7 @@ export function OverlayPage() {
   const [url, setUrl] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [latestKind, setLatestKind] = useState('follow');
+  const [topKind, setTopKind] = useState('cheer');
   const disarm = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -50,6 +45,7 @@ export function OverlayPage() {
     { id: 'alerts', name: 'Alert box', icon: 'bell', c: 'c-sub', text: 'Plays your alerts one at a time.', size: '1920 × 1080', query: '' },
     { id: 'feed', name: 'Event list', icon: 'activity', c: 'c-follow', text: 'The last five follows, subs, cheers and raids.', size: '400 × 360', query: '&widget=feed' },
     { id: 'latest', name: 'Latest label', icon: 'star', c: 'c-bits', text: 'One line with the latest follower, sub, gifter, cheer or raid.', size: '500 × 60', query: `&widget=latest&kind=${latestKind}` },
+    { id: 'top', name: 'Top label', icon: 'trophy', c: 'c-reward', text: 'The top cheerer or gifter since the stream went live.', size: '500 × 60', query: `&widget=top&kind=${topKind}` },
     { id: 'goal', name: 'Goal bar', icon: 'zap', c: 'c-raid', text: 'Progress toward the goal you set below.', size: '600 × 90', query: '&widget=goal' },
     { id: 'chat', name: 'Chat box', icon: 'message', c: 'c-gift', text: 'Your chat, on stream.', size: '400 × 500', query: '&widget=chat' },
   ];
@@ -92,7 +88,9 @@ export function OverlayPage() {
         </button>
       </PageHead>
       <div className="stack">
-        <Card id="widgets" title="Widgets" desc="Each one is a Browser Source in OBS. Anyone with a link can show it, so keep them private.">
+        <SceneEditor url={url} />
+        <GoalCard />
+        <Card id="widgets" title="One widget per source" desc="For more control in OBS, add widgets as separate Browser Sources instead. Anyone with a link can show it, so keep them private.">
           <ul className="widgets">
             {widgets.map((w) => (
               <li key={w.id} className={'widget ' + w.c}>
@@ -100,6 +98,13 @@ export function OverlayPage() {
                 <div className="widget-main">
                   <b>{w.name}</b>
                   <span>{w.text} Size {w.size}.</span>
+                  {w.id === 'top' && (
+                    <div className="segmented sm" role="group" aria-label="Top label shows">
+                      {TOP_KINDS.map((k) => (
+                        <button key={k.id} type="button" aria-pressed={topKind === k.id} onClick={() => setTopKind(k.id)}>{k.label}</button>
+                      ))}
+                    </div>
+                  )}
                   {w.id === 'latest' && (
                     <div className="segmented sm" role="group" aria-label="Latest label shows">
                       {LATEST_KINDS.map((k) => (
@@ -118,15 +123,14 @@ export function OverlayPage() {
             ))}
           </ul>
         </Card>
-        <GoalCard />
         <div className="grid-2">
-          <Card id="obs" title="Add a widget to OBS">
+          <Card id="obs" title="Add your overlay to OBS">
             <div className="card-body">
               <ol className="steps">
-                <li>Copy the widget's link above.</li>
+                <li>Lay out your widgets above and click <b>Publish</b>, then <b>Copy link</b>.</li>
                 <li>In OBS, under <b>Sources</b>, click <b>+</b> and choose <b>Browser</b>. Give it a name and click <b>OK</b>.</li>
-                <li>Paste the link into <b>URL</b>, set <b>Width</b> and <b>Height</b> to the size shown, and click <b>OK</b>.</li>
-                <li>Send a test alert from <Link href="/app/alerts">Alerts</Link> to check it.</li>
+                <li>Paste the link into <b>URL</b>, set <b>Width</b> to 1920 and <b>Height</b> to 1080, and click <b>OK</b>.</li>
+                <li>Use <b>Try it</b> in the editor, or <Link href="/app/alerts">Alerts</Link>, to check it.</li>
               </ol>
             </div>
           </Card>

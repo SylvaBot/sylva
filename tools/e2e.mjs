@@ -392,6 +392,72 @@ await check('widgets get their data, follow events live, and never play alerts',
   await widget.close();
 });
 
+await check('the overlay editor saves drafts, publishes versions and pushes the layout', async () => {
+  const post = (path, body) => fetch(`${BASE}/v1/channels/${key}/scene${path}`, {
+    method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+    body: body === undefined ? '{}' : JSON.stringify(body),
+  });
+  const item = (id, widget, extra = {}) => ({ id, widget, x: 10.4, y: 20, w: 400, h: 120, ...extra });
+  const fresh = await getJson(`/v1/channels/${key}/scene`);
+  assert.deepEqual(fresh.draft, { items: [] });
+  assert.equal(fresh.published, undefined);
+  assert.deepEqual(fresh.versions, []);
+
+  // Refused layouts.
+  assert.equal((await post('', { items: [item('a', 'alerts'), item('b', 'alerts')] })).status, 400);
+  assert.equal((await post('', { items: [item('a', 'feed'), item('a', 'chat')] })).status, 400);
+  assert.equal((await post('', { items: [item('a', 'top', { kind: 'follow' })] })).status, 400);
+  assert.equal((await post('', { items: [item('a b', 'goal')] })).status, 400);
+  assert.equal((await post('', { items: [item('a', 'sparkles')] })).status, 400);
+  assert.equal((await post('', { items: Array.from({ length: 25 }, (_, i) => item(`i${i}`, 'goal')) })).status, 400);
+
+  // A draft is tidied and kept, but overlays do not see it yet.
+  const widget = new Client(key, 'widget', 0, { token: overlayToken });
+  await widget.opened;
+  const first = await widget.next((f) => f.type === 'widgets');
+  assert.equal(first.scene, undefined, 'nothing published yet');
+  assert.ok(Array.isArray(first.top));
+  const draft = { items: [item('box', 'alerts'), item('top', 'top', { x: 5000 }), item('feed', 'feed', { limit: 99 })] };
+  const saved = await (await post('', draft)).json();
+  assert.equal(saved.draft.items[0].x, 10);
+  assert.equal(saved.draft.items[1].x, 1920 - 400);
+  assert.equal(saved.draft.items[1].kind, 'cheer');
+  assert.equal(saved.draft.items[2].limit, 20);
+  assert.ok(saved.draftSavedAt > 0);
+  assert.equal(saved.published, undefined);
+
+  // Publishing makes version 1 and pushes it to the overlay on screen.
+  const one = await (await post('/publish')).json();
+  assert.equal(one.published.version, 1);
+  assert.deepEqual(one.published.scene, saved.draft);
+  const pushed = await widget.next((f) => f.type === 'widgets' && f.scene?.version === 1);
+  assert.deepEqual(pushed.scene.scene, saved.draft);
+
+  // A second version, then restore the first into the draft.
+  await post('', { items: [item('chat', 'chat')] });
+  const two = await (await post('/publish')).json();
+  assert.equal(two.published.version, 2);
+  assert.deepEqual(two.versions.map((v) => [v.version, v.items]), [[2, 1], [1, 3]]);
+  const restored = await (await post('/restore/1')).json();
+  assert.deepEqual(restored.draft, saved.draft);
+  assert.equal(restored.published.version, 2, 'restoring does not publish');
+  assert.equal((await post('/restore/99')).status, 404);
+
+  // A cheer updates top labels on screen.
+  await admin(`/v1/channels/${key}/test-event`, { kind: 'cheer', name: 'Topfan', amount: 900000 });
+  const top = await widget.next((f) => f.type === 'top' && f.top.some((t) => t.name === 'Topfan'));
+  assert.deepEqual(top.top.find((t) => t.kind === 'cheer'), { kind: 'cheer', name: 'Topfan', amount: 900000 });
+  await widget.close();
+
+  // A new widget socket gets the published scene and the top list straight away.
+  const again = new Client(key, 'widget', 0, { token: overlayToken });
+  await again.opened;
+  const data = await again.next((f) => f.type === 'widgets');
+  assert.equal(data.scene.version, 2);
+  assert.equal(data.top.find((t) => t.kind === 'cheer').name, 'Topfan');
+  await again.close();
+});
+
 await check('a wrong overlay token is refused', async () => {
   const bad = new Client(key, 'overlay', undefined, { token: 'f'.repeat(48) });
   await assert.rejects(bad.opened);

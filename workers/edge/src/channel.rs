@@ -24,6 +24,7 @@ use sylva_core::alerts::{AlertSettings, Invalid};
 use sylva_core::protocol::{
     AlertAction, AlertState, ClientFrame, Role, ServerFrame, PING, PONG, REPLAY_LIMIT,
 };
+use sylva_core::scene::{Published, Scene, SceneState, TopEntry, VersionInfo, KEPT_VERSIONS};
 use sylva_core::widgets::{
     GoalKind, GoalView, WidgetData, WidgetSettings, CHAT_LIMIT, LATEST_KINDS, LIST_KINDS,
     RECENT_LIMIT,
@@ -62,6 +63,11 @@ CREATE TABLE IF NOT EXISTS config (
 CREATE TABLE IF NOT EXISTS secrets (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS scene_versions (
+    version      INTEGER PRIMARY KEY,
+    published_at INTEGER NOT NULL,
+    body         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_kind ON events(kind, seq);
 CREATE INDEX IF NOT EXISTS events_received ON events(received_at);
@@ -129,6 +135,26 @@ struct ValueRow {
 #[derive(Deserialize)]
 struct TextRow {
     value: String,
+}
+
+#[derive(Deserialize)]
+struct TopRow {
+    name: String,
+    amount: f64,
+}
+
+#[derive(Deserialize)]
+struct VersionRow {
+    version: f64,
+    published_at: f64,
+    body: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftRecord {
+    scene: Scene,
+    saved_at: i64,
 }
 
 #[derive(Deserialize)]
@@ -299,18 +325,61 @@ impl DurableObject for ChannelDo {
                             vec![serde_json::to_string(&settings)?.into()],
                         )?;
                         // Widgets on screen pick up the new goal at once.
-                        let sockets = self.sockets(Role::Widget);
-                        if !sockets.is_empty() {
-                            let text =
-                                serde_json::to_string(&ServerFrame::Widgets(self.widget_data()?))?;
-                            for ws in sockets {
-                                let _ = ws.send_with_str(&text);
-                            }
-                        }
+                        self.send_widget_data()?;
                         Response::from_json(&settings)
                     }
                     Err(Invalid(message)) => Response::error(message, 400),
                 }
+            }
+            (Method::Get, ["scene"]) => Response::from_json(&self.scene_state()?),
+            (Method::Post, ["scene"]) => {
+                let Ok(body) = req.json::<Scene>().await else {
+                    return Response::error("That layout could not be read", 400);
+                };
+                match body.validated() {
+                    Ok(scene) => {
+                        self.save_draft(&scene)?;
+                        Response::from_json(&self.scene_state()?)
+                    }
+                    Err(Invalid(message)) => Response::error(message, 400),
+                }
+            }
+            (Method::Post, ["scene", "publish"]) => {
+                let (draft, _) = self.draft()?;
+                let version = self.published()?.map_or(0, |p| p.version) + 1;
+                self.sql.exec(
+                    "INSERT INTO scene_versions (version, published_at, body) VALUES (?, ?, ?)",
+                    vec![
+                        (version as i64).into(),
+                        (Date::now().as_millis() as i64).into(),
+                        serde_json::to_string(&draft)?.into(),
+                    ],
+                )?;
+                self.sql.exec(
+                    "DELETE FROM scene_versions WHERE version <= ?",
+                    vec![(version as i64 - KEPT_VERSIONS as i64).into()],
+                )?;
+                // Every overlay on screen switches to the new layout at once.
+                self.send_widget_data()?;
+                Response::from_json(&self.scene_state()?)
+            }
+            (Method::Post, ["scene", "restore", version]) => {
+                let Ok(v) = version.parse::<i64>() else {
+                    return Response::error("Unknown version", 404);
+                };
+                let rows = self
+                    .sql
+                    .exec(
+                        "SELECT body AS value FROM scene_versions WHERE version = ?",
+                        vec![v.into()],
+                    )?
+                    .to_array::<TextRow>()?;
+                let Some(row) = rows.first() else {
+                    return Response::error("That version is no longer kept", 404);
+                };
+                // Back into the draft, so it can be checked before publishing.
+                self.save_draft(&serde_json::from_str(&row.value)?)?;
+                Response::from_json(&self.scene_state()?)
             }
             (Method::Post, ["erase"]) => {
                 // The owner deleted their account. Only the Worker sends this
@@ -318,7 +387,14 @@ impl DurableObject for ChannelDo {
                 for ws in self.state.get_websockets() {
                     let _ = ws.close(Some(CLOSE_LINK_REPLACED), Some("channel deleted"));
                 }
-                for table in ["alerts", "events", "settings", "config", "secrets"] {
+                for table in [
+                    "alerts",
+                    "events",
+                    "settings",
+                    "config",
+                    "secrets",
+                    "scene_versions",
+                ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
                 self.state.storage().delete_alarm().await?;
@@ -568,6 +644,8 @@ impl ChannelDo {
             )?;
         }
 
+        let stored_kind = event.kind;
+        let stored_raw = event.raw_type.clone();
         let stored = StoredEvent {
             seq,
             received_at,
@@ -577,6 +655,21 @@ impl ChannelDo {
         for ws in self.state.get_websockets() {
             if socket_info(&ws).is_some_and(|i| i.role.is_some()) {
                 let _ = ws.send_with_str(&text);
+            }
+        }
+        // Top labels move with cheers and gifts, and start over when the
+        // stream goes live.
+        let tops_changed = matches!(
+            stored_kind,
+            sylva_core::EventKind::Cheer | sylva_core::EventKind::CommunityGift
+        ) || stored_raw == "stream.online";
+        if tops_changed {
+            let sockets = self.sockets(Role::Widget);
+            if !sockets.is_empty() {
+                let text = serde_json::to_string(&ServerFrame::Top { top: self.top()? })?;
+                for ws in sockets {
+                    let _ = ws.send_with_str(&text);
+                }
             }
         }
         if is_alert && self.dispatch().await?.is_none() {
@@ -850,6 +943,132 @@ impl ChannelDo {
             latest,
             chat,
             goal,
+            top: self.top()?,
+            scene: self.published()?,
+        })
+    }
+
+    /// Send every widget socket what it shows, after a change to it.
+    fn send_widget_data(&self) -> Result<()> {
+        let sockets = self.sockets(Role::Widget);
+        if !sockets.is_empty() {
+            let text = serde_json::to_string(&ServerFrame::Widgets(self.widget_data()?))?;
+            for ws in sockets {
+                let _ = ws.send_with_str(&text);
+            }
+        }
+        Ok(())
+    }
+
+    /// The top cheerer and top gifter since the stream went live (the latest
+    /// `stream.online`), or in the last 24 hours when Sylva has not seen one.
+    fn top(&self) -> Result<Vec<TopEntry>> {
+        let online = self
+            .sql
+            .exec(
+                "SELECT COALESCE(MAX(received_at), 0) AS value FROM events
+                 WHERE kind = 'other' AND json_extract(body, '$.rawType') = 'stream.online'",
+                None,
+            )?
+            .one::<ValueRow>()?
+            .value as i64;
+        let since = if online > 0 {
+            online
+        } else {
+            Date::now().as_millis() as i64 - 24 * 3600 * 1000
+        };
+        let mut out = Vec::new();
+        for kind in sylva_core::scene::TOP_LABEL_KINDS {
+            let rows = self
+                .sql
+                .exec(
+                    "SELECT json_extract(body, '$.actor.displayName') AS name,
+                            SUM(COALESCE(json_extract(body, '$.amount'), 0)) AS amount
+                     FROM events
+                     WHERE kind = ? AND received_at >= ? AND json_extract(body, '$.actor') IS NOT NULL
+                     GROUP BY json_extract(body, '$.actor.login')
+                     ORDER BY amount DESC, MIN(seq) ASC LIMIT 1",
+                    vec![kind.into(), since.into()],
+                )?
+                .to_array::<TopRow>()?;
+            if let Some(r) = rows.into_iter().next().filter(|r| r.amount > 0.0) {
+                out.push(TopEntry {
+                    kind: kind.into(),
+                    name: r.name,
+                    amount: r.amount,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    fn draft(&self) -> Result<(Scene, i64)> {
+        let rows = self
+            .sql
+            .exec("SELECT value FROM config WHERE key = 'scene_draft'", None)?
+            .to_array::<TextRow>()?;
+        let saved: Option<DraftRecord> = rows
+            .first()
+            .and_then(|r| serde_json::from_str(&r.value).ok());
+        Ok(saved.map_or((Scene::default(), 0), |d| (d.scene, d.saved_at)))
+    }
+
+    fn save_draft(&self, scene: &Scene) -> Result<()> {
+        let record = DraftRecord {
+            scene: scene.clone(),
+            saved_at: Date::now().as_millis() as i64,
+        };
+        self.sql.exec(
+            "INSERT INTO config (key, value) VALUES ('scene_draft', ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            vec![serde_json::to_string(&record)?.into()],
+        )?;
+        Ok(())
+    }
+
+    fn published(&self) -> Result<Option<Published>> {
+        let rows = self
+            .sql
+            .exec(
+                "SELECT version, published_at, body FROM scene_versions ORDER BY version DESC LIMIT 1",
+                None,
+            )?
+            .to_array::<VersionRow>()?;
+        rows.into_iter()
+            .next()
+            .map(|r| {
+                Ok(Published {
+                    version: r.version as u64,
+                    published_at: r.published_at as i64,
+                    scene: serde_json::from_str(&r.body)?,
+                })
+            })
+            .transpose()
+    }
+
+    fn scene_state(&self) -> Result<SceneState> {
+        let (draft, draft_saved_at) = self.draft()?;
+        let versions = self
+            .sql
+            .exec(
+                "SELECT version, published_at, body FROM scene_versions ORDER BY version DESC",
+                None,
+            )?
+            .to_array::<VersionRow>()?
+            .into_iter()
+            .map(|r| VersionInfo {
+                version: r.version as u64,
+                published_at: r.published_at as i64,
+                items: serde_json::from_str::<Scene>(&r.body)
+                    .map(|s| s.items.len())
+                    .unwrap_or(0),
+            })
+            .collect();
+        Ok(SceneState {
+            draft,
+            draft_saved_at,
+            published: self.published()?,
+            versions,
         })
     }
 

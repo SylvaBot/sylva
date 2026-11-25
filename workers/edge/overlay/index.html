@@ -40,7 +40,9 @@
 (() => {
   const key = decodeURIComponent(location.pathname.split('/').pop());
   const params = new URLSearchParams(location.search);
-  const showMs = Number(params.get('duration') || 5000);
+  // The channel's alert settings set how long each alert stays. A `duration`
+  // in the link (milliseconds) overrides them for this overlay only.
+  const linkMs = Number(params.get('duration')) || 0;
   if (params.has('debug')) document.body.classList.add('debug');
   const stage = document.getElementById('stage');
   const status = document.getElementById('status');
@@ -64,7 +66,16 @@
   // Exposed for automated tests.
   window.sylva = { shown: [], acked: [] };
 
-  function render(alertId, e) {
+  // Older servers send no view: build one the way they used to look.
+  const fallbackView = (e) => ({
+    label: LABELS[e.kind] || e.rawType,
+    name: e.actor ? e.actor.displayName : 'Anonymous',
+    detail: detail(e),
+    message: e.message,
+    durationMs: 5000,
+  });
+
+  function render(alertId, e, view) {
     stage.textContent = '';
     const card = document.createElement('div');
     card.className = 'card';
@@ -75,10 +86,10 @@
       const el = document.createElement('div');
       el.className = cls; el.textContent = text; card.appendChild(el);
     };
-    add('label', LABELS[e.kind] || e.rawType);
-    add('name', e.actor ? e.actor.displayName : 'Anonymous');
-    add('detail', detail(e));
-    add('message', e.message);
+    add('label', view.label);
+    add('name', view.name);
+    add('detail', view.detail);
+    add('message', view.message);
     stage.appendChild(card);
   }
 
@@ -91,7 +102,8 @@
     clearTimeout(timer);
     current = frame.alertId;
     window.sylva.shown.push(frame.alertId);
-    render(frame.alertId, frame.event);
+    const view = frame.view || fallbackView(frame.event);
+    render(frame.alertId, frame.event, view);
     timer = setTimeout(() => {
       hide();
       if (ws && ws.readyState === 1 && current === frame.alertId) {
@@ -99,7 +111,7 @@
         window.sylva.acked.push(frame.alertId);
       }
       current = null;
-    }, showMs);
+    }, linkMs || view.durationMs || 5000);
   }
 
   function connect() {

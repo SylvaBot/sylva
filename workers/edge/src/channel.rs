@@ -16,10 +16,11 @@
 //! connected, or marked timed out when one is (a broken widget should not block
 //! every alert after it).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use sylva_core::alerts::{AlertSettings, Invalid};
 use sylva_core::protocol::{
     AlertAction, AlertState, ClientFrame, Role, ServerFrame, PING, PONG, REPLAY_LIMIT,
 };
@@ -49,6 +50,10 @@ CREATE INDEX IF NOT EXISTS alerts_status ON alerts(status, priority DESC, id);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS secrets (
     key   TEXT PRIMARY KEY,
@@ -152,6 +157,9 @@ struct Summary {
 pub struct IngestResult {
     pub seq: u64,
     pub duplicate: bool,
+    /// Whether it went into the alert queue, after the channel's alert settings.
+    #[serde(default)]
+    pub alert: bool,
 }
 
 #[durable_object]
@@ -160,6 +168,8 @@ pub struct ChannelDo {
     sql: SqlStorage,
     /// Highest seq in the log. Kept in memory so assigning the next one needs no read.
     head: Cell<u64>,
+    /// The alert settings, read once and kept while the object is awake.
+    alert_settings: RefCell<Option<AlertSettings>>,
 }
 
 impl DurableObject for ChannelDo {
@@ -181,6 +191,7 @@ impl DurableObject for ChannelDo {
             state,
             sql,
             head: Cell::new(head),
+            alert_settings: RefCell::new(None),
         }
     }
 
@@ -252,6 +263,24 @@ impl DurableObject for ChannelDo {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or_else(|| Date::now().as_millis() as i64 - 86_400_000);
                 Response::from_json(&self.summary(since)?)
+            }
+            (Method::Get, ["alert-settings"]) => Response::from_json(&self.alert_settings()?),
+            (Method::Post, ["alert-settings"]) => {
+                let Ok(body) = req.json::<AlertSettings>().await else {
+                    return Response::error("Those settings could not be read", 400);
+                };
+                match body.validated() {
+                    Ok(settings) => {
+                        self.sql.exec(
+                            "INSERT INTO config (key, value) VALUES ('alert_settings', ?)
+                             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            vec![serde_json::to_string(&settings)?.into()],
+                        )?;
+                        self.alert_settings.replace(Some(settings.clone()));
+                        Response::from_json(&settings)
+                    }
+                    Err(Invalid(message)) => Response::error(message, 400),
+                }
             }
             (Method::Get, ["overlay-token"]) => {
                 Response::from_json(&serde_json::json!({ "token": self.overlay_token()? }))
@@ -462,6 +491,7 @@ impl ChannelDo {
             return Ok(IngestResult {
                 seq: row.value as u64,
                 duplicate: true,
+                alert: false,
             });
         }
 
@@ -483,7 +513,7 @@ impl ChannelDo {
             ],
         )?;
         self.head.set(seq);
-        let is_alert = event.kind.is_alert();
+        let is_alert = self.alert_settings()?.plays(&event);
         if is_alert {
             self.sql.exec(
                 "INSERT INTO alerts (event_seq) VALUES (?)",
@@ -509,6 +539,7 @@ impl ChannelDo {
         Ok(IngestResult {
             seq,
             duplicate: false,
+            alert: is_alert,
         })
     }
 
@@ -673,6 +704,27 @@ impl ChannelDo {
             .collect()
     }
 
+    fn alert_settings(&self) -> Result<AlertSettings> {
+        if let Some(s) = self.alert_settings.borrow().as_ref() {
+            return Ok(s.clone());
+        }
+        let rows = self
+            .sql
+            .exec(
+                "SELECT value FROM config WHERE key = 'alert_settings'",
+                None,
+            )?
+            .to_array::<TextRow>()?;
+        // Settings saved by an older version fill in their missing kinds.
+        let settings = rows
+            .first()
+            .and_then(|r| serde_json::from_str::<AlertSettings>(&r.value).ok())
+            .and_then(|s| s.validated().ok())
+            .unwrap_or_default();
+        self.alert_settings.replace(Some(settings.clone()));
+        Ok(settings)
+    }
+
     fn setting(&self, key: &str) -> Result<bool> {
         let rows = self
             .sql
@@ -743,10 +795,12 @@ impl ChannelDo {
     }
 
     fn send_play(&self, ws: &WebSocket, alert_id: u64, event_seq: u64) -> Result<()> {
+        let event = self.event(event_seq)?;
         let frame = ServerFrame::Play {
             alert_id,
             muted: self.setting("muted")?,
-            event: self.event(event_seq)?,
+            view: self.alert_settings()?.view(&event.event),
+            event,
         };
         send(ws, &frame)
     }

@@ -692,6 +692,52 @@ if (!fake || !usesFake) {
     assert.equal(cookieOf(res, 'sylva_session'), '');
     assert.equal((await fetch(`${BASE}/v1/me`, { headers: asOwner() })).status, 401);
   });
+
+  await check('deleting the account erases it everywhere, and only when confirmed', async () => {
+    session = cookieOf(await signIn(), 'sylva_session');
+    const me = await (await fetch(`${BASE}/v1/me`, { headers: asOwner() })).json();
+    const mine = me.channels[0].key;
+    const chUrl = `${BASE}/v1/channels/${encodeURIComponent(mine)}`;
+    const ev = await fetch(`${chUrl}/test-event`, {
+      method: 'POST', headers: asOwner(json({ Origin: BASE })), body: JSON.stringify({ kind: 'follow', name: 'BeforeDelete' }),
+    });
+    assert.equal(ev.status, 200);
+    // An app connected to the account, to check it stops working too.
+    const d = await startDevice();
+    await fetch(`${BASE}/v1/device`, { method: 'POST', headers: asOwner(json({ Origin: BASE })), body: JSON.stringify({ userCode: d.user_code, approve: true }) });
+    const app = (await poll(d.device_code)).body.access_token;
+    assert.match(app, /^sylva_/);
+
+    const del = (headers, confirm = FAKE_USER.login) => fetch(`${BASE}/v1/account/delete`, {
+      method: 'POST', headers: json(headers), body: JSON.stringify({ confirm }),
+    });
+    assert.equal((await del(asOwner())).status, 403, 'needs same origin');
+    assert.equal((await del({ Authorization: `Bearer ${app}`, Origin: BASE })).status, 401, 'an app cannot');
+    assert.equal((await del(asOwner({ Origin: BASE }), 'someone-else')).status, 400, 'must name the account');
+
+    fake.state.failDeletes = 503;
+    const refused = await del(asOwner({ Origin: BASE }));
+    fake.state.failDeletes = null;
+    assert.equal(refused.status, 502);
+    assert.equal((await fetch(`${BASE}/v1/me`, { headers: asOwner() })).status, 200, 'nothing deleted when Twitch fails');
+
+    const before = fake.state.revoked.length;
+    const res = await del(asOwner({ Origin: BASE }), FAKE_USER.login.toUpperCase());
+    assert.equal(res.status, 200);
+    assert.equal(cookieOf(res, 'sylva_session'), '');
+    assert.equal((await fetch(`${BASE}/v1/me`, { headers: asOwner() })).status, 401);
+    assert.equal((await fetch(`${BASE}/v1/me`, { headers: { Authorization: `Bearer ${app}` } })).status, 401);
+    assert.deepEqual(fake.state.subscriptions.filter((x) => Object.values(x.condition).includes(FAKE_USER.id)), []);
+    assert.ok(fake.state.revoked.length > before, 'the Twitch token was revoked');
+    const hist = await fetch(`${chUrl}/history?filter=alerts`, { headers: { Authorization: `Bearer ${ADMIN}` } });
+    assert.deepEqual((await hist.json()).events, []);
+
+    // Signing in again starts a new, empty account.
+    session = cookieOf(await signIn(), 'sylva_session');
+    const again = await (await fetch(`${BASE}/v1/me`, { headers: asOwner() })).json();
+    assert.notEqual(again.accountId, me.accountId);
+    assert.equal(again.channels[0].key, mine);
+  });
 }
 await fake?.close();
 

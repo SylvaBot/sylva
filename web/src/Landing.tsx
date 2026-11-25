@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { Link } from './router';
+import { SiteFooter } from './site';
 import { Icon } from './ui';
 
 const START = '/auth/twitch/start';
@@ -23,7 +24,9 @@ const FEATURES = [
   { icon: 'shield', c: 'c-gift', title: 'Private by default', text: 'Your overlay link only shows alerts, your activity and chat are only visible to you, and Twitch tokens are stored encrypted.' },
 ];
 
-export function Landing({ signedIn, error, notFound }: { signedIn: boolean; error: string | null; notFound: boolean }) {
+export function Landing({ signedIn, error, notice, notFound }: {
+  signedIn: boolean; error: string | null; notice: string | null; notFound: boolean;
+}) {
   const cta = signedIn
     ? <Link className="btn primary lg" href="/app">Open dashboard<Icon id="arrow" /></Link>
     : <a className="btn primary lg" href={START}><Icon id="twitch" />Continue with Twitch</a>;
@@ -66,6 +69,7 @@ export function Landing({ signedIn, error, notFound }: { signedIn: boolean; erro
                 </p>
                 <div className="hero-cta">{cta}</div>
                 {error && <p className="signin-error" role="alert">{error}</p>}
+                {notice && <p className="site-notice" role="status">{notice}</p>}
                 <p className="hero-note">Sylva does not post in your chat or change anything on your channel.</p>
               </div>
               <Preview />
@@ -108,10 +112,7 @@ export function Landing({ signedIn, error, notFound }: { signedIn: boolean; erro
         )}
       </main>
 
-      <footer className="site-footer">
-        <span>© {new Date().getFullYear()} Sylva</span>
-        <span>Not affiliated with Twitch.</span>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

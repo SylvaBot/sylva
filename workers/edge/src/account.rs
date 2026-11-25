@@ -172,6 +172,19 @@ pub struct TokenDelete {
     pub id: String,
 }
 
+/// What an account held that the Worker still has to clean up elsewhere.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Erased {
+    pub sealed_tokens: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Forget {
+    pub account_id: String,
+}
+
 #[derive(Deserialize)]
 struct TokenRow {
     id: String,
@@ -291,6 +304,23 @@ impl DurableObject for AccountDo {
                 self.sql
                     .exec("DELETE FROM api_tokens WHERE id = ?", vec![t.id.into()])?;
                 Response::empty().map(|r| r.with_status(204))
+            }
+            (Method::Post, "/erase") => {
+                // Hand back the sealed Twitch tokens so the Worker can revoke
+                // them, then forget everything.
+                let tokens: Vec<String> = self
+                    .sql
+                    .exec("SELECT access_token AS value FROM identities", None)?
+                    .to_array::<TextRow>()?
+                    .into_iter()
+                    .map(|r| r.value)
+                    .collect();
+                for table in ["identities", "sessions", "api_tokens", "channels", "meta"] {
+                    self.sql.exec(&format!("DELETE FROM {table}"), None)?;
+                }
+                Response::from_json(&Erased {
+                    sealed_tokens: tokens,
+                })
             }
             (Method::Post, "/sessions/delete") => {
                 let s: SessionRequest = req.json().await?;
@@ -428,6 +458,20 @@ impl DurableObject for DirectoryDo {
             "/device/lookup" => self.device_lookup(req.json().await?),
             "/device/decide" => self.device_decide(req.json().await?),
             "/device/poll" => self.device_poll(req.json().await?),
+            "/forget" => {
+                // A deleted account: its identities can sign up afresh, and
+                // its pending app approvals are dropped.
+                let f: Forget = req.json().await?;
+                self.sql.exec(
+                    "DELETE FROM identities WHERE account_id = ?",
+                    vec![f.account_id.clone().into()],
+                )?;
+                self.sql.exec(
+                    "DELETE FROM devices WHERE account_id = ?",
+                    vec![f.account_id.into()],
+                )?;
+                Response::empty().map(|r| r.with_status(204))
+            }
             _ => Response::error("Not found", 404),
         }
     }

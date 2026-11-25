@@ -9,6 +9,7 @@ import { DevicePage } from './device';
 import { Landing } from './Landing';
 import { navigate, usePath } from './router';
 import { Shell } from './Shell';
+import { PrivacyPage } from './site';
 
 const SIGNIN_ERRORS: Record<string, string> = {
   denied: 'You cancelled on Twitch, so nothing changed. Sign in when you are ready.',
@@ -21,13 +22,14 @@ export function App() {
   const path = usePath();
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    const reason = new URLSearchParams(location.search).get('signin');
-    if (reason) {
-      setError(SIGNIN_ERRORS[reason] || SIGNIN_ERRORS.failed);
-      history.replaceState(null, '', location.pathname);
-    }
+    const params = new URLSearchParams(location.search);
+    const reason = params.get('signin');
+    if (reason) setError(SIGNIN_ERRORS[reason] || SIGNIN_ERRORS.failed);
+    if (params.has('deleted')) setNotice('Your Sylva account and everything in it were deleted.');
+    if (reason || params.has('deleted')) history.replaceState(null, '', location.pathname);
     api.me()
       .then((m) => setMe(m.channels.length ? m : null))
       .catch((x) => {
@@ -43,10 +45,11 @@ export function App() {
   }, [inApp, me]);
 
   useEffect(() => {
-    if (!inApp && path !== '/device') document.title = 'Sylva: alerts, overlays and activity for Twitch';
+    if (!inApp && path !== '/device' && path !== '/privacy') document.title = 'Sylva: alerts, overlays and activity for Twitch';
   }, [inApp, path]);
 
   if (path === '/device') return <DevicePage me={me} />;
+  if (path === '/privacy') return <PrivacyPage signedIn={!!me} />;
   if (inApp) {
     if (!me) return <div className="loading" role="status">Loading your channel</div>;
     return (
@@ -55,5 +58,5 @@ export function App() {
       </ChannelProvider>
     );
   }
-  return <Landing signedIn={!!me} error={error} notFound={path !== '/'} />;
+  return <Landing signedIn={!!me} error={error} notice={notice} notFound={path !== '/'} />;
 }

@@ -164,6 +164,78 @@ pub(crate) async fn post<T: serde::Serialize>(
     call(stub, path, body).await
 }
 
+/// Set while the shared bot account approves Sylva, so the callback knows
+/// this is not a sign in.
+const BOT_COOKIE: &str = "sylva_bot";
+
+/// `GET /auth/twitch/bot`: the shared bot account approves Sylva to chat as it.
+pub async fn bot_start(req: &Request, env: &Env) -> Result<Response> {
+    let state = random_hex(16)?;
+    let url = sylva_core::auth::twitch_bot_authorize_url(
+        &twitch_api::auth_base(env)?,
+        &env.var("TWITCH_CLIENT_ID")?.to_string(),
+        &format!("{}/auth/twitch/callback", origin(req)?),
+        &state,
+    );
+    let secure = is_https(req);
+    redirect(
+        &url,
+        &[
+            set_cookie(STATE_COOKIE, &state, "/auth", 600, secure),
+            set_cookie(BOT_COOKIE, "1", "/auth", 600, secure),
+        ],
+    )
+}
+
+/// The end of [`bot_start`]: show the account's id to put in
+/// `SYLVA_BOT_USER_ID`. Nothing is stored: sending chat as the bot needs only
+/// Sylva's app token and this one approval.
+async fn bot_finish(req: &Request, env: &Env, code: &str) -> Result<Response> {
+    let redirect_uri = format!("{}/auth/twitch/callback", origin(req)?);
+    let tokens = twitch_api::exchange_code(env, code, &redirect_uri).await?;
+    let who = twitch_api::validate(env, &tokens.access_token).await?;
+    if who.client_id != env.var("TWITCH_CLIENT_ID")?.to_string() {
+        return Err(Error::RustError("token was issued to another app".into()));
+    }
+    let ok = who.scopes.iter().any(|s| s == sylva_core::auth::BOT_SCOPE);
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    let body = if ok {
+        format!(
+            "<h1>{} can chat for Sylva</h1><p>To make it the bot in every channel, set these Worker variables and deploy:</p>\
+             <pre>SYLVA_BOT_USER_ID = \"{}\"\nSYLVA_BOT_LOGIN = \"{}\"</pre>",
+            esc(&who.login),
+            esc(&who.user_id),
+            esc(&who.login)
+        )
+    } else {
+        "<h1>Twitch did not grant chat access</h1><p>Try again and choose Authorize.</p>"
+            .to_string()
+    };
+    let html = format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+         <title>Sylva bot account</title><style>body{{font:15px/1.5 system-ui,sans-serif;background:#0e0e10;color:#ededef;max-width:560px;margin:64px auto;padding:0 16px}}\
+         h1{{font-size:22px}}pre{{background:#161618;border:1px solid #2c2c31;border-radius:8px;padding:12px;overflow:auto}}</style></head><body>{body}</body></html>"
+    );
+    let mut res = Response::from_html(html)?;
+    let secure = is_https(req);
+    let h = res.headers_mut();
+    h.set("Cache-Control", "no-store")?;
+    h.append(
+        "Set-Cookie",
+        &set_cookie(STATE_COOKIE, "", "/auth", 0, secure),
+    )?;
+    h.append(
+        "Set-Cookie",
+        &set_cookie(BOT_COOKIE, "", "/auth", 0, secure),
+    )?;
+    Ok(res)
+}
+
 pub async fn start(req: &Request, env: &Env) -> Result<Response> {
     let state = random_hex(16)?;
     let url = twitch_authorize_url(
@@ -178,13 +250,11 @@ pub async fn start(req: &Request, env: &Env) -> Result<Response> {
         .find(|(k, _)| k == "next")
         .map(|(_, v)| v.into_owned())
         .unwrap_or_default();
-    let mut cookies = vec![set_cookie(
-        STATE_COOKIE,
-        &state,
-        "/auth",
-        600,
-        is_https(req),
-    )];
+    let mut cookies = vec![
+        set_cookie(STATE_COOKIE, &state, "/auth", 600, is_https(req)),
+        // A bot approval that was left unfinished must not catch this sign in.
+        set_cookie(BOT_COOKIE, "", "/auth", 0, is_https(req)),
+    ];
     // Cookie values cannot hold every character, so the path goes in as hex.
     if let Some(next) = safe_next(&next) {
         cookies.push(set_cookie(
@@ -202,10 +272,11 @@ pub async fn callback(req: &Request, env: &Env) -> Result<Response> {
     let secure = is_https(req);
     let clear_state = set_cookie(STATE_COOKIE, "", "/auth", 0, secure);
     let clear_next = set_cookie(NEXT_COOKIE, "", "/auth", 0, secure);
+    let clear_bot = set_cookie(BOT_COOKIE, "", "/auth", 0, secure);
     let fail = |reason: &str| {
         redirect(
             &format!("/?signin={reason}"),
-            &[clear_state.clone(), clear_next.clone()],
+            &[clear_state.clone(), clear_next.clone(), clear_bot.clone()],
         )
     };
 
@@ -229,6 +300,16 @@ pub async fn callback(req: &Request, env: &Env) -> Result<Response> {
     let Some(code) = q.get("code") else {
         return fail("expired");
     };
+
+    if cookie(&header, BOT_COOKIE).is_some() {
+        return match bot_finish(req, env, code).await {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                console_error!("Bot approval failed: {e}");
+                fail("failed")
+            }
+        };
+    }
 
     match finish_sign_in(req, env, code).await {
         Ok(SignIn::Done(token)) => {

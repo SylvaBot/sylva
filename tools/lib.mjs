@@ -59,6 +59,18 @@ export function chat(channelId, n) {
   };
 }
 
+/** A chat line with a chosen text, chatter and badges (set ids). */
+export function chatLine(channelId, { text, id = '7001', name = 'Maple', badges = [] }) {
+  return {
+    subType: 'channel.chat.message',
+    condition: { broadcaster_user_id: channelId, user_id: channelId },
+    event: { broadcaster_user_id: channelId, chatter_user_id: id,
+             chatter_user_login: name.toLowerCase(), chatter_user_name: name,
+             message_id: randomUUID(), message: { text, fragments: [] },
+             badges: badges.map((set_id) => ({ set_id, id: '1', info: '' })) },
+  };
+}
+
 export async function admin(path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',

@@ -31,6 +31,8 @@ export function startFakeTwitch(port = FAKE_PORT) {
     // Set to a status (such as 503) to make deleting subscriptions fail.
     failDeletes: null,
     revoked: [],
+    // Chat lines Sylva's bot sent.
+    chatSent: [],
     // Scopes the next authorize grants. Tests narrow it to check "scopes".
     grant: SCOPES,
   };
@@ -141,6 +143,15 @@ export function startFakeTwitch(port = FAKE_PORT) {
         state.subscriptions.splice(i, 1);
         res.writeHead(204);
         return res.end();
+      }
+      if (req.method === 'POST' && path === '/chat/messages') {
+        // Sent with the app token, as Sylva's bot does.
+        if (!isApp) return json(res, 400, { message: 'expected the app token' });
+        const m = JSON.parse(body);
+        if (!m.broadcaster_id || !m.sender_id || !m.message) return json(res, 400, { message: 'missing fields' });
+        const id = randomUUID();
+        state.chatSent.push({ ...m, message_id: id });
+        return json(res, 200, { data: [{ message_id: id, is_sent: true }] });
       }
       return json(res, 404, { message: 'not faked: ' + path });
     }

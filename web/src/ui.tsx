@@ -35,22 +35,33 @@ export function ago(iso: string): string {
   return Math.floor(s / 86400) + 'd ago';
 }
 
-interface Toast { id: number; text: string; bad: boolean }
-const ToastContext = createContext<(text: string, bad?: boolean) => void>(() => {});
+export interface ToastAction { label: string; run(): void }
+interface Toast { id: number; text: string; bad: boolean; action?: ToastAction }
+type ShowToast = (text: string, bad?: boolean, action?: ToastAction) => void;
+const ToastContext = createContext<ShowToast>(() => {});
 
 export function Toasts({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const show = useCallback((text: string, bad = false) => {
+  const show = useCallback<ShowToast>((text, bad = false, action) => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, text, bad }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), bad ? 6500 : 3000);
+    setToasts((t) => [...t, { id, text, bad, action }]);
+    // A toast with Undo stays long enough to reach the button.
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), action ? 8000 : bad ? 6500 : 3000);
   }, []);
+  const dismiss = (id: number) => setToasts((t) => t.filter((x) => x.id !== id));
   return (
     <ToastContext.Provider value={show}>
       {children}
       <div className="toasts" aria-live="assertive">
         {toasts.map((t) => (
-          <div key={t.id} className={'toast' + (t.bad ? ' bad' : '')}>{t.text}</div>
+          <div key={t.id} className={'toast' + (t.bad ? ' bad' : '') + (t.action ? ' has-action' : '')}>
+            {t.text}
+            {t.action && (
+              <button className="toast-action" type="button" onClick={() => { dismiss(t.id); t.action!.run(); }}>
+                {t.action.label}
+              </button>
+            )}
+          </div>
         ))}
       </div>
     </ToastContext.Provider>

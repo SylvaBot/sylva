@@ -1,0 +1,64 @@
+// Small shared pieces: icons from the sprite, avatars, toasts and formatting.
+// Behavior matches Cortex's ui/app.js helpers.
+
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+
+export function Icon({ id }: { id: string }) {
+  return (
+    <svg aria-hidden="true">
+      <use href={`#i-${id}`} />
+    </svg>
+  );
+}
+
+export function Avatar({ name, url }: { name: string; url?: string }) {
+  const [broken, setBroken] = useState(false);
+  const letter = (name || '?').trim().charAt(0).toUpperCase() || '?';
+  const src = url && url.startsWith('https://') && !broken ? url : null;
+  return (
+    <span className="avatar">
+      {src ? <img src={src} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} /> : letter}
+    </span>
+  );
+}
+
+const fmt = new Intl.NumberFormat();
+export const num = (n: number | null | undefined) => (n === null || n === undefined ? '-' : fmt.format(n));
+
+export function ago(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return 'now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+interface Toast { id: number; text: string; bad: boolean }
+const ToastContext = createContext<(text: string, bad?: boolean) => void>(() => {});
+
+export function Toasts({ children }: { children: ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const show = useCallback((text: string, bad = false) => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, text, bad }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), bad ? 6500 : 3000);
+  }, []);
+  return (
+    <ToastContext.Provider value={show}>
+      {children}
+      <div className="toasts" aria-live="assertive">
+        {toasts.map((t) => (
+          <div key={t.id} className={'toast' + (t.bad ? ' bad' : '')}>{t.text}</div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+}
+
+export const useToast = () => useContext(ToastContext);
+
+export function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}

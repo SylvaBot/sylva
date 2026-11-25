@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sylva overlay</title>
 <style>
-  /* Phase 0 test overlay. Colors and shapes follow Cortex: flat surfaces, 1px
+  /* The alert overlay for OBS. Colors and shapes follow Cortex: flat surfaces, 1px
      borders, one color per event kind, 12px card radius, 450ms arrive. */
   :root {
     --surface: #161618; --border: #3d3d44; --text: #ededef; --muted: #94949c;
@@ -104,7 +104,10 @@
 
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/v1/channels/${key}/ws`);
+    // The link's token lets this page connect as an overlay without signing in.
+    const token = params.get('token');
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    ws = new WebSocket(`${proto}://${location.host}/v1/channels/${key}/ws${query}`);
     ws.onopen = () => {
       backoff = 500;
       status.textContent = 'connected';
@@ -119,8 +122,11 @@
         status.textContent = `connected, ${s.queued} queued${s.paused ? ', paused' : ''}${s.muted ? ', muted' : ''}`;
       }
     };
-    ws.onclose = () => {
-      status.textContent = 'reconnecting';
+    ws.onclose = (e) => {
+      // 4001: the streamer made a new link. Retrying keeps failing until OBS
+      // gets the new one, so retry slowly.
+      if (e.code === 4001) backoff = 10000;
+      status.textContent = e.code === 4001 ? 'this link was replaced' : 'reconnecting';
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 10000);
     };

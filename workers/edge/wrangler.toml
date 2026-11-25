@@ -7,23 +7,47 @@ workers_dev = true
 [build]
 command = "worker-build --release"
 
+# The dashboard (built from /web with `npm run build:web`). Requests for these
+# paths go to the Worker first; everything else is a static file, and unknown
+# paths get index.html so the dashboard can route them.
+[assets]
+directory = "../../web/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/v1/*", "/auth/*", "/twitch/*", "/admin/*", "/overlay/*", "/health"]
+
 [[durable_objects.bindings]]
 name = "CHANNEL"
 class_name = "ChannelDo"
+
+[[durable_objects.bindings]]
+name = "ACCOUNT"
+class_name = "AccountDo"
+
+[[durable_objects.bindings]]
+name = "DIRECTORY"
+class_name = "DirectoryDo"
 
 # SQLite backed storage is required for the SQL API and is the default for new classes.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ChannelDo"]
 
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AccountDo", "DirectoryDo"]
+
 # Secrets (set with `wrangler secret put`, or in .dev.vars locally):
-#   TWITCH_EVENTSUB_SECRET  the secret given to Twitch when creating the conduit shard
-#   SYLVA_ADMIN_TOKEN       Phase 0 only: bearer token for POST /v1 and /admin routes
 #   TWITCH_CLIENT_SECRET    the Twitch application secret (set in the Cloudflare dashboard)
+#   TWITCH_EVENTSUB_SECRET  the secret given to Twitch when creating the conduit shard
+#   SYLVA_TOKEN_KEY         64 hex characters: encrypts Twitch tokens at rest
+#   SYLVA_ADMIN_TOKEN       bearer token for /admin routes and test scripts
 
 [vars]
 # Not secret: the public client id of the "sylva dev" Twitch application.
 TWITCH_CLIENT_ID = "t9z14i1qdp044der47bq7lpu5w0eru"
+# Twitch's addresses. The end to end tests point these at a local fake Twitch.
+TWITCH_AUTH_URL = "https://id.twitch.tv/oauth2"
+TWITCH_API_URL = "https://api.twitch.tv/helix"
 
 # Workers Logs: keeps console output (such as rejected webhooks) for 7 days.
 [observability]

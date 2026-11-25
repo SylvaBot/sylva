@@ -38,6 +38,8 @@ jobs:
           node-version: 22
       - run: cargo install worker-build --version 0.9.0 --locked
       - run: npm ci
+      - name: Type check and build the dashboard
+        run: npm run build:web
       - name: Build the Worker
         working-directory: workers/edge
         run: worker-build --release
@@ -50,11 +52,11 @@ jobs:
           echo "WebAssembly: $raw bytes ($gz gzipped). Workers allow 64 MiB uncompressed." >> "$GITHUB_STEP_SUMMARY"
           # Fail well before the platform limit so growth gets noticed early.
           test "$raw" -lt 8000000
-      - name: Start the Worker locally
+      - name: Start the Worker locally, pointed at a fake Twitch
         run: |
           cp workers/edge/.dev.vars.example workers/edge/.dev.vars
-          npm run dev > dev.log 2>&1 &
-          for i in $(seq 1 90); do curl -sf localhost:8787/ && exit 0; sleep 2; done
+          npm run dev:test > dev.log 2>&1 &
+          for i in $(seq 1 90); do curl -sf localhost:8787/health && exit 0; sleep 2; done
           cat dev.log; exit 1
       - run: npm run test:e2e
       - run: npm run test:burst -- 2000 50

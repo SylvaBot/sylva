@@ -1,4 +1,4 @@
-// Shared helpers for the Phase 0 test scripts. They talk to a running Worker
+// Shared helpers for the test scripts. They talk to a running Worker
 // (local `npm run dev` by default) exactly as Twitch, OBS and Cortex would.
 import { createHmac, randomUUID } from 'node:crypto';
 
@@ -69,18 +69,26 @@ export async function admin(path, body) {
   return res.json();
 }
 
+/** GET as the admin (channel reads need an owner or the admin token). */
 export async function getJson(path) {
-  const res = await fetch(`${BASE}${path}`);
+  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${ADMIN}` } });
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);
   return res.json();
 }
 
 /** A realtime client that records every frame and lets tests wait for one. */
 export class Client {
-  constructor(key, role, lastSeq) {
+  /**
+   * Connects as the admin by default. Pass `{ token }` to connect with an
+   * overlay link's token instead, or `{ headers }` for a session cookie.
+   */
+  constructor(key, role, lastSeq, { token, headers } = {}) {
     this.frames = [];
     this.waiters = [];
-    this.ws = new WebSocket(`${BASE.replace(/^http/, 'ws')}/v1/channels/${key}/ws`);
+    const url = `${BASE.replace(/^http/, 'ws')}/v1/channels/${key}/ws`;
+    this.ws = token
+      ? new WebSocket(`${url}?token=${encodeURIComponent(token)}`)
+      : new WebSocket(url, { headers: headers || { Authorization: `Bearer ${ADMIN}` } });
     this.opened = new Promise((resolve, reject) => {
       this.ws.onopen = () => {
         this.ws.send(JSON.stringify({ type: 'hello', role, ...(lastSeq !== undefined ? { lastSeq } : {}) }));

@@ -9,8 +9,8 @@
 //! Reference: <https://dev.twitch.tv/docs/eventsub/handling-webhook-events/>
 
 use hmac::{Hmac, Mac};
-use serde::Deserialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use sha2::Sha256;
 
 use crate::event::{Actor, Event, EventKind, Platform};
@@ -223,6 +223,94 @@ fn actor(v: &Value, prefix: &str) -> Option<Actor> {
         login,
         display_name,
     })
+}
+
+/// What a streamer sees an EventSub subscription as on the dashboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Feature {
+    Follows,
+    Subs,
+    Cheers,
+    Chat,
+    Raids,
+    Stream,
+}
+
+/// One EventSub subscription Sylva makes for a channel.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubscriptionSpec {
+    pub kind: &'static str,
+    pub version: &'static str,
+    pub condition: Value,
+    pub feature: Feature,
+    /// True when Twitch needs the broadcaster's permission (granted at sign in).
+    pub needs_sign_in: bool,
+}
+
+/// Every subscription a signed in channel gets. Chat is read as the
+/// broadcaster (`user_id` is the broadcaster too), which the `user:read:chat`,
+/// `user:bot` and `channel:bot` scopes allow with Sylva's app token.
+pub fn channel_subscriptions(broadcaster_user_id: &str) -> Vec<SubscriptionSpec> {
+    let b = broadcaster_user_id;
+    let spec = |kind, version, condition, feature, needs_sign_in| SubscriptionSpec {
+        kind,
+        version,
+        condition,
+        feature,
+        needs_sign_in,
+    };
+    let own = json!({ "broadcaster_user_id": b });
+    vec![
+        spec(
+            "channel.follow",
+            "2",
+            json!({ "broadcaster_user_id": b, "moderator_user_id": b }),
+            Feature::Follows,
+            true,
+        ),
+        spec("channel.subscribe", "1", own.clone(), Feature::Subs, true),
+        spec(
+            "channel.subscription.message",
+            "1",
+            own.clone(),
+            Feature::Subs,
+            true,
+        ),
+        spec(
+            "channel.subscription.gift",
+            "1",
+            own.clone(),
+            Feature::Subs,
+            true,
+        ),
+        spec("channel.cheer", "1", own.clone(), Feature::Cheers, true),
+        spec(
+            "channel.chat.message",
+            "1",
+            json!({ "broadcaster_user_id": b, "user_id": b }),
+            Feature::Chat,
+            true,
+        ),
+        spec(
+            "channel.raid",
+            "1",
+            json!({ "to_broadcaster_user_id": b }),
+            Feature::Raids,
+            false,
+        ),
+        spec("stream.online", "1", own.clone(), Feature::Stream, false),
+        spec("stream.offline", "1", own.clone(), Feature::Stream, false),
+        spec("channel.update", "2", own, Feature::Stream, false),
+    ]
+}
+
+/// The feature an EventSub subscription type belongs to, if Sylva makes it.
+pub fn feature_of(subscription_type: &str) -> Option<Feature> {
+    channel_subscriptions("0")
+        .into_iter()
+        .find(|s| s.kind == subscription_type)
+        .map(|s| s.feature)
 }
 
 /// The Twitch channel key used to name a Durable Object.
@@ -602,5 +690,29 @@ mod tests {
         );
         assert_eq!(e.kind, EventKind::Other);
         assert_eq!(e.raw["level"], 2);
+    }
+
+    #[test]
+    fn channel_subscriptions_cover_phase_one() {
+        let subs = channel_subscriptions("42");
+        assert_eq!(subs.len(), 10);
+        let follow = &subs[0];
+        assert_eq!(follow.kind, "channel.follow");
+        assert_eq!(follow.version, "2");
+        assert_eq!(follow.condition["moderator_user_id"], "42");
+        let chat = subs
+            .iter()
+            .find(|s| s.kind == "channel.chat.message")
+            .unwrap();
+        assert_eq!(chat.condition["user_id"], "42");
+        assert!(chat.needs_sign_in);
+        assert_eq!(feature_of("channel.subscription.gift"), Some(Feature::Subs));
+        assert_eq!(feature_of("channel.raid"), Some(Feature::Raids));
+        assert_eq!(feature_of("channel.hype_train.begin"), None);
+        // Each kind is subscribed once.
+        let mut kinds: Vec<_> = subs.iter().map(|s| s.kind).collect();
+        kinds.sort();
+        kinds.dedup();
+        assert_eq!(kinds.len(), subs.len());
     }
 }

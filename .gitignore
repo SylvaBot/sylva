@@ -4,3 +4,4 @@
 .wrangler/
 .dev.vars
 *.log
+web/dist/

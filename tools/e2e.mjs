@@ -1,9 +1,14 @@
 // End to end checks against a running Worker: Twitch webhooks in, alerts and
-// replay out. Run `npm run dev` in one terminal and `npm run test:e2e` in another.
-// Set SKIP_SLOW=1 to skip the 30 second alarm test.
+// replay out, overlay links, and signing in with Twitch.
+//
+// Run `npm run dev:test` in one terminal and `npm run test:e2e` in another.
+// dev:test points the Worker at a fake Twitch that this script starts on
+// :8788, so the sign in checks run too. Against plain `npm run dev` they are
+// skipped. Set SKIP_SLOW=1 to skip the 30 second alarm test.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { admin, chat, Client, follow, getJson, randomChannelId, sendEventSub, sleep } from './lib.mjs';
+import { ADMIN, BASE, admin, chat, Client, follow, getJson, randomChannelId, sendEventSub, sleep } from './lib.mjs';
+import { FAKE_PORT, FAKE_USER, startFakeTwitch } from './fake-twitch.mjs';
 
 const results = [];
 async function check(name, fn) {
@@ -170,8 +175,8 @@ await check('replay puts an old event back on screen ahead of the queue', async 
   await overlay.close();
 });
 
-await check('test event route needs the admin token', async () => {
-  const res = await fetch(`${process.env.SYLVA_URL || 'http://localhost:8787'}/v1/channels/${key}/test-event`, { method: 'POST' });
+await check('test event route needs the owner or the admin token', async () => {
+  const res = await fetch(`${BASE}/v1/channels/${key}/test-event`, { method: 'POST' });
   assert.equal(res.status, 401);
   const ok = await admin(`/v1/channels/${key}/test-event`, { kind: 'raid', name: 'Tester', amount: 42 });
   assert.equal(ok.duplicate, false);
@@ -183,9 +188,288 @@ await check('a percent-encoded channel key works (browsers encode the colon)', a
 });
 
 await check('bad channel keys are refused', async () => {
-  const res = await fetch(`${process.env.SYLVA_URL || 'http://localhost:8787'}/v1/channels/evil:../state`);
+  const res = await fetch(`${BASE}/v1/channels/evil:../state`, { headers: { Authorization: `Bearer ${ADMIN}` } });
   assert.equal(res.status, 404);
 });
+
+await check('channel reads need the owner or the admin token', async () => {
+  for (const path of ['state', 'events?after=0', 'history', 'summary', 'overlay', 'ws']) {
+    const res = await fetch(`${BASE}/v1/channels/${key}/${path}`);
+    assert.equal(res.status, 401, path);
+  }
+  // A client cannot claim access by sending the Worker's internal header.
+  const spoof = await fetch(`${BASE}/v1/channels/${key}/state`, { headers: { 'X-Sylva-Access': 'owner' } });
+  assert.equal(spoof.status, 401);
+});
+
+await check('history is newest first and filters chat from alerts', async () => {
+  const all = await getJson(`/v1/channels/${key}/history?limit=500`);
+  const seqs = all.events.map((e) => e.seq);
+  assert.deepEqual(seqs, [...seqs].sort((a, b) => b - a));
+  assert.equal(all.headSeq, seqs[0]);
+  const alerts = await getJson(`/v1/channels/${key}/history?filter=alerts`);
+  assert.ok(alerts.events.length > 0 && alerts.events.every((e) => e.kind !== 'chat'));
+  const chats = await getJson(`/v1/channels/${key}/history?filter=chat`);
+  assert.equal(chats.events.length, 2);
+  assert.ok(chats.events.every((e) => e.kind === 'chat'));
+  const older = await getJson(`/v1/channels/${key}/history?before=3&limit=1`);
+  assert.deepEqual(older.events.map((e) => e.seq), [2]);
+});
+
+await check('a gift of 2 subs plays one alert, not three', async () => {
+  const gid = randomChannelId();
+  const gkey = `twitch:${gid}`;
+  await sendEventSub({ subType: 'channel.subscription.gift', condition: { broadcaster_user_id: gid },
+    event: { user_id: '9', user_login: 'giver', user_name: 'Giver', broadcaster_user_id: gid,
+             total: 2, tier: '1000', cumulative_total: 2, is_anonymous: false } });
+  for (const n of [1, 2]) {
+    await sendEventSub({ subType: 'channel.subscribe', condition: { broadcaster_user_id: gid },
+      event: { user_id: String(n), user_login: `r${n}`, user_name: `R${n}`, broadcaster_user_id: gid,
+               tier: '1000', is_gift: true } });
+  }
+  const state = await getJson(`/v1/channels/${gkey}/state`);
+  assert.equal(state.queued, 1);
+  const sum = await getJson(`/v1/channels/${gkey}/summary`);
+  assert.deepEqual(sum.counts, { communityGift: 1, giftedSub: 2 });
+});
+
+await check('summary counts by kind and adds up bits', async () => {
+  const sid = randomChannelId();
+  for (const bits of [100, 250]) {
+    await sendEventSub({ subType: 'channel.cheer', condition: { broadcaster_user_id: sid },
+      event: { is_anonymous: true, user_id: null, user_login: null, user_name: null,
+               broadcaster_user_id: sid, message: 'yay', bits } });
+  }
+  await sendEventSub(follow(sid, 1));
+  const sum = await getJson(`/v1/channels/twitch:${sid}/summary`);
+  assert.equal(sum.bits, 350);
+  assert.deepEqual(sum.counts, { cheer: 2, follow: 1 });
+  const none = await getJson(`/v1/channels/twitch:${sid}/summary?since=${Date.now() + 60000}`);
+  assert.deepEqual(none.counts, {});
+});
+
+let overlayToken;
+await check('an overlay link connects as an overlay only, never as a feed', async () => {
+  const { url } = await getJson(`/v1/channels/${key}/overlay`);
+  assert.match(url, new RegExp(`/overlay/${key}\\?token=[0-9a-f]{48}$`));
+  overlayToken = new URL(url).searchParams.get('token');
+  assert.equal((await getJson(`/v1/channels/${key}/overlay`)).url, url, 'the link is stable');
+
+  const overlay = new Client(key, 'overlay', 0, { token: overlayToken });
+  await overlay.opened;
+  const ready = await overlay.ready();
+  // lastSeq is ignored for overlay links: no history is sent.
+  assert.equal(overlay.frames.filter((f) => f.type === 'event').length, 0);
+  assert.ok(ready.headSeq > 0);
+  await overlay.close();
+
+  const feed = new Client(key, 'feed', 0, { token: overlayToken });
+  await feed.opened;
+  const err = await feed.next((f) => f.type === 'error');
+  assert.match(err.message, /only works as an overlay/);
+  const closed = await feed.closed;
+  assert.equal(closed.code, 4003);
+  assert.equal(feed.frames.filter((f) => f.type === 'event').length, 0);
+});
+
+await check('a wrong overlay token is refused', async () => {
+  const bad = new Client(key, 'overlay', undefined, { token: 'f'.repeat(48) });
+  await assert.rejects(bad.opened);
+});
+
+await check('a new overlay link disconnects the old one and refuses it', async () => {
+  const overlay = new Client(key, 'overlay', undefined, { token: overlayToken });
+  await overlay.opened;
+  await overlay.ready();
+  const { url } = await admin(`/v1/channels/${key}/overlay/rotate`);
+  const closed = await overlay.closed;
+  assert.equal(closed.code, 4001);
+  const fresh = new URL(url).searchParams.get('token');
+  assert.notEqual(fresh, overlayToken);
+  const old = new Client(key, 'overlay', undefined, { token: overlayToken });
+  await assert.rejects(old.opened);
+  const ok = new Client(key, 'overlay', undefined, { token: fresh });
+  await ok.opened;
+  await ok.ready();
+  await ok.close();
+});
+
+// ---------- signing in with Twitch (needs `npm run dev:test`) ----------
+
+let fake = null;
+try {
+  fake = await startFakeTwitch();
+} catch (e) {
+  console.log(`note  could not start the fake Twitch on :${FAKE_PORT} (${e.message})`);
+}
+const probe = await fetch(`${BASE}/auth/twitch/start`, { redirect: 'manual' });
+const usesFake = (probe.headers.get('location') || '').startsWith(`http://localhost:${FAKE_PORT}/`);
+if (!fake || !usesFake) {
+  console.log('skip  sign in checks: start the Worker with `npm run dev:test` to run them');
+} else {
+  const cookieOf = (res, name) => {
+    const c = res.headers.getSetCookie().find((x) => x.startsWith(name + '='));
+    return c ? c.split(';')[0].slice(name.length + 1) : null;
+  };
+  const ownKey = `twitch:${FAKE_USER.id}`;
+
+  /** The browser's trip: start, Twitch approves, callback. Returns the callback response. */
+  async function signIn() {
+    const start = await fetch(`${BASE}/auth/twitch/start`, { redirect: 'manual' });
+    const state = cookieOf(start, 'sylva_oauth');
+    const approve = await fetch(start.headers.get('location'), { redirect: 'manual' });
+    return fetch(approve.headers.get('location'), { redirect: 'manual', headers: { Cookie: `sylva_oauth=${state}` } });
+  }
+
+  let session;
+  const asOwner = (extra = {}) => ({ Cookie: `sylva_session=${session}`, ...extra });
+
+  await check('sign in starts on Twitch with the right scopes and a state cookie', async () => {
+    const res = await fetch(`${BASE}/auth/twitch/start`, { redirect: 'manual' });
+    assert.equal(res.status, 302);
+    const loc = new URL(res.headers.get('location'));
+    assert.equal(loc.pathname, '/oauth2/authorize');
+    assert.equal(loc.searchParams.get('client_id'), 't9z14i1qdp044der47bq7lpu5w0eru');
+    assert.equal(loc.searchParams.get('redirect_uri'), `${BASE}/auth/twitch/callback`);
+    assert.equal(loc.searchParams.get('scope'),
+      'moderator:read:followers channel:read:subscriptions bits:read user:read:chat user:bot channel:bot');
+    const state = cookieOf(res, 'sylva_oauth');
+    assert.match(state, /^[0-9a-f]{32}$/);
+    assert.equal(loc.searchParams.get('state'), state);
+    assert.match(res.headers.getSetCookie()[0], /HttpOnly; SameSite=Lax/);
+  });
+
+  await check('a callback with the wrong state or a cancel goes back with a reason', async () => {
+    const wrong = await fetch(`${BASE}/auth/twitch/callback?code=x&state=abc`,
+      { redirect: 'manual', headers: { Cookie: 'sylva_oauth=def' } });
+    assert.equal(wrong.headers.get('location'), '/?signin=expired');
+    const none = await fetch(`${BASE}/auth/twitch/callback?code=x&state=abc`, { redirect: 'manual' });
+    assert.equal(none.headers.get('location'), '/?signin=expired');
+    const cancel = await fetch(`${BASE}/auth/twitch/callback?error=access_denied&state=abc`, { redirect: 'manual' });
+    assert.equal(cancel.headers.get('location'), '/?signin=denied');
+    assert.equal(fake.state.tokenRequests.filter((r) => r.grant_type === 'authorization_code').length, 0);
+  });
+
+  await check('signing in makes an account, subscribes the channel and starts a session', async () => {
+    const res = await signIn();
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), '/');
+    session = cookieOf(res, 'sylva_session');
+    assert.match(session, /^[0-9a-f]{32}\.[0-9a-f]{64}$/);
+    assert.equal(cookieOf(res, 'sylva_oauth'), '', 'the state cookie is cleared');
+    const exchange = fake.state.tokenRequests.find((r) => r.grant_type === 'authorization_code');
+    assert.equal(exchange.redirect_uri, `${BASE}/auth/twitch/callback`);
+
+    const types = fake.state.subscriptions.map((s) => s.type).sort();
+    assert.deepEqual(types, ['channel.chat.message', 'channel.cheer', 'channel.follow', 'channel.raid',
+      'channel.subscribe', 'channel.subscription.gift', 'channel.subscription.message', 'channel.update',
+      'stream.offline', 'stream.online']);
+    assert.ok(fake.state.subscriptions.every((s) => s.transport.method === 'conduit'
+      && s.transport.conduit_id === 'fake-conduit'));
+    const chatSub = fake.state.subscriptions.find((s) => s.type === 'channel.chat.message');
+    assert.deepEqual(chatSub.condition, { broadcaster_user_id: FAKE_USER.id, user_id: FAKE_USER.id });
+  });
+
+  let accountId;
+  await check('/v1/me says who is signed in, and nothing without the cookie', async () => {
+    const res = await fetch(`${BASE}/v1/me`, { headers: asOwner() });
+    assert.equal(res.status, 200);
+    const me = await res.json();
+    accountId = me.accountId;
+    assert.equal(me.accountId, session.split('.')[0]);
+    assert.deepEqual(me.channels, [{ key: ownKey, role: 'owner' }]);
+    assert.equal(me.identities[0].login, FAKE_USER.login);
+    assert.equal(me.identities[0].displayName, FAKE_USER.display_name);
+    assert.ok(!JSON.stringify(me).includes('user-'), 'tokens never leave the account');
+    assert.equal((await fetch(`${BASE}/v1/me`)).status, 401);
+    const forged = session.split('.')[0] + '.' + 'a'.repeat(64);
+    assert.equal((await fetch(`${BASE}/v1/me`, { headers: { Cookie: `sylva_session=${forged}` } })).status, 401);
+  });
+
+  await check('the owner can use their channel and no one else\'s', async () => {
+    assert.equal((await fetch(`${BASE}/v1/channels/${ownKey}/state`, { headers: asOwner() })).status, 200);
+    assert.equal((await fetch(`${BASE}/v1/channels/${key}/state`, { headers: asOwner() })).status, 403);
+  });
+
+  await check('changes with a cookie must come from Sylva\'s own pages', async () => {
+    const path = `${BASE}/v1/channels/${ownKey}/alerts/pause`;
+    assert.equal((await fetch(path, { method: 'POST', headers: asOwner() })).status, 403);
+    assert.equal((await fetch(path, { method: 'POST', headers: asOwner({ Origin: 'https://evil.example' }) })).status, 403);
+    const ok = await fetch(path, { method: 'POST', headers: asOwner({ Origin: BASE }) });
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).paused, true);
+    await fetch(`${BASE}/v1/channels/${ownKey}/alerts/resume`, { method: 'POST', headers: asOwner({ Origin: BASE }) });
+  });
+
+  await check('the owner\'s dashboard socket replays and goes live', async () => {
+    await sendEventSub(follow(FAKE_USER.id, 1));
+    const feed = new Client(ownKey, 'feed', 0, { headers: asOwner() });
+    await feed.opened;
+    await feed.next((f) => f.type === 'event' && f.kind === 'follow');
+    await sendEventSub(chat(FAKE_USER.id, 1));
+    await feed.next((f) => f.type === 'event' && f.kind === 'chat');
+    await feed.close();
+  });
+
+  await check('the dashboard sees every Twitch event as on', async () => {
+    const res = await fetch(`${BASE}/v1/channels/${ownKey}/twitch`, { headers: asOwner() });
+    const { features } = await res.json();
+    assert.deepEqual(features.map((f) => [f.feature, f.on]),
+      [['follows', true], ['subs', true], ['cheers', true], ['chat', true], ['raids', true], ['stream', true]]);
+  });
+
+  await check('a missing subscription shows as off, and turning on again fixes it', async () => {
+    fake.state.subscriptions = fake.state.subscriptions.filter((s) => s.type !== 'channel.cheer');
+    const before = await (await fetch(`${BASE}/v1/channels/${ownKey}/twitch`, { headers: asOwner() })).json();
+    const cheers = before.features.find((f) => f.feature === 'cheers');
+    assert.equal(cheers.on, false);
+    assert.deepEqual(cheers.problems, ['channel.cheer: missing']);
+    const res = await fetch(`${BASE}/v1/channels/${ownKey}/twitch/subscribe`, { method: 'POST', headers: asOwner({ Origin: BASE }) });
+    assert.equal(res.status, 200);
+    assert.ok((await res.json()).features.every((f) => f.on));
+  });
+
+  await check('when Twitch refuses permission, the dashboard is told to sign in again', async () => {
+    fake.state.subscriptions = [];
+    fake.state.failSubscriptions = 403;
+    try {
+      const res = await fetch(`${BASE}/v1/channels/${ownKey}/twitch/subscribe`, { method: 'POST', headers: asOwner({ Origin: BASE }) });
+      assert.equal(res.status, 409);
+      assert.deepEqual(await res.json(), { ok: false, needsSignIn: true });
+    } finally {
+      fake.state.failSubscriptions = null;
+    }
+  });
+
+  await check('signing in again keeps the same account', async () => {
+    const res = await signIn();
+    const again = cookieOf(res, 'sylva_session');
+    assert.equal(again.split('.')[0], accountId);
+    assert.notEqual(again, session);
+    assert.equal(fake.state.subscriptions.length, 10, 'subscriptions are made again');
+  });
+
+  await check('a sign in without every permission is refused', async () => {
+    fake.state.grant = ['bits:read'];
+    try {
+      const res = await signIn();
+      assert.equal(res.headers.get('location'), '/?signin=scopes');
+      assert.equal(cookieOf(res, 'sylva_session'), null);
+    } finally {
+      fake.state.grant = ['moderator:read:followers', 'channel:read:subscriptions', 'bits:read',
+                          'user:read:chat', 'user:bot', 'channel:bot'];
+    }
+  });
+
+  await check('signing out ends the session', async () => {
+    assert.equal((await fetch(`${BASE}/auth/sign-out`, { method: 'POST', headers: asOwner() })).status, 403);
+    const res = await fetch(`${BASE}/auth/sign-out`, { method: 'POST', headers: asOwner({ Origin: BASE }) });
+    assert.equal(res.status, 200);
+    assert.equal(cookieOf(res, 'sylva_session'), '');
+    assert.equal((await fetch(`${BASE}/v1/me`, { headers: asOwner() })).status, 401);
+  });
+}
+await fake?.close();
 
 if (!process.env.SKIP_SLOW) {
   await check('an alert nobody acks times out after 30 s via the alarm', async () => {

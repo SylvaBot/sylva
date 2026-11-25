@@ -68,7 +68,7 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             Activity feed and history.
           </li>
           <li><b>Your settings:</b> alert settings, your goal, your overlay layouts, whether alerts are paused or muted, and your overlay link.</li>
-          <li><b>Your chat bot:</b> its commands and timers, how often each command was used, and when each was last used, for cooldowns.</li>
+          <li><b>Your chat bot:</b> its commands, timers, counters and quotes, how often each command was used, and when each was last used, for cooldowns.</li>
           <li>
             <b>Moderation:</b> your rules and word lists, and a log of the last 500 actions with the message
             that broke a rule and who sent it. Strikes against a chatter are forgotten after an hour.
@@ -81,7 +81,7 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
 
         <h2>What Sylva does not do</h2>
         <ul>
-          <li>It posts in your chat only when you turn on the chat bot (to answer your commands and post your timers) or moderation notices, and it removes messages or times out chatters only under moderation rules you turn on. It does not change anything else on your channel.</li>
+          <li>It posts in your chat only when you turn on the chat bot (to answer your commands, counters and quotes, and to post your timers) or moderation notices, and it removes messages or times out chatters only under moderation rules you turn on. It does not change anything else on your channel.</li>
           <li>It does not sell your data, show ads, or share data with anyone for advertising.</li>
           <li>It has no analytics or tracking scripts, and loads nothing from other sites except Twitch profile pictures.</li>
         </ul>

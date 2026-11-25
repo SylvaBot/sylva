@@ -23,6 +23,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::alerts::Invalid;
+use crate::community::{validate_counters, Counter, QuoteSettings, QUOTE_TRIGGERS};
 
 pub const MAX_COMMANDS: usize = 100;
 pub const MAX_NAME: usize = 25;
@@ -111,6 +112,10 @@ pub struct BotSettings {
     pub commands: Vec<Command>,
     #[serde(default)]
     pub timers: Vec<Timer>,
+    #[serde(default)]
+    pub counters: Vec<Counter>,
+    #[serde(default)]
+    pub quotes: QuoteSettings,
 }
 
 impl Default for BotSettings {
@@ -119,6 +124,8 @@ impl Default for BotSettings {
             enabled: false,
             commands: default_commands(),
             timers: Vec::new(),
+            counters: Vec::new(),
+            quotes: QuoteSettings::default(),
         }
     }
 }
@@ -316,7 +323,31 @@ impl BotSettings {
                 .map_or(0, |s| s.count);
         }
         self.validate_timers(stored)?;
+        validate_counters(&mut self.counters, &stored.counters, clean_trigger)?;
+        for c in &self.counters {
+            if seen.contains(&c.name) {
+                return Err(Invalid(format!(
+                    "!{} is both a command and a counter. Rename one of them.",
+                    c.name
+                )));
+            }
+        }
+        if self.quotes.enabled {
+            for t in QUOTE_TRIGGERS {
+                if seen.iter().any(|s| s == t) || self.counters.iter().any(|c| c.name == t) {
+                    return Err(Invalid(format!(
+                        "!{t} is used by quotes. Rename your !{t}, or turn quotes off."
+                    )));
+                }
+            }
+        }
         Ok(self)
+    }
+
+    /// The counter answering to `trigger`, if it is on.
+    pub fn counter(&self, trigger: &str) -> Option<usize> {
+        let t = trigger.to_lowercase();
+        self.counters.iter().position(|c| c.enabled && c.name == t)
     }
 
     fn validate_timers(&mut self, stored: &BotSettings) -> Result<(), Invalid> {

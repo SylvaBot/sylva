@@ -929,3 +929,28 @@ h1, h2, h3, p { margin: 0; }
 @media (max-width: 420px) {
   .mod-presets .segmented button { padding: 0 6px; font-size: 12.5px; }
 }
+
+/* Counters and quotes */
+.card-head p code, .empty code { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 0.92em; padding: 0 4px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); }
+.counter-new { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; padding: 20px; }
+.stepper { display: inline-flex; align-items: center; gap: 4px; }
+.stepper .btn { width: 28px; padding: 0; justify-content: center; font-size: 15px; }
+.stepper .num-input { width: 76px; text-align: center; }
+.quote-settings { display: grid; grid-template-columns: auto minmax(0, 220px) minmax(0, 1fr); gap: 14px 20px; align-items: end; border-bottom: 1px solid var(--border); }
+.quote-settings .field.inline { height: 36px; gap: 12px; justify-content: flex-start; color: var(--text-2); }
+.quote-list .type-row { align-items: flex-start; }
+.quote-list .type-row > .btn { margin-top: -2px; }
+.quote-id { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px; color: var(--muted); min-width: 40px; padding-top: 1px; }
+.type-main .quote-text { color: var(--text); font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.quote-edit { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 760px) {
+  .quote-settings { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .quote-settings > .field:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .counter-new { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .quote-settings { grid-template-columns: minmax(0, 1fr); }
+  .counters-card .type-row { flex-wrap: wrap; }
+  .counters-card .type-main { flex-basis: 100%; }
+  .counters-card .stepper { margin-right: auto; }
+}

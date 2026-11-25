@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS mod_log (
     detail    TEXT,
     undone_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS quotes (
+    id      INTEGER PRIMARY KEY,
+    text    TEXT NOT NULL,
+    said_by TEXT NOT NULL,
+    game    TEXT NOT NULL,
+    at      INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS timer_state (
     id    TEXT PRIMARY KEY,
     last  INTEGER NOT NULL,
@@ -396,6 +403,51 @@ impl DurableObject for ChannelDo {
                 Ok(()) => Response::from_json(&self.bot_view()?),
                 Err((status, message)) => Response::error(message, status),
             },
+            (Method::Get, ["bot", "quotes"]) => Response::from_json(&crate::community::QuoteList {
+                quotes: self.quotes()?,
+            }),
+            (Method::Post, ["bot", "quotes"]) => {
+                let Ok(body) = req.json::<crate::community::QuoteInput>().await else {
+                    return Response::error("That quote could not be read", 400);
+                };
+                match self.add_quote(body)? {
+                    Ok(q) => Response::from_json(&q),
+                    Err(message) => Response::error(message, 400),
+                }
+            }
+            (Method::Post, ["bot", "quotes", id]) => {
+                let Ok(id) = id.parse::<i64>() else {
+                    return Response::error("There is no such quote", 404);
+                };
+                let Ok(body) = req.json::<crate::community::QuoteInput>().await else {
+                    return Response::error("That quote could not be read", 400);
+                };
+                match self.edit_quote(id, body)? {
+                    Ok(q) => Response::from_json(&q),
+                    Err((status, message)) => Response::error(message, status),
+                }
+            }
+            (Method::Post, ["bot", "quotes", id, "delete"]) => {
+                let id = id.parse::<i64>().unwrap_or(0);
+                match self.delete_quote(id)? {
+                    Some(q) => Response::from_json(&q),
+                    None => Response::error(format!("There is no quote #{id}"), 404),
+                }
+            }
+            (Method::Post, ["bot", "counters", name, "set"]) => {
+                #[derive(serde::Deserialize)]
+                struct SetValue {
+                    value: i64,
+                }
+                let Ok(body) = req.json::<SetValue>().await else {
+                    return Response::error("That number could not be read", 400);
+                };
+                if self.set_counter(name, body.value)? {
+                    Response::from_json(&self.bot_view()?)
+                } else {
+                    Response::error("That counter no longer exists", 404)
+                }
+            }
             (Method::Post, ["bot", "try"]) => {
                 let Ok(body) = req.json::<crate::bot::TryRequest>().await else {
                     return Response::error("That test could not be read", 400);
@@ -516,6 +568,7 @@ impl DurableObject for ChannelDo {
                     "timer_state",
                     "mod_strikes",
                     "mod_log",
+                    "quotes",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }

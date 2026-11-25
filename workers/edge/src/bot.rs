@@ -375,7 +375,7 @@ impl ChannelDo {
             .map(|r| Date::now().as_millis() as i64 - r.at as i64))
     }
 
-    fn last_used(&self, key: &str) -> Result<Option<i64>> {
+    pub(crate) fn last_used(&self, key: &str) -> Result<Option<i64>> {
         let rows = self
             .sql
             .exec(
@@ -386,7 +386,7 @@ impl ChannelDo {
         Ok(rows.first().map(|r| r.at as i64))
     }
 
-    fn mark_used(&self, key: &str, now: i64) -> Result<()> {
+    pub(crate) fn mark_used(&self, key: &str, now: i64) -> Result<()> {
         self.sql.exec(
             "INSERT INTO bot_cooldowns (key, at) VALUES (?, ?)
              ON CONFLICT(key) DO UPDATE SET at = excluded.at",
@@ -415,7 +415,43 @@ impl ChannelDo {
             return Ok(Ok(skip(Skip::NotACommand, None)));
         };
         let Some(i) = settings.find(&trigger) else {
-            return Ok(Ok(skip(Skip::Unknown, None)));
+            let mut settings = settings;
+            let now = Date::now().as_millis() as i64;
+            let channel = match self.config("channel_name")? {
+                Some(n) => n,
+                None => short(t.channel.as_deref(), "This channel"),
+            };
+            return Ok(Ok(
+                match self.community_reply(
+                    &mut settings,
+                    &trigger,
+                    &args,
+                    &crate::community::Ask {
+                        level: t.level,
+                        channel: &channel,
+                        now,
+                        dry: true,
+                    },
+                )? {
+                    Some(reply) => TryResult {
+                        reply: Some(reply),
+                        skip: None,
+                        command: Some(trigger),
+                    },
+                    None => {
+                        let level_too_low = settings.quotes.enabled
+                            && matches!(trigger.as_str(), "addquote" | "delquote");
+                        skip(
+                            if level_too_low {
+                                Skip::Level
+                            } else {
+                                Skip::Unknown
+                            },
+                            level_too_low.then(|| trigger.clone()),
+                        )
+                    }
+                },
+            ));
         };
         let c = &settings.commands[i];
         if let Err(s) = bot::allowed(c, t.level, 0, None, None) {
@@ -504,13 +540,27 @@ impl ChannelDo {
         let Some((trigger, args)) = bot::parse(text) else {
             return Ok(());
         };
-        let Some(i) = settings.find(&trigger) else {
-            return Ok(());
-        };
         let level = UserLevel::from_badges(
             badges(&e.raw).iter().map(String::as_str),
             actor.id == broadcaster,
         );
+        let Some(i) = settings.find(&trigger) else {
+            // Not a command: maybe a counter or a quote.
+            if let Some(reply) = self.community_reply(
+                &mut settings,
+                &trigger,
+                &args,
+                &crate::community::Ask {
+                    level,
+                    channel: &self.channel_name()?,
+                    now,
+                    dry: false,
+                },
+            )? {
+                self.say(&broadcaster, &from, &reply, now).await?;
+            }
+            return Ok(());
+        };
         let name = settings.commands[i].name.clone();
         let any_key = format!("c:{name}");
         let user_key = format!("u:{name}:{}", actor.id);

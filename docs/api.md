@@ -47,6 +47,9 @@ Send `Authorization: Bearer sylva_...` on every request. API tokens do not expir
 | `GET` / `POST /v1/channels/{key}/bot` | The chat bot: on or off, its commands and its timers. The answer also says when each timer posts next, or what it waits for. |
 | `POST /v1/channels/{key}/bot/try` | `{"message": "!lurk", "level": "everyone"}`. What the bot would answer, without sending. |
 | `POST /v1/channels/{key}/bot/timers/{id}/send` | Posts a timer now and restarts its clock. 404 for an unknown timer, 409 while the bot is off. |
+| `POST /v1/channels/{key}/bot/counters/{name}/set` | `{"value": 10}`. Sets a counter. |
+| `GET` / `POST /v1/channels/{key}/bot/quotes` | Every quote, or `{"text", "by", "game"}` to add one. `id` and `at` put a removed quote back under its old number. |
+| `POST /v1/channels/{key}/bot/quotes/{id}` and `.../{id}/delete` | Edit or remove a quote. |
 | `GET` / `POST /v1/channels/{key}/moderation` | Moderation rules: `preset`, `rules`, `exempt`, `steps`, `words`, `allowedLinks`, `notice`. The answer adds `permission` (`ok`, `missing` or `expired`) and what each preset sets. |
 | `POST /v1/channels/{key}/moderation/try` | `{"message": "...", "level": "everyone", "settings": {...}}`. Which rule the message breaks, if any, without acting. `settings` is optional, to try unsaved rules. |
 | `GET /v1/channels/{key}/moderation/log?before=&limit=50` | What Sylva did, newest first. |

@@ -51,6 +51,8 @@ Startup time is the other limit (1 second to run the module's global scope). Clo
 
 On the real deploy, `POST /admin/twitch/conduit` created the app's conduit and pointed shard 0 at the Worker. Twitch's verification first failed because a conduit shard's challenge has no `subscription` object, which our parser required. With that fixed, Twitch marked the shard `enabled`.
 
+First real event: Josh changed his stream title to "testing" on channel haruxee. Twitch sent a `channel.update` through the conduit at 12:08:57.999 UTC, and it was stored in the channel's log as seq 1 at 12:08:58.388 UTC, 389 ms later, with the title and category intact.
+
 Optional extra check: run Twitch's own CLI (`twitch event trigger channel.follow -F <url>/twitch/eventsub -s <secret>`) against the Worker as an independent check of the signature format. Downloading the CLI was blocked in this environment. Our tests sign messages exactly as Twitch documents, but a check against Twitch's own tool is cheap insurance.
 
 ## 4. Reliable alerts and replay to an OBS overlay

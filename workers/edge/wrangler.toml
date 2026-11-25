@@ -41,11 +41,11 @@ TWITCH_CLIENT_ID = "t9z14i1qdp044der47bq7lpu5w0eru"
 # Twitch's addresses. The end to end tests point these at a local fake Twitch.
 TWITCH_AUTH_URL = "https://id.twitch.tv/oauth2"
 TWITCH_API_URL = "https://api.twitch.tv/helix"
-# The shared Sylva bot account that replies in chat. Empty means each
-# streamer's own account replies. To set it, sign in to the bot account at
-# /auth/twitch/bot and copy the values it shows.
-SYLVA_BOT_USER_ID = ""
-SYLVA_BOT_LOGIN = ""
+# The shared Sylva bot account (Twitch sylva_bot) that replies in every
+# channel. Empty means each streamer's own account replies. To change it,
+# sign in to the bot account at /auth/twitch/bot and copy the values it shows.
+SYLVA_BOT_USER_ID = "1613810135"
+SYLVA_BOT_LOGIN = "sylva_bot"
 
 # Workers Logs: keeps console output (such as rejected webhooks) for 7 days.
 [observability]

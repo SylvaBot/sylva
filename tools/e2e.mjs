@@ -565,6 +565,110 @@ if (!fake || !usesFake) {
     }
   });
 
+  const json = (body) => ({ 'Content-Type': 'application/json', ...body });
+  const startDevice = async () => {
+    const res = await fetch(`${BASE}/v1/device/code`, { method: 'POST', headers: json({}), body: JSON.stringify({ clientName: 'Cortex' }) });
+    assert.equal(res.status, 200);
+    return res.json();
+  };
+  const poll = async (deviceCode) => {
+    const res = await fetch(`${BASE}/v1/device/token`, { method: 'POST', headers: json({}), body: JSON.stringify({ deviceCode }) });
+    return { status: res.status, body: await res.json() };
+  };
+
+  await check('sign in can return to the device page, and only to Sylva pages', async () => {
+    const next = (n) => fetch(`${BASE}/auth/twitch/start?next=${encodeURIComponent(n)}`, { redirect: 'manual' });
+    const ok = await next('/device?code=BCDF-GHJK');
+    assert.equal(Buffer.from(cookieOf(ok, 'sylva_next'), 'hex').toString(), '/device?code=BCDF-GHJK');
+    for (const bad of ['https://evil.example', '//evil.example', '/auth/sign-out', '/device<script>']) {
+      assert.equal(cookieOf(await next(bad), 'sylva_next'), null, bad);
+    }
+  });
+
+  let apiToken;
+  await check('an app signs in with a device code and gets an API token once', async () => {
+    const d = await startDevice();
+    assert.match(d.user_code, /^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/);
+    assert.match(d.device_code, /^[0-9a-f]{64}$/);
+    assert.equal(d.verification_uri, `${BASE}/device`);
+    assert.equal(d.verification_uri_complete, `${BASE}/device?code=${d.user_code}`);
+    assert.deepEqual([d.expires_in, d.interval], [600, 5]);
+
+    assert.equal((await poll(d.device_code)).body.error, 'authorization_pending');
+    assert.equal((await poll(d.device_code)).body.error, 'slow_down', 'polled too fast');
+    assert.equal((await poll('f'.repeat(64))).body.error, 'expired_token');
+
+    const lookup = `${BASE}/v1/device?code=${d.user_code.toLowerCase().replace('-', ' ')}`;
+    assert.equal((await fetch(lookup)).status, 401, 'needs the browser session');
+    const found = await (await fetch(lookup, { headers: asOwner() })).json();
+    assert.deepEqual(found, { userCode: d.user_code, appName: 'Cortex' });
+    assert.equal((await fetch(`${BASE}/v1/device?code=NOPE`, { headers: asOwner() })).status, 400);
+
+    const approve = (code, yes, origin = BASE) => fetch(`${BASE}/v1/device`, {
+      method: 'POST', headers: asOwner(json({ Origin: origin })), body: JSON.stringify({ userCode: code, approve: yes }),
+    });
+    assert.equal((await approve(d.user_code, true, 'https://evil.example')).status, 403);
+    const r = await approve(d.user_code, true);
+    assert.equal(r.status, 200);
+    assert.equal((await approve(d.user_code, true)).status, 404, 'a code is used once');
+
+    const got = await poll(d.device_code);
+    assert.equal(got.status, 200);
+    assert.match(got.body.access_token, /^sylva_[0-9a-f]{32}\.[0-9a-f]{64}$/);
+    assert.equal(got.body.token_type, 'Bearer');
+    assert.equal(got.body.account_id, accountId);
+    apiToken = got.body.access_token;
+    assert.equal((await poll(d.device_code)).body.error, 'expired_token', 'handed out once');
+  });
+
+  await check('the API token works like the owner, without cookies or Origin', async () => {
+    const bearer = { Authorization: `Bearer ${apiToken}` };
+    const me = await (await fetch(`${BASE}/v1/me`, { headers: bearer })).json();
+    assert.equal(me.accountId, accountId);
+    assert.equal((await fetch(`${BASE}/v1/channels/${ownKey}/state`, { headers: bearer })).status, 200);
+    assert.equal((await fetch(`${BASE}/v1/channels/${key}/state`, { headers: bearer })).status, 403);
+    const paused = await fetch(`${BASE}/v1/channels/${ownKey}/alerts/pause`, { method: 'POST', headers: bearer });
+    assert.equal(paused.status, 200);
+    assert.equal((await paused.json()).paused, true);
+    await fetch(`${BASE}/v1/channels/${ownKey}/alerts/resume`, { method: 'POST', headers: bearer });
+    const feed = new Client(ownKey, 'feed', 0, { headers: bearer });
+    await feed.opened;
+    await feed.ready();
+    await feed.close();
+    assert.equal((await fetch(`${BASE}/v1/apps`, { headers: bearer })).status, 401, 'apps cannot list apps');
+    const other = await startDevice();
+    const byApp = await fetch(`${BASE}/v1/device`, {
+      method: 'POST', headers: { ...bearer, 'Content-Type': 'application/json', Origin: BASE },
+      body: JSON.stringify({ userCode: other.user_code, approve: true }),
+    });
+    assert.equal(byApp.status, 401, 'an app cannot approve another app');
+    const wrong = apiToken.slice(0, -4) + 'aaaa';
+    assert.equal((await fetch(`${BASE}/v1/me`, { headers: { Authorization: `Bearer ${wrong}` } })).status, 401);
+  });
+
+  await check('denying an app, and removing one, both stop it', async () => {
+    const d = await startDevice();
+    const deny = await fetch(`${BASE}/v1/device`, {
+      method: 'POST', headers: asOwner(json({ Origin: BASE })), body: JSON.stringify({ userCode: d.user_code, approve: false }),
+    });
+    assert.deepEqual(await deny.json(), { approved: false });
+    assert.equal((await poll(d.device_code)).body.error, 'access_denied');
+
+    // A local test database may hold apps from earlier runs: use the newest.
+    const apps = await (await fetch(`${BASE}/v1/apps`, { headers: asOwner() })).json();
+    const app = apps[0];
+    assert.equal(app.name, 'Cortex');
+    assert.ok(app.lastUsedAt > 0, 'last use is recorded');
+    assert.ok(!JSON.stringify(apps).includes(apiToken.split('.')[1]), 'the secret is never listed');
+    const revoke = (origin) => fetch(`${BASE}/v1/apps/${app.id}/revoke`, { method: 'POST', headers: asOwner({ Origin: origin }) });
+    assert.equal((await revoke('https://evil.example')).status, 403);
+    assert.equal((await revoke(BASE)).status, 200);
+    assert.equal((await fetch(`${BASE}/v1/me`, { headers: { Authorization: `Bearer ${apiToken}` } })).status, 401);
+    const after = await (await fetch(`${BASE}/v1/apps`, { headers: asOwner() })).json();
+    assert.equal(after.length, apps.length - 1);
+    assert.ok(!after.some((x) => x.id === app.id));
+  });
+
   await check('signing out ends the session', async () => {
     assert.equal((await fetch(`${BASE}/auth/sign-out`, { method: 'POST', headers: asOwner() })).status, 403);
     const res = await fetch(`${BASE}/auth/sign-out`, { method: 'POST', headers: asOwner({ Origin: BASE }) });

@@ -30,6 +30,7 @@
 //! pages (`Origin` check).
 
 mod account;
+mod apps;
 mod auth;
 mod channel;
 mod twitch_admin;
@@ -52,7 +53,10 @@ const OVERLAY_HTML: &str = include_str!("../overlay/index.html");
 #[derive(PartialEq)]
 enum Caller {
     Admin,
+    /// The owner in a browser, with the session cookie.
     Owner,
+    /// The owner through an app such as Cortex, with an API token.
+    App,
     /// Not allowed, or only with an overlay link's token.
     Anonymous,
 }
@@ -67,10 +71,29 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         (Method::Get, ["auth", "twitch", "start"]) => auth::start(&req, &env).await,
         (Method::Get, ["auth", "twitch", "callback"]) => auth::callback(&req, &env).await,
         (Method::Post, ["auth", "sign-out"]) => auth::sign_out(&req, &env).await,
-        (Method::Get, ["v1", "me"]) => match auth::session(&req, &env).await? {
+        (Method::Get, ["v1", "me"]) => match auth::caller(&req, &env).await? {
             Some(s) => no_store(Response::from_json(&s.me)?),
             None => Response::error("Not signed in", 401),
         },
+        (Method::Post, ["v1", "device", "code"]) => apps::device_code(req, &env).await,
+        (Method::Post, ["v1", "device", "token"]) => apps::device_token(req, &env).await,
+        (method, ["v1", "device"]) | (method, ["v1", "apps", ..]) => {
+            // Approving apps and managing them needs the browser session:
+            // an app cannot approve or list other apps.
+            let Some(s) = auth::session(&req, &env).await? else {
+                return Response::error("Sign in to Sylva first", 401);
+            };
+            if method != Method::Get && !auth::same_origin(&req) {
+                return Response::error("Forbidden", 403);
+            }
+            match (method, segs.as_slice()) {
+                (Method::Get, ["v1", "device"]) => no_store(apps::device_lookup(&req, &env).await?),
+                (Method::Post, ["v1", "device"]) => apps::device_decide(req, &env, s).await,
+                (Method::Get, ["v1", "apps"]) => no_store(apps::list(&env, &s).await?),
+                (Method::Post, ["v1", "apps", id, "revoke"]) => apps::revoke(&env, &s, id).await,
+                _ => Response::error("Not found", 404),
+            }
+        }
         (Method::Post, ["twitch", "eventsub"]) => eventsub(req, &env).await,
         (method, ["admin", "twitch", action]) => {
             if !authorized(&req, &env) {
@@ -100,7 +123,9 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             let caller = if authorized(&req, &env) {
                 Caller::Admin
             } else {
-                match auth::session(&req, &env).await? {
+                match auth::caller(&req, &env).await? {
+                    // API tokens carry no cookie, so they need no Origin check.
+                    Some(s) if s.me.owns(key) && s.via_token => Caller::App,
                     Some(s) if s.me.owns(key) => Caller::Owner,
                     Some(_) => return Response::error("This is not your channel", 403),
                     None => Caller::Anonymous,

@@ -2,15 +2,28 @@
   "name": "sylva",
   "private": true,
   "type": "module",
-  "description": "Dev tooling for Sylva. The product code is Rust; this only pins wrangler and runs the Phase 0 test scripts.",
-  "engines": { "node": ">=22" },
+  "description": "Dev tooling and the web dashboard for Sylva. The backend is Rust in workers/edge; this pins wrangler, builds the dashboard in web/ and runs the test scripts.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "cd workers/edge && wrangler dev --port 8787",
+    "dev:test": "cd workers/edge && wrangler dev --port 8787 --var TWITCH_AUTH_URL:http://localhost:8788/oauth2 --var TWITCH_API_URL:http://localhost:8788/helix",
+    "dev:web": "vite web",
+    "build:web": "tsc -p web && vite build web",
     "deploy": "cd workers/edge && wrangler deploy",
+    "fake-twitch": "node tools/fake-twitch.mjs",
     "test:e2e": "node tools/e2e.mjs",
     "test:burst": "node tools/burst.mjs"
   },
   "devDependencies": {
+    "@types/react": "19.3.2",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
     "wrangler": "4.159.0"
   }
 }

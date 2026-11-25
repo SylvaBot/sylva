@@ -45,8 +45,15 @@ pub enum EventKind {
 impl EventKind {
     /// Whether this kind of event goes into the alert queue by default.
     /// Chat lines and unknown events only go to the feed.
+    ///
+    /// `GiftedSub` is feed only too: Twitch sends one `channel.subscription.gift`
+    /// (our `CommunityGift`, even for a single gift) plus one `channel.subscribe`
+    /// per recipient. Alerting on both would play 11 alerts for 10 gifted subs.
     pub fn is_alert(self) -> bool {
-        !matches!(self, EventKind::Chat | EventKind::Other)
+        !matches!(
+            self,
+            EventKind::Chat | EventKind::Other | EventKind::GiftedSub
+        )
     }
 }
 
@@ -107,4 +114,18 @@ pub struct StoredEvent {
     pub received_at: i64,
     #[serde(flatten)]
     pub event: Event,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gift_alerts_once_per_gift_not_per_recipient() {
+        assert!(EventKind::CommunityGift.is_alert());
+        assert!(!EventKind::GiftedSub.is_alert());
+        assert!(!EventKind::Chat.is_alert());
+        assert!(EventKind::Follow.is_alert());
+        assert!(EventKind::Cheer.is_alert());
+    }
 }

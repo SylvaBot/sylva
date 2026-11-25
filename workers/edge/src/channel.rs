@@ -50,12 +50,47 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS secrets (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS events_kind ON events(kind, seq);
+CREATE INDEX IF NOT EXISTS events_received ON events(received_at);
 ";
 
-/// What we keep on each socket. It survives hibernation.
+/// Set by the Worker on every request it forwards (it strips any copy a
+/// client sent). `owner` means the channel's signed in owner or the admin
+/// token; `token` means the client only showed `X-Sylva-Token`, which must be
+/// the channel's overlay token.
+pub const ACCESS_HEADER: &str = "X-Sylva-Access";
+pub const TOKEN_HEADER: &str = "X-Sylva-Token";
+
+/// What a request or socket may do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Access {
+    /// Everything: read the log, control alerts, connect as feed or overlay.
+    Owner,
+    /// Only connect as an overlay. Overlay links live in OBS and get shared by
+    /// accident, so they cannot read the event log or chat.
+    Overlay,
+}
+
+/// Close code sent to overlays when their link is replaced.
+const CLOSE_LINK_REPLACED: u16 = 4001;
+/// Close code for a socket that asked for more than its link allows.
+const CLOSE_NOT_ALLOWED: u16 = 4003;
+
+/// What we keep on each socket. It survives hibernation. `role` is set by
+/// the client's `hello`; sockets without one yet get no broadcasts.
 #[derive(Serialize, Deserialize)]
 struct SocketInfo {
-    role: Role,
+    access: Access,
+    role: Option<Role>,
+}
+
+fn socket_info(ws: &WebSocket) -> Option<SocketInfo> {
+    ws.deserialize_attachment::<SocketInfo>().ok().flatten()
 }
 
 #[derive(Deserialize)]
@@ -80,6 +115,35 @@ struct CountRow {
 #[derive(Deserialize)]
 struct ValueRow {
     value: f64,
+}
+
+#[derive(Deserialize)]
+struct TextRow {
+    value: String,
+}
+
+#[derive(Deserialize)]
+struct SummaryRow {
+    kind: String,
+    n: f64,
+    amount: f64,
+}
+
+/// The reply to `GET /history`: newest first.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct History {
+    head_seq: u64,
+    events: Vec<StoredEvent>,
+}
+
+/// The reply to `GET /summary`: what happened since a time, by kind.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Summary {
+    since: i64,
+    counts: std::collections::BTreeMap<String, u64>,
+    bits: u64,
 }
 
 /// The reply to `POST /ingest`.
@@ -124,6 +188,17 @@ impl DurableObject for ChannelDo {
         let url = req.url()?;
         let path = url.path().to_string();
         let segs: Vec<&str> = path.trim_matches('/').split('/').collect();
+        let q: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
+        // Ingest comes from the Worker's webhook route only; clients never
+        // reach it because the Worker forwards a fixed list of routes.
+        let internal = matches!(segs.as_slice(), ["ingest"] | ["ingest-batch"]);
+        let access = self.access(&req)?;
+        if !internal {
+            match (access, segs.as_slice()) {
+                (Some(Access::Owner), _) | (Some(Access::Overlay), ["ws"]) => {}
+                _ => return Response::error("Unauthorized", 401),
+            }
+        }
         match (req.method(), segs.as_slice()) {
             (Method::Post, ["ingest"]) => {
                 let event: Event = req.json().await?;
@@ -147,12 +222,55 @@ impl DurableObject for ChannelDo {
                 }
                 let pair = WebSocketPair::new()?;
                 self.state.accept_web_socket(&pair.server);
+                pair.server.serialize_attachment(SocketInfo {
+                    access: access.unwrap_or(Access::Overlay),
+                    role: None,
+                })?;
                 Response::from_websocket(pair.client)
             }
             (Method::Get, ["state"]) => Response::from_json(&self.alert_state()?),
+            (Method::Get, ["history"]) => {
+                let before = q
+                    .get("before")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(u64::MAX / 2);
+                let limit = q
+                    .get("limit")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(100u64)
+                    .clamp(1, 500);
+                let filter = q.get("filter").map(String::as_str).unwrap_or("all");
+                Response::from_json(&History {
+                    head_seq: self.head.get(),
+                    events: self.history(before, limit, filter)?,
+                })
+            }
+            (Method::Get, ["summary"]) => {
+                let since = q
+                    .get("since")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_else(|| Date::now().as_millis() as i64 - 86_400_000);
+                Response::from_json(&self.summary(since)?)
+            }
+            (Method::Get, ["overlay-token"]) => {
+                Response::from_json(&serde_json::json!({ "token": self.overlay_token()? }))
+            }
+            (Method::Post, ["overlay-token", "rotate"]) => {
+                let token = crate::util::random_hex(24)?;
+                self.sql.exec(
+                    "INSERT INTO secrets (key, value) VALUES ('overlay_token', ?)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    vec![token.as_str().into()],
+                )?;
+                // The old link stops working right away, even for open overlays.
+                for ws in self.state.get_websockets() {
+                    if socket_info(&ws).is_some_and(|i| i.access == Access::Overlay) {
+                        let _ = ws.close(Some(CLOSE_LINK_REPLACED), Some("link replaced"));
+                    }
+                }
+                Response::from_json(&serde_json::json!({ "token": token }))
+            }
             (Method::Get, ["events"]) => {
-                let q: std::collections::HashMap<String, String> =
-                    url.query_pairs().into_owned().collect();
                 let after = q.get("after").and_then(|v| v.parse().ok()).unwrap_or(0u64);
                 let limit = q
                     .get("limit")
@@ -239,7 +357,27 @@ impl DurableObject for ChannelDo {
         };
         match frame {
             ClientFrame::Hello { role, last_seq } => {
-                ws.serialize_attachment(SocketInfo { role })?;
+                let access = socket_info(&ws).map_or(Access::Overlay, |i| i.access);
+                if access == Access::Overlay && role != Role::Overlay {
+                    let _ = send(
+                        &ws,
+                        &ServerFrame::Error {
+                            message: "This link only works as an overlay.".into(),
+                        },
+                    );
+                    let _ = ws.close(Some(CLOSE_NOT_ALLOWED), Some("overlay link"));
+                    return Ok(());
+                }
+                ws.serialize_attachment(SocketInfo {
+                    access,
+                    role: Some(role),
+                })?;
+                // Overlay links do not get to read the log.
+                let last_seq = if access == Access::Owner {
+                    last_seq
+                } else {
+                    None
+                };
                 let mut truncated = false;
                 if let Some(after) = last_seq {
                     let missed = self.head.get().saturating_sub(after);
@@ -359,12 +497,7 @@ impl ChannelDo {
         };
         let text = serde_json::to_string(&ServerFrame::Event(stored))?;
         for ws in self.state.get_websockets() {
-            if ws
-                .deserialize_attachment::<SocketInfo>()
-                .ok()
-                .flatten()
-                .is_some()
-            {
+            if socket_info(&ws).is_some_and(|i| i.role.is_some()) {
                 let _ = ws.send_with_str(&text);
             }
         }
@@ -375,6 +508,106 @@ impl ChannelDo {
         Ok(IngestResult {
             seq,
             duplicate: false,
+        })
+    }
+
+    fn access(&self, req: &Request) -> Result<Option<Access>> {
+        let h = req.headers();
+        match h.get(ACCESS_HEADER)?.as_deref() {
+            Some("owner") => Ok(Some(Access::Owner)),
+            Some("token") => {
+                let got = h.get(TOKEN_HEADER)?.unwrap_or_default();
+                let want = self.stored_overlay_token()?;
+                Ok(want
+                    .filter(|w| {
+                        !got.is_empty() && crate::constant_time_eq(w.as_bytes(), got.as_bytes())
+                    })
+                    .map(|_| Access::Overlay))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn stored_overlay_token(&self) -> Result<Option<String>> {
+        Ok(self
+            .sql
+            .exec(
+                "SELECT value FROM secrets WHERE key = 'overlay_token'",
+                None,
+            )?
+            .to_array::<TextRow>()?
+            .into_iter()
+            .next()
+            .map(|r| r.value))
+    }
+
+    /// The token in this channel's overlay link, made on first use.
+    fn overlay_token(&self) -> Result<String> {
+        if let Some(t) = self.stored_overlay_token()? {
+            return Ok(t);
+        }
+        let token = crate::util::random_hex(24)?;
+        self.sql.exec(
+            "INSERT INTO secrets (key, value) VALUES ('overlay_token', ?)",
+            vec![token.as_str().into()],
+        )?;
+        Ok(token)
+    }
+
+    /// Events before `before`, newest first. `filter` is `alerts` (everything
+    /// but chat), `chat`, or `all`.
+    fn history(&self, before: u64, limit: u64, filter: &str) -> Result<Vec<StoredEvent>> {
+        let kind_clause = match filter {
+            "chat" => "AND kind = 'chat'",
+            "alerts" => "AND kind != 'chat'",
+            _ => "",
+        };
+        let rows = self
+            .sql
+            .exec(
+                &format!(
+                    "SELECT seq, received_at, body FROM events WHERE seq < ? {kind_clause}
+                     ORDER BY seq DESC LIMIT ?"
+                ),
+                vec![(before as i64).into(), (limit as i64).into()],
+            )?
+            .to_array::<EventRow>()?;
+        rows.into_iter()
+            .map(|r| {
+                Ok(StoredEvent {
+                    seq: r.seq as u64,
+                    received_at: r.received_at as i64,
+                    event: serde_json::from_str(&r.body)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Counts by kind since `since` (Unix ms, by when Sylva received them),
+    /// plus the bits cheered.
+    fn summary(&self, since: i64) -> Result<Summary> {
+        let rows = self
+            .sql
+            .exec(
+                "SELECT kind, COUNT(*) AS n,
+                        COALESCE(SUM(CASE WHEN kind = 'cheer'
+                                     THEN json_extract(body, '$.amount') END), 0) AS amount
+                 FROM events WHERE received_at >= ? GROUP BY kind",
+                vec![since.into()],
+            )?
+            .to_array::<SummaryRow>()?;
+        let mut counts = std::collections::BTreeMap::new();
+        let mut bits = 0;
+        for r in rows {
+            if r.kind == "cheer" {
+                bits = r.amount as u64;
+            }
+            counts.insert(r.kind, r.n as u64);
+        }
+        Ok(Summary {
+            since,
+            counts,
+            bits,
         })
     }
 
@@ -409,12 +642,7 @@ impl ChannelDo {
         self.state
             .get_websockets()
             .into_iter()
-            .filter(|ws| {
-                ws.deserialize_attachment::<SocketInfo>()
-                    .ok()
-                    .flatten()
-                    .is_some_and(|i| i.role == role)
-            })
+            .filter(|ws| socket_info(ws).is_some_and(|i| i.role == Some(role)))
             .collect()
     }
 
@@ -468,12 +696,7 @@ impl ChannelDo {
     fn broadcast_state(&self) -> Result<()> {
         let text = serde_json::to_string(&ServerFrame::State(self.alert_state()?))?;
         for ws in self.state.get_websockets() {
-            if ws
-                .deserialize_attachment::<SocketInfo>()
-                .ok()
-                .flatten()
-                .is_some()
-            {
+            if socket_info(&ws).is_some_and(|i| i.role.is_some()) {
                 let _ = ws.send_with_str(&text);
             }
         }

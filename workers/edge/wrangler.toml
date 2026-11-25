@@ -1,0 +1,19 @@
+name = "sylva-edge"
+main = "build/index.js"
+compatibility_date = "2026-11-01"
+
+[build]
+command = "worker-build --release"
+
+[[durable_objects.bindings]]
+name = "CHANNEL"
+class_name = "ChannelDo"
+
+# SQLite backed storage is required for the SQL API and is the default for new classes.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChannelDo"]
+
+# Secrets (set with `wrangler secret put`, or in .dev.vars locally):
+#   TWITCH_EVENTSUB_SECRET  the secret given to Twitch when creating the conduit shard
+#   SYLVA_ADMIN_TOKEN       Phase 0 only: bearer token for POST /v1 routes

@@ -1,0 +1,16 @@
+{
+  "name": "sylva",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling for Sylva. The product code is Rust; this only pins wrangler and runs the Phase 0 test scripts.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "cd workers/edge && wrangler dev --port 8787",
+    "deploy": "cd workers/edge && wrangler deploy",
+    "test:e2e": "node tools/e2e.mjs",
+    "test:burst": "node tools/burst.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.159.0"
+  }
+}

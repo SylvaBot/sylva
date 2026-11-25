@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    name: Core crate (fmt, clippy, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy -p sylva-core --all-targets -- -D warnings
+      - run: cargo clippy -p sylva-edge --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo test -p sylva-core
+
+  edge:
+    name: Worker build, size and end to end checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo install worker-build --version 0.9.0 --locked
+      - run: npm ci
+      - name: Build the Worker
+        working-directory: workers/edge
+        run: worker-build --release
+      - name: Report bundle size
+        working-directory: workers/edge
+        run: |
+          raw=$(stat -c %s build/index_bg.wasm)
+          gz=$(gzip -9c build/index_bg.wasm | wc -c)
+          echo "### Worker bundle" >> "$GITHUB_STEP_SUMMARY"
+          echo "WebAssembly: $raw bytes ($gz gzipped). Workers allow 64 MiB uncompressed." >> "$GITHUB_STEP_SUMMARY"
+          # Fail well before the platform limit so growth gets noticed early.
+          test "$raw" -lt 8000000
+      - name: Start the Worker locally
+        run: |
+          cp workers/edge/.dev.vars.example workers/edge/.dev.vars
+          npm run dev > dev.log 2>&1 &
+          for i in $(seq 1 90); do curl -sf localhost:8787/ && exit 0; sleep 2; done
+          cat dev.log; exit 1
+      - run: npm run test:e2e
+      - run: npm run test:burst -- 2000 50
+      - if: failure()
+        run: cat dev.log

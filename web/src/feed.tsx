@@ -1,6 +1,6 @@
-// The activity feed, ported from Cortex (ui/app.js): one color per kind of
-// event, a mix bar for the last 24 hours, filter chips, and one plain
-// sentence per event with small pills for the details.
+// The activity feed, after Cortex's: one color per kind of event, a mix bar
+// for the last 24 hours, filter chips, and one plain sentence per event with
+// small pills for the details.
 
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Kind, SylvaEvent } from './api';
@@ -201,7 +201,7 @@ export function Filters(props: { shown: Set<string>; toggle(id: string | null): 
       <button className="filter" type="button" aria-pressed={shown.size === 0} onClick={() => toggle(null)}>
         All{props.total !== undefined && <span className="count">{num(props.total)}</span>}
       </button>
-      {GROUPS.filter((g) => g.id !== 'other' || (counts?.other ?? 0) > 0 || shown.has('other')).map((g) => (
+      {GROUPS.filter((g) => !OPTIONAL.has(g.id) || (counts?.[g.id] ?? 0) > 0 || shown.has(g.id)).map((g) => (
         <button
           key={g.id}
           className={'filter ' + g.color}
@@ -216,6 +216,10 @@ export function Filters(props: { shown: Set<string>; toggle(id: string | null): 
     </div>
   );
 }
+
+// Kinds Twitch alone never sends, or Sylva does not subscribe to yet: their
+// filter only shows once there is something to filter.
+const OPTIONAL = new Set(['tip', 'redemption', 'other']);
 
 export const matchesShown = (shown: Set<string>) => (e: SylvaEvent) => !shown.size || shown.has(groupOf(e.kind).id);
 

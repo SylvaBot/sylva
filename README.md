@@ -2,7 +2,7 @@
 
 A friendly web toolkit for streamers: alerts, overlays, an activity feed, and later a chatbot and loyalty points. Twitch first, with room for YouTube, Kick, TikTok, Rumble and Facebook. Cortex (the desktop app in `haruxee/pine`) will connect to Sylva instead of StreamElements.
 
-This repository is in **Phase 1**. Streamers sign in with Twitch, and Sylva picks up their follows, subs, cheers, raids and chat, plays alerts on an overlay for OBS, and shows everything on a dashboard in Cortex's design. Read [docs/phase-1.md](docs/phase-1.md) for what is built and what comes next, and [docs/phase-0-findings.md](docs/phase-0-findings.md) for the tests behind the architecture.
+This repository is in **Phase 1**. Streamers sign in with Twitch, and Sylva picks up their follows, subs, cheers, raids and chat, plays alerts on an overlay for OBS, and shows everything on its website: a landing page at `/` and a dashboard at `/app`. Read [docs/phase-1.md](docs/phase-1.md) and [docs/site.md](docs/site.md) for what is built and what comes next, and [docs/phase-0-findings.md](docs/phase-0-findings.md) for the tests behind the architecture.
 
 ## Layout
 
@@ -11,7 +11,7 @@ This repository is in **Phase 1**. Streamers sign in with Twitch, and Sylva pick
 | `crates/sylva-core` | Plain Rust with no Cloudflare code: the normalized event model, Twitch EventSub verification and parsing, the realtime protocol, and sign in helpers (scopes, cookies, token encryption). Cortex can depend on it too. |
 | `workers/edge` | The Cloudflare Worker (Rust compiled to WebAssembly with workers-rs). Twitch sign in and webhooks, the API, and three kinds of Durable Object: `ChannelDo` per channel, `AccountDo` per account, and one `DirectoryDo`. |
 | `workers/edge/overlay` | The alert overlay for OBS, styled like Cortex. |
-| `web` | The dashboard: React and TypeScript, built with Vite, using Cortex's design system. It is built into the Worker (`workers/edge/build.rs`), so one deploy carries everything. |
+| `web` | The website: the landing page and the dashboard, in React and TypeScript, built with Vite. Its look takes Cortex's ideas (neutral grays, one color per kind of event, flat cards) and lays them out as a site. It is built into the Worker (`workers/edge/build.rs`), so one deploy carries everything. |
 | `tools` | Node scripts that test a running Worker the way Twitch, OBS and the dashboard would, plus a fake Twitch for sign in tests. |
 
 ## Run it locally

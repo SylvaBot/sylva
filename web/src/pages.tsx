@@ -129,11 +129,11 @@ function GetStarted() {
       </div>
       <ol>
         <li className="done">
-          <span className="check"><Icon id="check" /></span>
+          <span className="check"><Icon id="tick" /></span>
           <div><b>Sign in with Twitch</b><span>Your events reach Sylva live.</span></div>
         </li>
         <li className={overlayDone ? 'done' : undefined}>
-          <span className="check">{overlayDone ? <Icon id="check" /> : 2}</span>
+          <span className="check">{overlayDone ? <Icon id="tick" /> : 2}</span>
           <div>
             <b>Add your overlay to OBS</b>
             <span>One Browser Source shows every alert.</span>
@@ -141,7 +141,7 @@ function GetStarted() {
           </div>
         </li>
         <li className={testDone ? 'done' : undefined}>
-          <span className="check">{testDone ? <Icon id="check" /> : 3}</span>
+          <span className="check">{testDone ? <Icon id="tick" /> : 3}</span>
           <div>
             <b>Send a test alert</b>
             <span>See it play on your overlay.</span>
@@ -472,7 +472,7 @@ export function ActivityPage() {
   return (
     <div className="page">
       <PageHead title="Activity" desc="Every follow, sub, gift, cheer and raid, newest first." />
-      <Card id="activity" title="Last 24 hours" desc={total === 1 ? '1 event' : `${num(total)} events`}>
+      <Card id="activity" title="All activity" desc={total === 1 ? '1 event in the last 24 hours' : `${num(total)} events in the last 24 hours`}>
         <MixBar counts={counts} total={total} />
         <div className="feed-tools">
           <label className="search">

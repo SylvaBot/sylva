@@ -53,7 +53,7 @@ The look takes Cortex's ideas, not its layout: neutral grays, one color per kind
 
 * Every page driven in Chromium with Playwright at 1440 px and at 390 px (phone), in both themes: sign in through the fake Twitch, live events, search, theme change, the phone drawer, and sign out. No page scrolls sideways on a phone.
 * `npm run test:e2e` adds a check for history search: names and messages match regardless of case, and `%` and `_` are taken literally.
-* It also checks the overlay editor: bad layouts are refused, drafts are tidied, publishing pushes the layout to overlays on screen, versions and restore work, and a cheer updates top labels.
+* It also checks the overlay editor (bad layouts are refused, drafts are tidied, publishing pushes the layout to overlays on screen, versions and restore work) and top labels (cheers add up per viewer and reach widgets live).
 
 ## Alert types
 

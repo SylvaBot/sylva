@@ -11,6 +11,7 @@
 //!   `/alerts/replay/{seq}` and `/alerts/play-next/{alertId}` control alerts.
 //! * `POST /v1/channels/{key}/test-event` makes a fake event ("Try it").
 //! * `GET  /overlay/{key}` serves the Phase 0 test overlay for OBS.
+//! * `/admin/twitch/*` sets up a real Twitch conduit (see `twitch_admin`).
 //!
 //! `{key}` is the channel's Durable Object name, such as `twitch:12826`.
 //!
@@ -19,6 +20,7 @@
 //! per overlay read tokens come in Phase 1.
 
 mod channel;
+mod twitch_admin;
 
 pub use channel::ChannelDo;
 use sylva_core::twitch::{self, WebhookHeaders, WebhookMessage};
@@ -36,6 +38,17 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     match (req.method(), segs.as_slice()) {
         (Method::Get, [""]) => Response::ok("Sylva edge is running."),
         (Method::Post, ["twitch", "eventsub"]) => eventsub(req, &env).await,
+        (method, ["admin", "twitch", action]) => {
+            if !authorized(&req, &env) {
+                return Response::error("Unauthorized", 401);
+            }
+            match (method, *action) {
+                (Method::Post, "conduit") => twitch_admin::setup_conduit(&req, &env).await,
+                (Method::Post, "subscribe") => twitch_admin::subscribe(req, &env).await,
+                (Method::Get, "status") => twitch_admin::status(&env).await,
+                _ => Response::error("Not found", 404),
+            }
+        }
         (Method::Get, ["overlay", key]) => {
             if !valid_key(key) {
                 return Response::error("Not found", 404);

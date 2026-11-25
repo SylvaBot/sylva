@@ -1,6 +1,8 @@
 name = "sylva-edge"
 main = "build/index.js"
 compatibility_date = "2026-11-01"
+account_id = "4fe7b7aea8ef5f7e1246f21c717d56dd"
+workers_dev = true
 
 [build]
 command = "worker-build --release"
@@ -16,4 +18,9 @@ new_sqlite_classes = ["ChannelDo"]
 
 # Secrets (set with `wrangler secret put`, or in .dev.vars locally):
 #   TWITCH_EVENTSUB_SECRET  the secret given to Twitch when creating the conduit shard
-#   SYLVA_ADMIN_TOKEN       Phase 0 only: bearer token for POST /v1 routes
+#   SYLVA_ADMIN_TOKEN       Phase 0 only: bearer token for POST /v1 and /admin routes
+#   TWITCH_CLIENT_SECRET    the Twitch application secret (set in the Cloudflare dashboard)
+
+[vars]
+# Not secret: the public client id of the "sylva dev" Twitch application.
+TWITCH_CLIENT_ID = "t9z14i1qdp044der47bq7lpu5w0eru"

@@ -7,7 +7,7 @@
 // skipped. Set SKIP_SLOW=1 to skip the 30 second alarm test.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { ADMIN, BASE, admin, chat, Client, follow, getJson, randomChannelId, sendEventSub, sleep } from './lib.mjs';
+import { ADMIN, BASE, admin, chat, chatLine, Client, follow, getJson, randomChannelId, sendEventSub, sleep } from './lib.mjs';
 import { FAKE_PORT, FAKE_USER, startFakeTwitch } from './fake-twitch.mjs';
 
 const results = [];
@@ -546,6 +546,78 @@ if (!fake || !usesFake) {
     const cancel = await fetch(`${BASE}/auth/twitch/callback?error=access_denied&state=abc`, { redirect: 'manual' });
     assert.equal(cancel.headers.get('location'), '/?signin=denied');
     assert.equal(fake.state.tokenRequests.filter((r) => r.grant_type === 'authorization_code').length, 0);
+  });
+
+  await check('the chat bot answers commands, with levels, cooldowns and counts', async () => {
+    const bid = randomChannelId();
+    const bkey = `twitch:${bid}`;
+    const path = `/v1/channels/${bkey}/bot`;
+    const post = (p, body) => fetch(`${BASE}${p}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const sent = () => fake.state.chatSent.filter((m) => m.broadcaster_id === bid);
+    const say = (text, who = {}) => sendEventSub(chatLine(bid, { text, ...who }));
+
+    assert.equal((await fetch(`${BASE}${path}`)).status, 401, 'owner only');
+    const fresh = await getJson(path);
+    assert.equal(fresh.settings.enabled, false);
+    assert.deepEqual(fresh.settings.commands.map((c) => c.name), ['commands', 'uptime', 'lurk', 'so']);
+    assert.deepEqual(fresh.sender, { kind: 'streamer', id: bid });
+
+    await say('!lurk');
+    assert.equal(sent().length, 0, 'the bot is off until turned on');
+
+    const hello = { name: '!Hello', aliases: ['hi'], reply: 'Hi ${user}, you are visitor ${count}! ${touser}', cooldown: 30 };
+    assert.equal((await post(path, { enabled: true, commands: [{ ...hello, reply: '${nope}' }] })).status, 400);
+    assert.equal((await post(path, { enabled: true, commands: [hello, { ...hello, name: 'hi' }] })).status, 400);
+    const saved = await (await post(path, { enabled: true, commands: [...fresh.settings.commands, hello] })).json();
+    assert.equal(saved.settings.commands[4].name, 'hello');
+
+    await say('!HI @Juniper');
+    assert.deepEqual(sent().map((m) => [m.sender_id, m.message]), [[bid, 'Hi Maple, you are visitor 1! Juniper']]);
+    await say('!hello', { id: '7002', name: 'Hazel' });
+    assert.equal(sent().length, 1, 'cooldown');
+    await say('!hello', { id: '7003', name: 'Modly', badges: ['moderator'] });
+    assert.equal(sent().at(-1).message, 'Hi Modly, you are visitor 2! Modly', 'moderators skip cooldowns');
+
+    await say('!so @Rowan', { id: '7004', name: 'Viper', badges: ['vip', 'subscriber'] });
+    assert.equal(sent().length, 2, 'shoutouts are for moderators');
+    await say('!so @Rowan', { id: '7003', name: 'Modly', badges: ['moderator'] });
+    assert.equal(sent().at(-1).message, 'Go give Rowan a follow at twitch.tv/Rowan');
+
+    // The streamer's own account sends the replies, so their echo must not count.
+    await say('Go give Rowan a follow at twitch.tv/Rowan', { id: bid, name: 'Streamer' });
+    await say('!nothing here');
+    await say('hello !lurk');
+    assert.equal(sent().length, 3);
+    await say('!lurk', { id: bid, name: 'Streamer' });
+    assert.equal(sent().at(-1).message, 'Streamer is lurking. Enjoy the stream!');
+
+    // Counts are the server's: a save cannot reset or forge them.
+    const now = await getJson(path);
+    assert.equal(now.settings.commands[4].count, 2);
+    const forged = await (await post(path, { ...now.settings, commands: now.settings.commands.map((c) => ({ ...c, count: 999 })) })).json();
+    assert.equal(forged.settings.commands[4].count, 2);
+
+    // The sandbox answers without sending.
+    const tryIt = async (body) => (await post(`${path}/try`, body)).json();
+    assert.deepEqual(await tryIt({ message: '!hello there', level: 'everyone' }),
+      { reply: 'Hi Maple, you are visitor 3! there', command: 'hello' });
+    assert.deepEqual(await tryIt({ message: '!hello', level: 'everyone', user: 'Rowan' }),
+      { reply: 'Hi Rowan, you are visitor 3! Rowan', command: 'hello' });
+    assert.deepEqual(await tryIt({ message: '!so x', level: 'subscriber' }), { skip: 'level', command: 'so' });
+    assert.deepEqual(await tryIt({ message: 'hi', level: 'everyone' }), { skip: 'notACommand' });
+    assert.deepEqual(await tryIt({ message: '!zzz', level: 'everyone' }), { skip: 'unknown' });
+    const draft = { enabled: true, commands: [{ name: 'dice', reply: 'You rolled ${random.6-6}' }] };
+    assert.deepEqual(await tryIt({ message: '!dice', level: 'everyone', settings: draft }), { reply: 'You rolled 6', command: 'dice' });
+    assert.equal((await post(`${path}/try`, { message: '!x', level: 'everyone', settings: { commands: [{ name: 'a b', reply: 'x' }] } })).status, 400);
+    assert.equal(sent().length, 4, 'the sandbox sends nothing');
+
+    // Turned off, it stays quiet.
+    await post(path, { ...now.settings, enabled: false });
+    await say('!lurk');
+    assert.equal(sent().length, 4);
   });
 
   await check('signing in makes an account, subscribes the channel and starts a session', async () => {

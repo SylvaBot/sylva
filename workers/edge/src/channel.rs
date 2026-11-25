@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS scene_versions (
     published_at INTEGER NOT NULL,
     body         TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bot_cooldowns (
+    key TEXT PRIMARY KEY,
+    at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bot_sent (
+    at   INTEGER NOT NULL,
+    text TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS events_kind ON events(kind, seq);
 CREATE INDEX IF NOT EXISTS events_received ON events(received_at);
 ";
@@ -79,6 +87,8 @@ CREATE INDEX IF NOT EXISTS events_received ON events(received_at);
 /// the channel's overlay token.
 pub const ACCESS_HEADER: &str = "X-Sylva-Access";
 pub const TOKEN_HEADER: &str = "X-Sylva-Token";
+/// Set by the Worker to the channel key, so the object knows whose it is.
+pub const CHANNEL_HEADER: &str = "X-Sylva-Channel";
 
 /// What a request or socket may do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,8 +204,11 @@ pub struct IngestResult {
 
 #[durable_object]
 pub struct ChannelDo {
-    state: State,
-    sql: SqlStorage,
+    pub(crate) state: State,
+    pub(crate) sql: SqlStorage,
+    pub(crate) env: Env,
+    /// The bot settings, read once and kept while the object is awake.
+    pub(crate) bot: RefCell<Option<sylva_core::bot::BotSettings>>,
     /// Highest seq in the log. Kept in memory so assigning the next one needs no read.
     head: Cell<u64>,
     /// The alert settings, read once and kept while the object is awake.
@@ -203,7 +216,7 @@ pub struct ChannelDo {
 }
 
 impl DurableObject for ChannelDo {
-    fn new(state: State, _env: Env) -> Self {
+    fn new(state: State, env: Env) -> Self {
         let sql = state.storage().sql();
         for stmt in SCHEMA.split(';').map(str::trim).filter(|s| !s.is_empty()) {
             sql.exec(stmt, None).expect("schema");
@@ -222,6 +235,8 @@ impl DurableObject for ChannelDo {
             sql,
             head: Cell::new(head),
             alert_settings: RefCell::new(None),
+            env,
+            bot: RefCell::new(None),
         }
     }
 
@@ -234,6 +249,9 @@ impl DurableObject for ChannelDo {
         // reach it because the Worker forwards a fixed list of routes.
         let internal = matches!(segs.as_slice(), ["ingest"] | ["ingest-batch"]);
         let access = self.access(&req)?;
+        if let Some(k) = req.headers().get(CHANNEL_HEADER)? {
+            self.remember_key(&k)?;
+        }
         if !internal {
             match (access, segs.as_slice()) {
                 (Some(Access::Owner), _) | (Some(Access::Overlay), ["ws"]) => {}
@@ -331,6 +349,28 @@ impl DurableObject for ChannelDo {
                     Err(Invalid(message)) => Response::error(message, 400),
                 }
             }
+            (Method::Get, ["bot"]) => Response::from_json(&self.bot_view()?),
+            (Method::Post, ["bot"]) => {
+                let Ok(body) = req.json::<sylva_core::bot::BotSettings>().await else {
+                    return Response::error("Those bot settings could not be read", 400);
+                };
+                match body.validated(&self.bot_settings()?) {
+                    Ok(s) => {
+                        self.save_bot_settings(&s)?;
+                        Response::from_json(&self.bot_view()?)
+                    }
+                    Err(Invalid(message)) => Response::error(message, 400),
+                }
+            }
+            (Method::Post, ["bot", "try"]) => {
+                let Ok(body) = req.json::<crate::bot::TryRequest>().await else {
+                    return Response::error("That test could not be read", 400);
+                };
+                match self.try_bot(body)? {
+                    Ok(r) => Response::from_json(&r),
+                    Err(message) => Response::error(message, 400),
+                }
+            }
             (Method::Get, ["scene"]) => Response::from_json(&self.scene_state()?),
             (Method::Post, ["scene"]) => {
                 let Ok(body) = req.json::<Scene>().await else {
@@ -394,12 +434,15 @@ impl DurableObject for ChannelDo {
                     "config",
                     "secrets",
                     "scene_versions",
+                    "bot_cooldowns",
+                    "bot_sent",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
                 self.state.storage().delete_alarm().await?;
                 self.head.set(0);
                 *self.alert_settings.borrow_mut() = None;
+                *self.bot.borrow_mut() = None;
                 Response::empty().map(|r| r.with_status(204))
             }
             (Method::Get, ["overlay-token"]) => {
@@ -644,14 +687,18 @@ impl ChannelDo {
             )?;
         }
 
+        self.remember_key(&event.channel)?;
+        self.remember_channel_name(&event)?;
         let stored_kind = event.kind;
         let stored_raw = event.raw_type.clone();
+        let is_chat = stored_kind == sylva_core::EventKind::Chat
+            && event.platform == sylva_core::Platform::Twitch;
         let stored = StoredEvent {
             seq,
             received_at,
             event,
         };
-        let text = serde_json::to_string(&ServerFrame::Event(stored))?;
+        let text = serde_json::to_string(&ServerFrame::Event(stored.clone()))?;
         for ws in self.state.get_websockets() {
             if socket_info(&ws).is_some_and(|i| i.role.is_some()) {
                 let _ = ws.send_with_str(&text);
@@ -675,6 +722,9 @@ impl ChannelDo {
         if is_alert && self.dispatch().await?.is_none() {
             // Feeds show the queue length, so tell them it grew.
             self.broadcast_state()?;
+        }
+        if is_chat {
+            self.run_bot(&stored).await;
         }
         Ok(IngestResult {
             seq,
@@ -1070,6 +1120,35 @@ impl ChannelDo {
             published: self.published()?,
             versions,
         })
+    }
+
+    pub(crate) fn config(&self, key: &str) -> Result<Option<String>> {
+        let rows = self
+            .sql
+            .exec("SELECT value FROM config WHERE key = ?", vec![key.into()])?
+            .to_array::<TextRow>()?;
+        Ok(rows.into_iter().next().map(|r| r.value))
+    }
+
+    pub(crate) fn set_config(&self, key: &str, value: &str) -> Result<()> {
+        self.sql.exec(
+            "INSERT INTO config (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            vec![key.into(), value.into()],
+        )?;
+        Ok(())
+    }
+
+    /// This object's channel key, such as `twitch:12826`, once it has seen it.
+    pub(crate) fn key(&self) -> Option<String> {
+        self.config("channel_key").ok().flatten()
+    }
+
+    fn remember_key(&self, key: &str) -> Result<()> {
+        if self.key().is_none() && !key.is_empty() {
+            self.set_config("channel_key", key)?;
+        }
+        Ok(())
     }
 
     fn alert_settings(&self) -> Result<AlertSettings> {

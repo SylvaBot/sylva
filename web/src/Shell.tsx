@@ -2,6 +2,7 @@
 // connection, and on phones a top bar that opens the sidebar as a drawer.
 
 import { useEffect, useRef, useState } from 'react';
+import { BotPage } from './bot';
 import { useChannel } from './channel';
 import { OverlayPage } from './overlay';
 import { ActivityPage, AlertsPage, ChatPage, NotFoundPage, OverviewPage, SettingsPage } from './pages';
@@ -14,6 +15,7 @@ const PAGES = [
   { path: '/app/alerts', label: 'Alerts', icon: 'bell', view: AlertsPage },
   { path: '/app/overlay', label: 'Overlay', icon: 'monitor', view: OverlayPage },
   { path: '/app/chat', label: 'Chat', icon: 'message', view: ChatPage },
+  { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage },
 ];
 const SETTINGS = { path: '/app/settings', label: 'Settings', icon: 'settings', view: SettingsPage };
 

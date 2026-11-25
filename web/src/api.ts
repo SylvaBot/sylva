@@ -80,6 +80,16 @@ export interface SceneState {
   versions: { version: number; publishedAt: number; items: number }[];
 }
 
+export type UserLevel = 'everyone' | 'subscriber' | 'vip' | 'moderator' | 'broadcaster';
+export interface BotCommand {
+  name: string; aliases: string[]; reply: string; level: UserLevel;
+  cooldown: number; userCooldown: number; enabled: boolean; count: number;
+}
+export interface BotSettings { enabled: boolean; commands: BotCommand[] }
+export interface BotView { settings: BotSettings; sender: { kind: 'sylva' | 'streamer'; id: string; login?: string } }
+export type BotSkip = 'notACommand' | 'unknown' | 'off' | 'level' | 'cooldown';
+export interface BotTry { reply?: string; skip?: BotSkip; command?: string }
+
 export interface AppToken { id: string; name: string; createdAt: number; lastUsedAt?: number | null }
 
 export type Feature = 'follows' | 'subs' | 'cheers' | 'chat' | 'raids' | 'stream';
@@ -142,6 +152,10 @@ export const api = {
     request<{ approved: boolean }>('POST', '/v1/device', { userCode, approve }),
   apps: () => request<AppToken[]>('GET', '/v1/apps'),
   revokeApp: (id: string) => request<unknown>('POST', `/v1/apps/${encodeURIComponent(id)}/revoke`),
+  bot: (key: string) => request<BotView>('GET', `${ch(key)}/bot`),
+  saveBot: (key: string, s: BotSettings) => request<BotView>('POST', `${ch(key)}/bot`, s),
+  tryBot: (key: string, message: string, level: UserLevel, extra: { settings?: BotSettings; user?: string; channel?: string } = {}) =>
+    request<BotTry>('POST', `${ch(key)}/bot/try`, { message, level, ...extra }),
   scene: (key: string) => request<SceneState>('GET', `${ch(key)}/scene`),
   saveScene: (key: string, scene: Scene) => request<SceneState>('POST', `${ch(key)}/scene`, scene),
   publishScene: (key: string) => request<SceneState>('POST', `${ch(key)}/scene/publish`),

@@ -63,7 +63,8 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             when your stream starts, ends or changes title, with the viewer names Twitch sends. This is your
             Activity feed and history.
           </li>
-          <li><b>Your settings:</b> alert settings, your goal, whether alerts are paused or muted, and your overlay link.</li>
+          <li><b>Your settings:</b> alert settings, your goal, your overlay layouts, whether alerts are paused or muted, and your overlay link.</li>
+          <li><b>Your chat bot:</b> its commands, how often each was used, and when each was last used, for cooldowns.</li>
           <li>
             <b>Sign ins:</b> for each browser session and each connected app (such as Cortex), a one way hash
             of its secret, when it was made and when an app was last used. Sylva cannot recover the secret from it.
@@ -72,7 +73,7 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
 
         <h2>What Sylva does not do</h2>
         <ul>
-          <li>It does not post in your chat or change anything on your channel.</li>
+          <li>It posts in your chat only when you turn on the chat bot, and then only to answer commands you set up. It does not change anything else on your channel.</li>
           <li>It does not sell your data, show ads, or share data with anyone for advertising.</li>
           <li>It has no analytics or tracking scripts, and loads nothing from other sites except Twitch profile pictures.</li>
         </ul>
@@ -110,6 +111,11 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
           stop sending your channel's events, deletes your account, activity, chat history, settings, overlay
           links and connected apps at once, and tells Twitch to forget its sign in. This cannot be undone. You can
           also remove Sylva's access on Twitch under Settings, Connections.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          Questions about your data: <span className="placeholder">[contact email to be added]</span>
         </p>
       </main>
       <SiteFooter />

@@ -32,6 +32,7 @@
 mod account;
 mod apps;
 mod auth;
+mod bot;
 mod channel;
 mod delete;
 mod twitch_admin;
@@ -41,7 +42,7 @@ mod web;
 
 pub use account::{AccountDo, DirectoryDo};
 pub use channel::ChannelDo;
-use channel::{ACCESS_HEADER, TOKEN_HEADER};
+use channel::{ACCESS_HEADER, CHANNEL_HEADER, TOKEN_HEADER};
 use serde_json::json;
 use sylva_core::twitch::{self, WebhookHeaders, WebhookMessage};
 use sylva_core::{Actor, Event, EventKind, Platform};
@@ -71,6 +72,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         (Method::Get, ["health"]) => Response::ok("Sylva edge is running."),
         (Method::Get, ["auth", "twitch", "start"]) => auth::start(&req, &env).await,
         (Method::Get, ["auth", "twitch", "callback"]) => auth::callback(&req, &env).await,
+        (Method::Get, ["auth", "twitch", "bot"]) => auth::bot_start(&req, &env).await,
         (Method::Post, ["auth", "sign-out"]) => auth::sign_out(&req, &env).await,
         (Method::Get, ["v1", "me"]) => match auth::caller(&req, &env).await? {
             Some(s) => no_store(Response::from_json(&s.me)?),
@@ -174,6 +176,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Get, ["widget-settings"])
                 | (Method::Post, ["widget-settings"])
                 | (Method::Post, ["alert-settings"])
+                | (Method::Get, ["bot"])
+                | (Method::Post, ["bot", ..])
                 | (Method::Get, ["scene"])
                 | (Method::Post, ["scene", ..])
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,
@@ -253,6 +257,7 @@ async fn forward(
         }
         None => headers.set(ACCESS_HEADER, "owner")?,
     }
+    headers.set(CHANNEL_HEADER, key)?;
     let mut init = RequestInit::new();
     init.with_method(method.clone()).with_headers(headers);
     if method == Method::Post {

@@ -88,6 +88,10 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             with the most points, and lets anyone look up a viewer's points, as <code>!points</code> does in chat.
           </li>
           <li>
+            <b>Giveaways, if you run them:</b> each giveaway's prize, settings, seed and winners, and each entry
+            with the viewer's Twitch id, name and tickets (your last 50 giveaways).
+          </li>
+          <li>
             <b>Sign ins:</b> for each browser session and each connected app (such as Cortex), a one way hash
             of its secret, when it was made and when an app was last used. Sylva cannot recover the secret from it.
           </li>

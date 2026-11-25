@@ -1034,3 +1034,35 @@ h1, h2, h3, p { margin: 0; }
 @media (max-width: 860px) { .pub-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 560px) { .pub { padding-block: 32px 48px; } .pub-head h1 { font-size: 28px; } .pub-items li, .pub-top li { padding-inline: 16px; } }
 .store-queue .segmented button { white-space: nowrap; }
+
+/* Giveaways */
+.give-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.give-form .wide { grid-column: 1 / -1; }
+.pill.on { --g: var(--ok); }
+.pill.off { --g: var(--muted); }
+.give-now .card-head p .pill { vertical-align: 1px; margin-right: 4px; }
+.give-stats { display: flex; align-items: center; gap: 12px 28px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+.stat-inline { display: flex; flex-direction: column; gap: 2px; }
+.stat-inline span { font-size: 12px; color: var(--muted); }
+.stat-inline b { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.give-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.give-winners { list-style: none; margin: 0; padding: 0; border-bottom: 1px solid var(--border); }
+.give-winners li { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--border); }
+.give-winners li:first-child { border-top: 0; }
+.give-winners b { flex: 1; font-size: 15px; }
+.give-entries { border-bottom: 1px solid var(--border); }
+.give-entries .points-sub { padding: 0 0 10px; }
+.give-entry-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; max-height: 240px; overflow: auto; }
+.give-entry-list li { padding: 3px 9px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; }
+.give-seed { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.give-seed div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; }
+.give-seed dt { font-size: 12.5px; color: var(--muted); }
+.give-seed dd { margin: 0; font-size: 12.5px; color: var(--text-2); }
+.give-seed code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; }
+.give-proof.past { padding: 0 20px 16px; display: flex; flex-direction: column; gap: 10px; }
+@media (max-width: 700px) {
+  .give-form { grid-template-columns: minmax(0, 1fr); }
+  .give-actions { margin-left: 0; width: 100%; }
+  .give-seed div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+.give-winners .cmd-meta { font-size: 12px; color: var(--faint); }

@@ -564,6 +564,11 @@ impl ChannelDo {
                 now,
                 dry: false,
             };
+            if self.giveaway_running()? {
+                if let Some(r) = self.giveaway_entry(&trigger, level, actor, now)? {
+                    self.say(&broadcaster, &from, &r, now).await?;
+                }
+            }
             let reply = match self.community_reply(&mut settings, &trigger, &args, &ask)? {
                 Some(r) => Some(r),
                 None => match self

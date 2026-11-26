@@ -59,8 +59,8 @@ export function ChatAlertsPage() {
       <PageHead title="Chat alerts" desc="Announce special moments with your chat and keep everyone involved." />
       <div className="segmented ca-tabs" role="group" aria-label="Platform">
         <button type="button" aria-pressed={tab === 'twitch'} onClick={() => setTab('twitch')}>Twitch</button>
-        <button type="button" aria-pressed={tab === 'youtube'} onClick={() => setTab('youtube')}>YouTube<span className="ca-soon">Coming soon</span></button>
-        <button type="button" aria-pressed={tab === 'kick'} onClick={() => setTab('kick')}>Kick<span className="ca-soon">Coming soon</span></button>
+        <button type="button" aria-pressed={tab === 'youtube'} onClick={() => setTab('youtube')}>YouTube<span className="ca-soon">Soon</span></button>
+        <button type="button" aria-pressed={tab === 'kick'} onClick={() => setTab('kick')}>Kick<span className="ca-soon">Soon</span></button>
       </div>
 
       {tab !== 'twitch' && (

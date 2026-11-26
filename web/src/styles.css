@@ -1350,7 +1350,17 @@ body::before {
 .eyebrow { border: 0; background: var(--surface-2); }
 .how li { border-radius: var(--r-xl); border-color: var(--border-3); }
 
+/* Tablets keep the slim rail; the top bar gets compact. */
 @media (max-width: 860px) {
+  .appbar { padding: 0 16px; height: 56px; }
+  .search-pill span, .search-pill kbd, .appbar-group, .appbar .pill-group { display: none; }
+  .search-pill { padding: 0; width: 34px; justify-content: center; }
+  .page { padding: 8px 20px 48px; }
+  .page-head h1 { font-size: 24px; }
+  .notice.reconnect, .notice.role-note { margin: 0 20px 12px; }
+}
+/* Phones: the rail becomes a drawer behind the menu button. */
+@media (max-width: 640px) {
   .shell { display: block; }
   .rail {
     position: fixed; inset: 0 auto 0 0; z-index: 50; width: 260px; margin: 0; padding: 16px 12px;
@@ -1368,11 +1378,8 @@ body::before {
   .rail .badge { position: static; margin-left: auto; }
   .rail-sep { width: auto; margin: 6px 12px; }
   .menu-btn { display: grid; }
-  .appbar { padding: 0 12px; height: 56px; }
-  .search-pill span, .search-pill kbd, .appbar-group, .appbar .pill-group { display: none; }
-  .search-pill { padding: 0; width: 34px; justify-content: center; }
+  .appbar { padding: 0 12px; }
   .page { padding: 8px 16px 48px; }
-  .page-head h1 { font-size: 24px; }
   .notice.reconnect, .notice.role-note { margin: 0 16px 12px; }
 }
 .drawer-scrim { display: none; }

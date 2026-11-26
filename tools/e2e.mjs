@@ -573,7 +573,7 @@ if (!fake || !usesFake) {
     assert.equal((await post(path, { enabled: true, commands: [{ ...hello, reply: '${nope}' }] })).status, 400);
     assert.equal((await post(path, { enabled: true, commands: [hello, { ...hello, name: 'hi' }] })).status, 400);
     const saved = await (await post(path, { enabled: true, commands: [...fresh.settings.commands, hello] })).json();
-    assert.equal(saved.settings.commands[4].name, 'hello');
+    assert.equal(saved.settings.commands[2].name, 'hello');
 
     await say('!HI @Juniper');
     assert.deepEqual(sent().map((m) => [m.sender_id, m.message]), [[bid, 'Hi Maple, you are visitor 1! Juniper']]);
@@ -597,9 +597,9 @@ if (!fake || !usesFake) {
 
     // Counts are the server's: a save cannot reset or forge them.
     const now = await getJson(path);
-    assert.equal(now.settings.commands[4].count, 2);
+    assert.equal(now.settings.commands[2].count, 2);
     const forged = await (await post(path, { ...now.settings, commands: now.settings.commands.map((c) => ({ ...c, count: 999 })) })).json();
-    assert.equal(forged.settings.commands[4].count, 2);
+    assert.equal(forged.settings.commands[2].count, 2);
 
     // The sandbox answers without sending.
     const tryIt = async (body) => (await post(`${path}/try`, body)).json();

@@ -161,6 +161,18 @@ Off until the streamer turns it on. Viewers earn points, named whatever the stre
 
 ![Loyalty](site/loyalty.png)
 
+### Games
+
+Once points are on, viewers can bet them in chat. Every game starts on, and each has its own switch on the Loyalty page, with a smallest bet, a largest bet (0 for no limit) and the seconds a viewer waits between games (30 by default). A bet can be a number, `2k`, `half`, `25%` or `all`.
+
+- `!gamble 100`: rolls 1 to 100. 56 or more doubles the bet, and 100 pays four times.
+- `!roulette 100 red`: red, black, even, odd, green or a number 0 to 36. A single number pays 35 to 1. Without a pick it bets on red.
+- `!slots 100`: three reels of six symbols. Three of a kind pays 10 times (20 for 💎), two of a kind gives back 1.5 times.
+- `!blackjack 100` (or `!bj`), then `!hit` or `!stand`. The bet is taken at the deal. Blackjack pays 3 to 2 and the dealer stands on 17. A hand left for 2 minutes stands on the viewer's next blackjack command.
+- `!duel @name 100`: the other viewer has 2 minutes to `!accept` or `!deny`. Both need the bet; the winner takes it.
+
+The game words count as Sylva's own, so a giveaway cannot use them. A custom command with the same name still wins.
+
 ## Points store
 
 Rewards viewers buy with loyalty points. Closed until the streamer opens it, and it needs points on.

@@ -40,6 +40,7 @@ mod builtins;
 mod channel;
 mod community;
 mod delete;
+mod games;
 mod giveaway;
 mod grants;
 mod import;

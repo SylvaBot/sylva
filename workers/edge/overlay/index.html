@@ -124,6 +124,16 @@
   // Exposed for automated tests.
   window.sylva = { widget, shown: [], acked: [], data: null, scene: null };
 
+  // The built-in widgets (pill alerts and Twitch-style chat), put in by the
+  // server. The alert box and chat box show them, and so does a channel that
+  // has not published a layout yet.
+  const DEFAULTS = /*SYLVA_DEFAULTS*/null;
+  const DEFAULT_ITEMS = [
+    { id: 'default-alerts', widget: 'alerts', x: 0, y: 0, w: 1920, h: 1080 },
+    { id: 'default-chat', widget: 'chat', x: 1476, y: 120, w: 420, h: 840 },
+  ];
+  const builtIn = (it) => (DEFAULTS && DEFAULTS[it.widget] ? Object.assign({}, it, { widget: 'custom', code: DEFAULTS[it.widget] }) : it);
+
   /* ---------------- Alert box ---------------- */
   // The channel's alert settings set how long each alert stays. A `duration`
   // in the link (milliseconds) overrides them for this overlay only.
@@ -520,7 +530,13 @@
     // One widget filling the source.
     const host = el('div', 'fill-page');
     root.appendChild(host);
-    if (!WIDGETS[widget]) {
+    if (DEFAULTS && (widget === 'chat' || !WIDGETS[widget])) {
+      const it = builtIn({ widget: widget === 'chat' ? 'chat' : 'alerts' });
+      let conn = null;
+      const w = customWidget(host, it, (id) => { if (conn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); });
+      if (it.code.alerts) conn = alertConnection(w);
+      widgetConnection(() => [w]);
+    } else if (!WIDGETS[widget]) {
       let conn = null;
       const box = alertBox((id) => { if (conn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); });
       host.appendChild(box.node);
@@ -564,7 +580,7 @@
     sceneEl.textContent = '';
     drawn = [];
     player = box;
-    const items = published ? published.scene.items : [];
+    const items = (published ? published.scene.items : DEFAULT_ITEMS).map(builtIn);
     for (const it of items) {
       const node = el('div', 'item');
       node.dataset.label = (it.widget === 'custom' && it.code && it.code.name) || NAMES[it.widget] || it.widget;
@@ -586,7 +602,7 @@
     const wantAlerts = items.some((it) => it.widget === 'alerts' || (it.widget === 'custom' && it.code && it.code.alerts));
     if (wantAlerts && !alertConn) alertConn = alertConnection(alertTarget);
     if (!wantAlerts && alertConn) { alertConn.close(); alertConn = null; delete states.alerts; }
-    setState('scene', published ? `version ${published.version}, ${items.length} widgets` : 'nothing published yet');
+    setState('scene', published ? `version ${published.version}, ${items.length} widgets` : 'nothing published yet, showing the defaults');
   };
 
   widgetConnection(() => drawn, (data) => {

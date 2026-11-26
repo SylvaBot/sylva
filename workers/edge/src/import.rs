@@ -227,16 +227,30 @@ impl ChannelDo {
                 Some(a) => vec![a],
                 None => HISTORY_ASKS.to_vec(),
             };
-            let mut got = None;
+            let first = ask.is_none();
+            let mut got: Option<(Value, (usize, bool, bool))> = None;
             let mut refused = (0u16, String::new());
             for a in tries {
                 pages += 1;
                 let path = format!("/activities/{se}?{}", activities_query(after, before, a));
                 let (status, page) = self.se_get(token, &path).await?;
                 if status == 200 {
-                    ask = Some(a);
-                    got = Some(page);
-                    break;
+                    let n = history_len(&page);
+                    console_log!(
+                        "StreamElements activities 200 (limit {}, json types {}, iso {}): {n} items",
+                        a.0,
+                        a.1,
+                        a.2
+                    );
+                    // An empty first page may mean StreamElements read the
+                    // ask wrong, so try the other forms before believing it.
+                    if got.is_none() || n > 0 {
+                        got = Some((page, a));
+                    }
+                    if n > 0 || !first {
+                        break;
+                    }
+                    continue;
                 }
                 let why = page["message"]
                     .as_str()
@@ -255,7 +269,10 @@ impl ChannelDo {
                     break;
                 }
             }
-            let Some(page) = got else {
+            if let Some((_, a)) = &got {
+                ask = Some(*a);
+            }
+            let Some((page, _)) = got else {
                 let (status, why) = refused;
                 return Ok(Err(if why.is_empty() {
                     format!("StreamElements did not send your activity history ({status}).")

@@ -43,6 +43,7 @@ Send `Authorization: Bearer sylva_...` on every request. API tokens do not expir
 | `GET /v1/channels/{key}/state` | The alert queue: `paused`, `muted`, `playing`, `queued`, `overlaysConnected`. |
 | `POST /v1/channels/{key}/alerts/{pause,resume,mute,unmute,skip}` | Control the alert queue. Returns the new state. |
 | `POST /v1/channels/{key}/alerts/replay/{seq}` | Play an old event's alert next. |
+| `POST /v1/channels/{key}/alerts/reload` | Every overlay of the channel loads its page again (as OBS's Refresh would). Returns the state. |
 | `POST /v1/channels/{key}/test-event` | `{"kind": "follow", "name": "Maple", "amount": 5, "message": "..."}`. The reply says whether it went into the alert queue (`alert`). |
 | `GET` / `POST /v1/channels/{key}/alert-settings` | Per kind alert settings. |
 | `GET` / `POST /v1/channels/{key}/widget-settings` | The goal. |

@@ -15,6 +15,7 @@ pub mod games;
 pub mod giveaway;
 pub mod import;
 pub mod loyalty;
+pub mod media;
 pub mod moderation;
 pub mod protocol;
 pub mod scene;

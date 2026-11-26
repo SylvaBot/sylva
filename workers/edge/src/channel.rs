@@ -135,6 +135,22 @@ CREATE TABLE IF NOT EXISTS points_ledger (
     at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS points_ledger_user ON points_ledger(user_id, id);
+CREATE TABLE IF NOT EXISTS stream_recaps (
+    started_at INTEGER PRIMARY KEY,
+    body       TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS media (
+    id   TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    at   INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS media_pieces (
+    id   TEXT NOT NULL,
+    n    INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (id, n)
+);
 CREATE TABLE IF NOT EXISTS watch_time (
     user_id TEXT PRIMARY KEY,
     login   TEXT NOT NULL,
@@ -366,7 +382,11 @@ impl DurableObject for ChannelDo {
         // reach it because the Worker forwards a fixed list of routes.
         let internal = matches!(
             segs.as_slice(),
-            ["ingest"] | ["ingest-batch"] | ["public"] | ["public", "commands"]
+            ["ingest"]
+                | ["ingest-batch"]
+                | ["public"]
+                | ["public", "commands"]
+                | ["public", "media", _]
         );
         let access = self.access(&req)?;
         if let Some(k) = req.headers().get(CHANNEL_HEADER)? {
@@ -432,11 +452,33 @@ impl DurableObject for ChannelDo {
                     .unwrap_or_else(|| Date::now().as_millis() as i64 - 86_400_000);
                 Response::from_json(&self.summary(since)?)
             }
+            (Method::Get, ["public", "media", id]) => self.media_file(id),
+            (Method::Get, ["media"]) => Response::from_json(&self.media_list()?),
+            (Method::Get, ["streams"]) => Response::from_json(&self.streams_view()?),
+            (Method::Post, ["media"]) => {
+                let name = q.get("name").cloned().unwrap_or_default();
+                let bytes = req.bytes().await?;
+                match self.media_add(&name, &bytes)? {
+                    Ok(file) => Response::from_json(&file),
+                    Err(message) => Response::error(message, 400),
+                }
+            }
+            (Method::Post, ["media", id, "delete"]) => {
+                self.media_delete(id)?;
+                Response::from_json(&self.media_list()?)
+            }
             (Method::Get, ["alert-settings"]) => Response::from_json(&self.alert_settings()?),
             (Method::Post, ["alert-settings"]) => {
                 let Ok(body) = req.json::<AlertSettings>().await else {
                     return Response::error("Those settings could not be read", 400);
                 };
+                for k in &body.kinds {
+                    for id in [&k.sound, &k.image].into_iter().flatten() {
+                        if !id.is_empty() && !self.media_exists(id)? {
+                            return Response::error("That file was deleted. Pick another.", 400);
+                        }
+                    }
+                }
                 match body.validated() {
                     Ok(settings) => {
                         self.sql.exec(
@@ -782,6 +824,9 @@ impl DurableObject for ChannelDo {
                     "points_active",
                     "watch_time",
                     "raffle_entries",
+                    "media",
+                    "media_pieces",
+                    "stream_recaps",
                     "redemptions",
                     "giveaways",
                     "giveaway_entries",
@@ -1093,6 +1138,11 @@ impl ChannelDo {
         }
         if !is_chat {
             self.run_chat_alerts(&stored.event).await;
+        }
+        if stored_raw == "stream.offline" {
+            if let Err(e) = self.save_recap(received_at) {
+                console_error!("The stream summary could not be saved: {e}");
+            }
         }
         if stored_raw == "stream.online" {
             self.restart_timers(received_at)?;
@@ -1535,6 +1585,31 @@ impl ChannelDo {
     fn remember_key(&self, key: &str) -> Result<()> {
         if self.key().is_none() && !key.is_empty() {
             self.set_config("channel_key", key)?;
+        }
+        Ok(())
+    }
+
+    /// Take a deleted file out of every alert that used it.
+    pub(crate) fn forget_media_in_alerts(&self, id: &str) -> Result<()> {
+        let mut s = self.alert_settings()?;
+        let mut changed = false;
+        for k in &mut s.kinds {
+            if k.sound.as_deref() == Some(id) {
+                k.sound = None;
+                changed = true;
+            }
+            if k.image.as_deref() == Some(id) {
+                k.image = None;
+                changed = true;
+            }
+        }
+        if changed {
+            self.sql.exec(
+                "INSERT INTO config (key, value) VALUES ('alert_settings', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                vec![serde_json::to_string(&s)?.into()],
+            )?;
+            self.alert_settings.replace(Some(s));
         }
         Ok(())
     }

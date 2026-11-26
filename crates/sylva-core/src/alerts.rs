@@ -45,10 +45,23 @@ pub struct KindSettings {
     /// Show what the viewer wrote with their cheer, sub or tip.
     #[serde(default = "yes")]
     pub show_message: bool,
+    /// An uploaded sound to play (see [`crate::media`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<String>,
+    /// An uploaded image or GIF to show.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// The sound's loudness, 0 to 100.
+    #[serde(default = "loud")]
+    pub volume: u8,
 }
 
 fn yes() -> bool {
     true
+}
+
+fn loud() -> u8 {
+    70
 }
 
 /// Every alert kind's settings. Missing kinds take their defaults.
@@ -85,6 +98,9 @@ pub fn default_for(kind: EventKind) -> KindSettings {
         label: label.into(),
         template: template.into(),
         show_message: true,
+        sound: None,
+        image: None,
+        volume: loud(),
     }
 }
 
@@ -134,6 +150,21 @@ impl AlertSettings {
             if !has_minimum(kind) {
                 k.min_amount = 0.0;
             }
+            k.sound = k.sound.filter(|v| !v.is_empty());
+            k.image = k.image.filter(|v| !v.is_empty());
+            if k.sound
+                .as_deref()
+                .is_some_and(|v| !crate::media::valid_id(v) || !crate::media::is_sound(v))
+            {
+                return Err(Invalid("Pick a sound you uploaded".into()));
+            }
+            if k.image
+                .as_deref()
+                .is_some_and(|v| !crate::media::valid_id(v) || crate::media::is_sound(v))
+            {
+                return Err(Invalid("Pick an image you uploaded".into()));
+            }
+            k.volume = k.volume.min(100);
             k.label = k.label.trim().to_string();
             k.template = k.template.trim().to_string();
             if k.label.chars().count() > MAX_LABEL {
@@ -189,6 +220,9 @@ impl AlertSettings {
             detail,
             message,
             duration_ms: k.duration_ms,
+            sound: k.sound,
+            image: k.image,
+            volume: k.volume,
         }
     }
 }
@@ -203,6 +237,13 @@ pub struct AlertView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     pub duration_ms: u32,
+    /// Uploaded media ids, served at `/media/{channel}/{id}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default = "loud")]
+    pub volume: u8,
 }
 
 fn amount_text(n: f64) -> String {

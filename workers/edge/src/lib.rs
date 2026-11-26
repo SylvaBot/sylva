@@ -47,9 +47,11 @@ mod giveaway;
 mod grants;
 mod import;
 mod loyalty;
+mod media;
 mod moderation;
 mod nuke;
 mod store;
+mod streams;
 mod team;
 mod twitch_admin;
 mod twitch_api;
@@ -146,6 +148,14 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 return Response::error("Unknown channel", 404);
             }
             chat_assets::chat_assets(&env, key).await
+        }
+        (Method::Get, ["media", key, id]) => {
+            if !valid_key(key) || !sylva_core::media::valid_id(id) {
+                return Response::error("Not found", 404);
+            }
+            stub(&env, key)?
+                .fetch_with_str(&format!("https://channel/public/media/{id}"))
+                .await
         }
         (Method::Get, ["overlay-frame"]) => {
             // A custom widget's frame. The sandbox keeps its code in an
@@ -245,6 +255,9 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["giveaways", ..])
                 | (Method::Get, ["loyalty", ..])
                 | (Method::Post, ["loyalty", ..])
+                | (Method::Get, ["media"])
+                | (Method::Get, ["streams"])
+                | (Method::Post, ["media", ..])
                 | (Method::Get, ["scene"])
                 | (Method::Post, ["scene", ..])
                 | (Method::Post, ["import", "streamelements"])
@@ -253,7 +266,10 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             }
         }
         (Method::Get | Method::Head, [first, ..])
-            if !matches!(*first, "v1" | "auth" | "twitch" | "admin" | "overlay") =>
+            if !matches!(
+                *first,
+                "v1" | "auth" | "twitch" | "admin" | "overlay" | "media"
+            ) =>
         {
             let versioned = req.url()?.query_pairs().any(|(k, _)| k == "v");
             web::serve(&path, versioned)

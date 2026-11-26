@@ -40,6 +40,7 @@
     animation: arrive 450ms var(--ease) both;
   }
   .card.leave { animation: leave 300ms var(--ease) both; }
+  .card .art { display: block; max-width: 100%; max-height: 160px; margin: 0 auto 10px; object-fit: contain; }
   .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--c); font-weight: 600; }
   .name { font-size: 28px; font-weight: 650; letter-spacing: -.02em; }
   .detail { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -147,6 +148,21 @@
   });
   // One alert box per page. In a scene it moves into the alert box's place
   // whenever the layout changes, so an alert on screen is not cut short.
+  // Uploaded alert sounds and images, by id.
+  const mediaUrl = (id) => `${location.origin}/media/${key}/${encodeURIComponent(id)}`;
+  let soundOff = false;
+  let playing = null;
+  const playSound = (view) => {
+    if (playing) { playing.pause(); playing = null; }
+    if (!view || !view.sound || soundOff) return;
+    const a = new Audio(mediaUrl(view.sound));
+    a.volume = Math.min(1, Math.max(0, (view.volume === undefined ? 70 : view.volume) / 100));
+    const p = a.play();
+    if (p && p.catch) p.catch(() => {});
+    playing = a;
+  };
+  const stopSound = () => { if (playing) { playing.pause(); playing = null; } };
+
   function alertBox(ack) {
     const stage = el('div', 'stage');
     let current = null, timer = null;
@@ -165,6 +181,13 @@
         const card = el('div', 'card k');
         card.dataset.alertId = frame.alertId;
         card.style.setProperty('--c', `var(--${kindClass(frame.event.kind)})`);
+        if (view.image) {
+          const art = el('img', 'art');
+          art.src = mediaUrl(view.image);
+          art.alt = '';
+          card.appendChild(art);
+        }
+        playSound(view);
         for (const [cls, text] of [['label', view.label], ['name', view.name], ['detail', view.detail], ['message', view.message]]) {
           if (text) card.appendChild(el('div', cls, text));
         }
@@ -175,7 +198,7 @@
           current = null;
         }, linkMs || view.durationMs || 5000);
       },
-      stop(id) { if (id === current) { clearTimeout(timer); hide(); current = null; } },
+      stop(id) { if (id === current) { clearTimeout(timer); hide(); stopSound(); current = null; } },
     };
   }
 
@@ -391,13 +414,19 @@
         if (current !== null) finish(current);
         current = f.alertId;
         window.sylva.shown.push(f.alertId);
-        const view = f.view || fallbackView(f.event);
+        const base = f.view || fallbackView(f.event);
+        // The page plays the alert's sound; the widget gets links to both.
+        const view = Object.assign({}, base, {
+          soundUrl: base.sound ? mediaUrl(base.sound) : '',
+          imageUrl: base.image ? mediaUrl(base.image) : '',
+        });
+        playSound(view);
         post({ type: 'alert', id: f.alertId, event: f.event, view });
         // A widget that never says done must not hold up the queue.
         const ms = (linkMs || view.durationMs || 5000) + 15000;
         timer = setTimeout(() => finish(f.alertId), ms);
       },
-      stop(id) { if (id === current) { clearTimeout(timer); current = null; post({ type: 'stop', id }); } },
+      stop(id) { if (id === current) { clearTimeout(timer); current = null; stopSound(); post({ type: 'stop', id }); } },
       mute(muted) { post({ type: 'mute', muted }); },
       remove() { removeEventListener('message', onMessage); clearTimeout(timer); frame.remove(); },
     };
@@ -455,6 +484,8 @@
       else if (f.type === 'stop') box.stop(f.alertId);
       else if (f.type === 'ready' || f.type === 'state') {
         const s = f.state || f;
+        soundOff = !!s.muted;
+        if (soundOff) stopSound();
         if (box.mute) box.mute(!!s.muted);
         setState('alerts', `${s.queued} queued${s.paused ? ', paused' : ''}${s.muted ? ', muted' : ''}`);
       } else if (f.type === 'open') setState('alerts', 'connected');

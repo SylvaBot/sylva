@@ -2,8 +2,8 @@
 // plays, the least amount that plays it, how long it stays, and its text.
 // The rules match crates/sylva-core/src/alerts.rs, which checks them again.
 
-import { useEffect, useState } from 'react';
-import { api, type AlertSettings, type Kind, type KindSettings } from './api';
+import { useEffect, useRef, useState } from 'react';
+import { api, isSound, mediaUrl, type AlertSettings, type Kind, type KindSettings, type MediaFile } from './api';
 import { useChannel } from './channel';
 import { errorText, Gate, Icon, num, useToast } from './ui';
 
@@ -33,6 +33,8 @@ function summary(k: KindSettings): string {
   const m = META[k.kind];
   if (!k.enabled) return 'Off. These still show in your activity.';
   const parts = [`${k.durationMs / 1000} seconds on screen`];
+  if (k.sound) parts.push('sound');
+  if (k.image) parts.push('image');
   if (m?.unit !== undefined && k.minAmount > 0) parts.push(`from ${num(k.minAmount)}${m.unit ? ' ' + m.unit : ''}`);
   return parts.join(' · ');
 }
@@ -43,10 +45,33 @@ export function AlertTypes() {
   const [settings, setSettings] = useState<AlertSettings | null>(null);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState<Kind | null>(null);
+  const [media, setMedia] = useState<MediaFile[]>([]);
 
   useEffect(() => {
     api.alertSettings(ch.key).then(setSettings).catch(() => setFailed(true));
+    api.media(ch.key).then(setMedia).catch(() => setMedia([]));
   }, [ch.key]);
+
+  const upload = async (file: File): Promise<MediaFile | null> => {
+    try {
+      const added = await api.uploadMedia(ch.key, file);
+      setMedia((m) => [added, ...m]);
+      toast(`${added.name} uploaded`);
+      return added;
+    } catch (x) {
+      toast(errorText(x), true);
+      return null;
+    }
+  };
+  const remove = async (id: string) => {
+    try {
+      setMedia(await api.deleteMedia(ch.key, id));
+      setSettings(await api.alertSettings(ch.key));
+      toast('File deleted');
+    } catch (x) {
+      toast(errorText(x), true);
+    }
+  };
 
   const save = async (next: KindSettings, done?: string) => {
     if (!settings) return false;
@@ -108,6 +133,10 @@ export function AlertTypes() {
                     <Editor
                       k={k}
                       login={ch.name}
+                      channel={ch.key}
+                      media={media}
+                      onUpload={upload}
+                      onDelete={remove}
                       onCancel={() => setOpen(null)}
                       onSave={async (next) => {
                         if (await save(next, `${m.name} saved`)) setOpen(null);
@@ -124,7 +153,11 @@ export function AlertTypes() {
   );
 }
 
-function Editor({ k, login, onSave, onCancel }: { k: KindSettings; login: string; onSave(k: KindSettings): Promise<void>; onCancel(): void }) {
+function Editor({ k, login, channel, media, onUpload, onDelete, onSave, onCancel }: {
+  k: KindSettings; login: string; channel: string; media: MediaFile[];
+  onUpload(f: File): Promise<MediaFile | null>; onDelete(id: string): Promise<void>;
+  onSave(k: KindSettings): Promise<void>; onCancel(): void;
+}) {
   const m = META[k.kind]!;
   const [draft, setDraft] = useState(k);
   const [busy, setBusy] = useState(false);
@@ -193,11 +226,42 @@ function Editor({ k, login, onSave, onCancel }: { k: KindSettings; login: string
             />
           </div>
         )}
+        <MediaPick
+          what="sound"
+          label="Sound"
+          id={id('sound')}
+          value={draft.sound}
+          files={media.filter((f) => isSound(f.id))}
+          channel={channel}
+          volume={draft.volume}
+          onPick={(v) => set({ sound: v })}
+          onUpload={onUpload}
+          onDelete={onDelete}
+        />
+        {draft.sound && (
+          <label className="field" htmlFor={id('volume')}>
+            Volume {draft.volume}%
+            <input id={id('volume')} type="range" min={0} max={100} step={5} value={draft.volume} onChange={(e) => set({ volume: Number(e.target.value) })} />
+          </label>
+        )}
+        <MediaPick
+          what="image"
+          label="Image or GIF"
+          id={id('image')}
+          value={draft.image}
+          files={media.filter((f) => !isSound(f.id))}
+          channel={channel}
+          volume={draft.volume}
+          onPick={(v) => set({ image: v })}
+          onUpload={onUpload}
+          onDelete={onDelete}
+        />
         {m.hint && <p className="field-hint">{m.hint}</p>}
       </div>
       <div className="type-preview" aria-label="Preview">
         <div className={'stage small'}>
           <div className={'alert-card ' + m.c}>
+            {draft.image && <img className="art" src={mediaUrl(channel, draft.image)} alt="" />}
             {draft.label.trim() && <div className="label">{draft.label}</div>}
             <div className="name">{sample}</div>
             {draft.template.trim() && <div className="detail">{fill(draft.template.trim(), sample, m.sample, k.kind)}</div>}
@@ -210,5 +274,65 @@ function Editor({ k, login, onSave, onCancel }: { k: KindSettings; login: string
         <button className="btn primary" type="submit" disabled={busy || !changed}>{busy ? 'Saving' : 'Save'}</button>
       </div>
     </form>
+  );
+}
+
+/** Choose an uploaded sound or image for an alert, upload a new one, or
+ * delete one. Sounds can be played to check them. */
+function MediaPick({ what, label, id, value, files, channel, volume, onPick, onUpload, onDelete }: {
+  what: 'sound' | 'image'; label: string; id: string; value?: string; files: MediaFile[]; channel: string; volume: number;
+  onPick(v: string | undefined): void; onUpload(f: File): Promise<MediaFile | null>; onDelete(id: string): Promise<void>;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const play = () => {
+    if (!value) return;
+    const a = new Audio(mediaUrl(channel, value));
+    a.volume = volume / 100;
+    void a.play().catch(() => {});
+  };
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <div className="media-pick">
+        <select id={id} className="select" value={value ?? ''} onChange={(e) => onPick(e.target.value || undefined)}>
+          <option value="">None</option>
+          {files.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+        {what === 'sound' && value && (
+          <button className="icon-btn" type="button" aria-label="Play the sound" title="Play" onClick={play}><Icon id="play" /></button>
+        )}
+        {value && (
+          <button
+            className="icon-btn"
+            type="button"
+            aria-label={`Delete this ${what} from your files`}
+            title="Delete from your files"
+            onClick={() => { if (confirm('Delete this file? Alerts that use it stop using it.')) void onDelete(value); }}
+          >
+            <Icon id="trash" />
+          </button>
+        )}
+        <button className="btn sm" type="button" disabled={busy} onClick={() => input.current?.click()}>
+          {busy ? 'Uploading' : 'Upload'}
+        </button>
+        <input
+          ref={input}
+          type="file"
+          hidden
+          accept={what === 'sound' ? 'audio/mpeg,audio/ogg,audio/wav,.mp3,.ogg,.wav' : 'image/png,image/jpeg,image/gif,image/webp'}
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (!f) return;
+            setBusy(true);
+            const added = await onUpload(f);
+            setBusy(false);
+            if (added) onPick(added.id);
+          }}
+        />
+      </div>
+      <span className="field-hint">{what === 'sound' ? 'MP3, OGG or WAV, up to 3 MB.' : 'PNG, JPG, GIF or WebP, up to 3 MB.'}</span>
+    </div>
   );
 }

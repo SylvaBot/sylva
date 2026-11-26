@@ -1173,3 +1173,11 @@ fieldset.gate { border: 0; margin: 0; padding: 0; min-width: 0; }
 .games-limits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .games-limits .num-input { width: 100%; max-width: 160px; }
 @media (max-width: 760px) { .games-limits { grid-template-columns: minmax(0, 1fr); } }
+.media-pick { display: flex; gap: 8px; align-items: center; }
+.media-pick .select { flex: 1; min-width: 0; }
+.alert-card .art { display: block; max-width: 100%; max-height: 120px; margin: 0 auto 10px; object-fit: contain; }
+.recap { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 0; }
+.recap > div { padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(127,127,127,.08)); border-left: 3px solid var(--c, var(--border)); }
+.recap dt { font-size: 12px; color: var(--muted); }
+.recap dd { margin: 2px 0 0; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.recap-leaders { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }

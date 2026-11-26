@@ -1,5 +1,6 @@
 // The dashboard's pages. Each reads the live channel from useChannel().
 
+import { StreamRecaps } from './streams';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError, type AlertState, type AppToken, type FeatureStatus, type Kind, type SylvaEvent } from './api';
 import { AlertTypes } from './alertTypes';
@@ -70,6 +71,7 @@ export function OverviewPage() {
         <Stat c="c-raid" label="Raids" value={s ? c.raid || 0 : null} />
       </div>
       <GetStarted />
+      <StreamRecaps />
       <div className="grid-main">
         <Card
           id="recent"

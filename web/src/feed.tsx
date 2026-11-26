@@ -2,7 +2,7 @@
 // for the last 24 hours, filter chips, and one plain sentence per event with
 // small pills for the details.
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Kind, SylvaEvent } from './api';
 import { ago, Icon, num } from './ui';
 
@@ -194,25 +194,37 @@ export function useShown(): [Set<string>, (id: string | null) => void] {
   return [shown, toggle];
 }
 
+/** A Filter button that opens a checklist of kinds; the feed shows every kind when none is ticked. */
 export function Filters(props: { shown: Set<string>; toggle(id: string | null): void; counts?: Record<string, number>; total?: number }) {
   const { shown, toggle, counts } = props;
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    addEventListener('pointerdown', away);
+    addEventListener('keydown', esc);
+    return () => { removeEventListener('pointerdown', away); removeEventListener('keydown', esc); };
+  }, [open]);
+  const groups = GROUPS.filter((g) => !OPTIONAL.has(g.id) || (counts?.[g.id] ?? 0) > 0 || shown.has(g.id));
   return (
-    <div className="filters" role="group" aria-label="Filter activity by kind">
-      <button className="filter" type="button" aria-pressed={shown.size === 0} onClick={() => toggle(null)}>
-        All{props.total !== undefined && <span className="count">{num(props.total)}</span>}
+    <div className="filter-wrap" ref={wrap}>
+      <button className={'btn sm' + (shown.size ? ' primary' : '')} type="button" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen(!open)}>
+        <Icon id="filter" />{shown.size ? `Filter (${shown.size})` : 'Filter'}
       </button>
-      {GROUPS.filter((g) => !OPTIONAL.has(g.id) || (counts?.[g.id] ?? 0) > 0 || shown.has(g.id)).map((g) => (
-        <button
-          key={g.id}
-          className={'filter ' + g.color}
-          type="button"
-          title={`Show ${g.label.toLowerCase()} (choose more than one to combine)`}
-          aria-pressed={shown.has(g.id)}
-          onClick={() => toggle(g.id)}
-        >
-          <span className="bar" />{g.label}{counts && <span className="count">{num(counts[g.id])}</span>}
-        </button>
-      ))}
+      {open && (
+        <div className="filter-pop" role="group" aria-label="Show these kinds">
+          <button className="filter-opt" type="button" aria-pressed={shown.size === 0} onClick={() => toggle(null)}>
+            <span className="check"><Icon id="tick" /></span>Everything{props.total !== undefined && <span className="count">{num(props.total)}</span>}
+          </button>
+          {groups.map((g) => (
+            <button key={g.id} className={'filter-opt ' + g.color} type="button" aria-pressed={shown.has(g.id)} onClick={() => toggle(g.id)}>
+              <span className="check"><Icon id="tick" /></span><span className="bar" />{g.label}{counts && <span className="count">{num(counts[g.id])}</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

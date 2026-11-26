@@ -99,12 +99,12 @@ export function testEvent(send: Send, kind: string, alerts: boolean) {
   }
 }
 
-interface Field {
+export interface Field {
   type?: string; label?: string; value?: unknown; options?: Record<string, string>;
   min?: number; max?: number; step?: number; group?: string;
 }
 
-function parseFields(text: string): { fields: Record<string, Field>; error: string | null } {
+export function parseFields(text: string): { fields: Record<string, Field>; error: string | null } {
   if (!text.trim()) return { fields: {}, error: null };
   try {
     const v = JSON.parse(text);
@@ -246,7 +246,7 @@ export function CodeDialog({ initial, width, height, canPlayAlerts, onSave, onCl
   );
 }
 
-function FieldInput({ id, f, value, onChange, onPress }: {
+export function FieldInput({ id, f, value, onChange, onPress }: {
   id: string; f: Field; value: unknown; onChange: (v: unknown) => void; onPress: () => void;
 }) {
   const label = f.label || id;

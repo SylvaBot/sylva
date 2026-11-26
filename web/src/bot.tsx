@@ -45,12 +45,31 @@ const blank = (): BotCommand => ({
   name: '', aliases: [], reply: '', level: 'everyone', cooldown: 0, userCooldown: 0, enabled: true, count: 0,
 });
 
+type BotTab = 'commands' | 'builtins' | 'timers' | 'counters' | 'quotes' | 'test';
+const BOT_TABS: { id: BotTab; label: string }[] = [
+  { id: 'commands', label: 'Your commands' },
+  { id: 'builtins', label: 'Built-in' },
+  { id: 'timers', label: 'Timers' },
+  { id: 'counters', label: 'Counters' },
+  { id: 'quotes', label: 'Quotes' },
+  { id: 'test', label: 'Test chat' },
+];
+/** Commands shown before Show all. */
+const PAGE_SIZE = 12;
+
 export function BotPage() {
   const ch = useChannel();
   const toast = useToast();
   const [view, setView] = useState<BotView | null>(null);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState<number | 'new' | null>(null);
+  const [tab, setTabState] = useState<BotTab>(() => {
+    const h = location.hash.slice(1) as BotTab;
+    return BOT_TABS.some((t) => t.id === h) ? h : 'commands';
+  });
+  const setTab = (t: BotTab) => { setTabState(t); history.replaceState(history.state, '', '#' + t); };
+  const [query, setQuery] = useState('');
+  const [more, setMore] = useState(false);
 
   useEffect(() => {
     api.bot(ch.key).then(setView).catch(() => setFailed(true));
@@ -104,7 +123,15 @@ export function BotPage() {
             </Gate>
           </Card>
 
-          <Card
+          <div className="tabs" role="tablist" aria-label="Bot sections">
+            {BOT_TABS.map((t) => (
+              <button key={t.id} role="tab" id={'bot-tab-' + t.id} aria-selected={tab === t.id} type="button" onClick={() => setTab(t.id)}>
+                {t.label}{t.id === 'commands' && settings.commands.length > 0 && <span className="tab-count">{settings.commands.length}</span>}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'commands' && <Card
             id="commands"
             title="Commands"
             desc="A viewer types the command in chat and the bot replies. Moderators skip cooldowns."
@@ -114,6 +141,15 @@ export function BotPage() {
               </button>
             }
           >
+            {settings.commands.length > 8 && (
+              <div className="feed-tools">
+                <label className="search">
+                  <Icon id="search" />
+                  <span className="sr-only">Find a command</span>
+                  <input className="input" type="search" placeholder="Find a command or reply" value={query} onChange={(e) => setQuery(e.target.value)} />
+                </label>
+              </div>
+            )}
             <ul className="types">
               {open === 'new' && (
                 <li className="type open">
@@ -131,7 +167,10 @@ export function BotPage() {
               {settings.commands.length === 0 && open !== 'new' && (
                 <li className="empty">No commands yet. Add one, such as !discord with a link to your server.</li>
               )}
-              {settings.commands.map((c, i) => {
+              {settings.commands.map((c, i) => ({ c, i })).filter(({ c, i }) => {
+                const q = query.trim().toLowerCase().replace(/^!/, '');
+                return open === i || !q || c.name.toLowerCase().includes(q) || c.aliases.some((a) => a.toLowerCase().includes(q)) || c.reply.toLowerCase().includes(q);
+              }).filter((_, n, all) => more || query || all.length <= PAGE_SIZE + 3 || n < PAGE_SIZE).map(({ c, i }) => {
                 const isOpen = open === i;
                 const meta = [levelOf(c.level).label];
                 if (c.cooldown) meta.push(`${seconds(c.cooldown)} cooldown`);
@@ -189,17 +228,23 @@ export function BotPage() {
                 );
               })}
             </ul>
-          </Card>
+            {!query && settings.commands.length > PAGE_SIZE + 3 && (
+              <div className="card-foot">
+                <span className="card-text">{more ? `All ${settings.commands.length} commands` : `${PAGE_SIZE} of ${settings.commands.length} commands`}</span>
+                <button className="btn sm" type="button" onClick={() => setMore(!more)}>{more ? 'Show fewer' : 'Show all'}</button>
+              </div>
+            )}
+          </Card>}
 
-          <Builtins view={view!} onSave={save} />
+          {tab === 'builtins' && <Builtins view={view!} onSave={save} />}
 
-          <Gate on={ch.can.edit}><Timers view={view!} onSave={save} onView={setView} /></Gate>
+          {tab === 'timers' && <Gate on={ch.can.edit}><Timers view={view!} onSave={save} onView={setView} /></Gate>}
 
-          <Counters view={view!} onSave={save} onView={setView} />
+          {tab === 'counters' && <Counters view={view!} onSave={save} onView={setView} />}
 
-          <Quotes view={view!} onSave={save} />
+          {tab === 'quotes' && <Quotes view={view!} onSave={save} />}
 
-          <Gate on={ch.can.moderate}><TestChat settings={settings} /></Gate>
+          {tab === 'test' && <Gate on={ch.can.moderate}><TestChat settings={settings} /></Gate>}
         </div>
       )}
     </div>

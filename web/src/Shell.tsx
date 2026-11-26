@@ -21,7 +21,7 @@ const PAGES = [
   { path: '/app/stats', label: 'Stats', icon: 'chart', view: StatsPage, group: 'Home' },
   { path: '/app/activity', label: 'Activity', icon: 'activity', view: ActivityPage, group: 'Home' },
   { path: '/app/alerts', label: 'Alerts', icon: 'bell', view: AlertsPage, group: 'Stream' },
-  { path: '/app/overlay', label: 'Overlay', icon: 'monitor', view: OverlayPage, group: 'Stream' },
+  { path: '/app/overlay', label: 'Overlays', icon: 'monitor', view: OverlayPage, group: 'Stream' },
   { path: '/app/chat', label: 'Chat', icon: 'message', view: ChatPage, group: 'Stream' },
   { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage, group: 'Bot' },
   { path: '/app/chat-alerts', label: 'Chat alerts', icon: 'zap', view: ChatAlertsPage, group: 'Bot' },

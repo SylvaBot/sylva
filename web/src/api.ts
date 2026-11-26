@@ -117,6 +117,17 @@ export interface SceneItem {
   kind?: string | null; limit?: number | null; code?: CustomCode | null;
 }
 export interface Scene { items: SceneItem[] }
+export type SoundOn = 'any' | 'alert' | 'follow' | 'subscriber' | 'communityGift' | 'cheer' | 'raid' | 'redemption' | 'chat';
+export interface OverlaySound { on: SoundOn; media: string; volume: number }
+/** One overlay: a single element that fills its own OBS Browser Source. */
+export interface Overlay {
+  id: string; name: string;
+  /** 'alerts' or 'chat' for the built-ins, which use Sylva's own code. */
+  builtin?: 'alerts' | 'chat';
+  values?: Record<string, unknown>;
+  code?: CustomCode;
+  sounds: OverlaySound[];
+}
 export interface SceneState {
   draft: Scene;
   draftSavedAt: number;
@@ -300,6 +311,8 @@ export const api = {
   replay: (key: string, seq: number) => request<AlertState>('POST', `${ch(key)}/alerts/replay/${seq}`),
   testEvent: (key: string, e: { kind: Kind; name: string; amount?: number; message?: string }) =>
     request<{ seq: number; duplicate: boolean; alert: boolean }>('POST', `${ch(key)}/test-event`, e),
+  overlays: (key: string) => request<Overlay[]>('GET', `${ch(key)}/overlays`),
+  saveOverlays: (key: string, list: Overlay[]) => request<Overlay[]>('POST', `${ch(key)}/overlays`, list),
   stats: (key: string, days: number) =>
     request<Stats>('GET', `${ch(key)}/stats?days=${days}&tz=${new Date().getTimezoneOffset()}`),
   streams: (key: string) => request<{ live: Recap | null; past: Recap[] }>('GET', `${ch(key)}/streams`),

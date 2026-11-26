@@ -839,6 +839,9 @@ if (!fake || !usesFake) {
     assert.deepEqual(await tryIt({ message: '!top', level: 'everyone' }),
       { reply: 'Most leaves: 1. Giver 200, 2. Hazel 105, 3. Newbie 40', command: 'top' });
     assert.deepEqual(await tryIt({ message: '!addpoints rowan 5', level: 'everyone' }), { skip: 'level', command: 'addpoints' });
+    assert.equal((await tryIt({ message: '!weather Austin, TX', level: 'everyone' })).reply,
+      'Weather in Austin, Texas, United States: Partly cloudy, 21°C (71°F), feels like 20°C (68°F). Humidity 55%. Wind 16 km/h (10 mph) from the S.');
+    assert.match((await tryIt({ message: '!weather Nowhereville', level: 'everyone' })).reply, /Could not find a place called Nowhereville/);
 
     // Games: on by default, bets checked against the limits.
     const giver = { id: '8003', name: 'Giver' };

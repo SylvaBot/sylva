@@ -301,6 +301,8 @@ export function startFakeTwitch(port = FAKE_PORT) {
     if (url.pathname.startsWith('/lookup/')) {
       const [kind, arg] = url.pathname.slice('/lookup/'.length).split('/');
       if (kind === 'dadjoke') return json(res, 200, { id: 'j1', joke: 'What do you call a fake noodle? An impasta.', status: 200 });
+      if (kind === 'geo') return json(res, 200, decodeURIComponent(arg) === 'Austin' ? { results: [{ name: 'Austin', admin1: 'Minnesota', country: 'United States', country_code: 'US', latitude: 43.6, longitude: -92.9 }, { name: 'Austin', admin1: 'Texas', country: 'United States', country_code: 'US', latitude: 30.27, longitude: -97.74 }] } : {});
+      if (kind === 'weather') return json(res, 200, { current: { temperature_2m: 21.4, apparent_temperature: 20, relative_humidity_2m: 55, weather_code: 2, wind_speed_10m: 16.1, wind_direction_10m: 200 } });
       if (kind === 'fact') return json(res, 200, { text: 'Octopuses have three hearts.' });
       if (kind === 'dictionary') {
         if (arg !== 'kappa') return json(res, 404, { title: 'No Definitions Found' });

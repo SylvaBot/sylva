@@ -101,6 +101,163 @@ pub fn watch_words(minutes: i64) -> String {
     }
 }
 
+/// Words for a WMO weather code, as Open-Meteo sends it.
+pub fn weather_words(code: i64) -> &'static str {
+    match code {
+        0 => "Clear",
+        1 => "Mostly clear",
+        2 => "Partly cloudy",
+        3 => "Overcast",
+        45 | 48 => "Foggy",
+        51 | 53 | 55 => "Drizzle",
+        56 | 57 => "Freezing drizzle",
+        61 => "Light rain",
+        63 => "Rain",
+        65 => "Heavy rain",
+        66 | 67 => "Freezing rain",
+        71 => "Light snow",
+        73 => "Snow",
+        75 => "Heavy snow",
+        77 => "Snow grains",
+        80 | 81 => "Rain showers",
+        82 => "Heavy rain showers",
+        85 | 86 => "Snow showers",
+        95 => "Thunderstorms",
+        96 | 99 => "Thunderstorms with hail",
+        _ => "Unsettled",
+    }
+}
+
+/// The compass point a wind comes from.
+pub fn compass(degrees: f64) -> &'static str {
+    const POINTS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    let i = ((degrees.rem_euclid(360.0) + 22.5) / 45.0) as usize % 8;
+    POINTS[i]
+}
+
+/// The place a viewer asked about, split into the name to look up and the
+/// words that narrow it down ("Austin, Texas" or "Paris France" style).
+pub fn weather_query(args: &[String]) -> Option<(String, Vec<String>)> {
+    let text = args.join(" ");
+    let mut parts = text
+        .split(',')
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty());
+    let name: String = parts.next()?.chars().take(80).collect();
+    Some((name, parts.map(|p| p.to_lowercase()).collect()))
+}
+
+/// The best match from Open-Meteo's place search: the first (largest) one
+/// whose region, country or country code fits every narrowing word.
+pub fn pick_place<'a>(
+    results: &'a [serde_json::Value],
+    narrow: &[String],
+) -> Option<&'a serde_json::Value> {
+    let fits = |r: &serde_json::Value, w: &str| {
+        ["admin1", "admin2", "country", "country_code"]
+            .iter()
+            .any(|k| {
+                r[*k].as_str().is_some_and(|v| {
+                    let v = v.to_lowercase();
+                    v == w || (w.len() >= 3 && v.starts_with(w))
+                })
+            })
+            || state_code(w).is_some_and(|s| r["admin1"].as_str() == Some(s))
+    };
+    results
+        .iter()
+        .find(|r| narrow.iter().all(|w| fits(r, w)))
+        .or_else(|| results.first().filter(|_| narrow.is_empty()))
+}
+
+/// US state names for their two letter codes, so "Austin, TX" works.
+fn state_code(w: &str) -> Option<&'static str> {
+    const STATES: [(&str, &str); 51] = [
+        ("al", "Alabama"),
+        ("ak", "Alaska"),
+        ("az", "Arizona"),
+        ("ar", "Arkansas"),
+        ("ca", "California"),
+        ("co", "Colorado"),
+        ("ct", "Connecticut"),
+        ("de", "Delaware"),
+        ("dc", "District of Columbia"),
+        ("fl", "Florida"),
+        ("ga", "Georgia"),
+        ("hi", "Hawaii"),
+        ("id", "Idaho"),
+        ("il", "Illinois"),
+        ("in", "Indiana"),
+        ("ia", "Iowa"),
+        ("ks", "Kansas"),
+        ("ky", "Kentucky"),
+        ("la", "Louisiana"),
+        ("me", "Maine"),
+        ("md", "Maryland"),
+        ("ma", "Massachusetts"),
+        ("mi", "Michigan"),
+        ("mn", "Minnesota"),
+        ("ms", "Mississippi"),
+        ("mo", "Missouri"),
+        ("mt", "Montana"),
+        ("ne", "Nebraska"),
+        ("nv", "Nevada"),
+        ("nh", "New Hampshire"),
+        ("nj", "New Jersey"),
+        ("nm", "New Mexico"),
+        ("ny", "New York"),
+        ("nc", "North Carolina"),
+        ("nd", "North Dakota"),
+        ("oh", "Ohio"),
+        ("ok", "Oklahoma"),
+        ("or", "Oregon"),
+        ("pa", "Pennsylvania"),
+        ("ri", "Rhode Island"),
+        ("sc", "South Carolina"),
+        ("sd", "South Dakota"),
+        ("tn", "Tennessee"),
+        ("tx", "Texas"),
+        ("ut", "Utah"),
+        ("vt", "Vermont"),
+        ("va", "Virginia"),
+        ("wa", "Washington"),
+        ("wv", "West Virginia"),
+        ("wi", "Wisconsin"),
+        ("wy", "Wyoming"),
+    ];
+    STATES.iter().find(|(c, _)| *c == w).map(|(_, n)| *n)
+}
+
+/// One line about the weather now, in Celsius and Fahrenheit.
+pub fn weather_line(place: &str, current: &serde_json::Value) -> Option<String> {
+    let t = current["temperature_2m"].as_f64()?;
+    let feels = current["apparent_temperature"].as_f64().unwrap_or(t);
+    let f = |c: f64| (c * 9.0 / 5.0 + 32.0).round() as i64;
+    let mut line = format!(
+        "Weather in {place}: {}, {}°C ({}°F), feels like {}°C ({}°F).",
+        weather_words(current["weather_code"].as_i64().unwrap_or(-1)),
+        t.round() as i64,
+        f(t),
+        feels.round() as i64,
+        f(feels)
+    );
+    if let Some(h) = current["relative_humidity_2m"].as_f64() {
+        line.push_str(&format!(" Humidity {}%.", h.round() as i64));
+    }
+    if let Some(w) = current["wind_speed_10m"].as_f64() {
+        line.push_str(&format!(
+            " Wind {} km/h ({} mph)",
+            w.round() as i64,
+            (w / 1.609_344).round() as i64
+        ));
+        match current["wind_direction_10m"].as_f64() {
+            Some(d) if w >= 1.0 => line.push_str(&format!(" from the {}.", compass(d))),
+            _ => line.push('.'),
+        }
+    }
+    Some(line)
+}
+
 /// Every built-in command, in the order the dashboard lists them.
 pub const BUILTINS: &[Builtin] = &[
     b(
@@ -220,6 +377,14 @@ pub const BUILTINS: &[Builtin] = &[
         "!fact",
         Everyone,
         10,
+    ),
+    b(
+        "weather",
+        Info,
+        "The weather right now in a place",
+        "!weather Paris or !weather Austin, Texas",
+        Everyone,
+        5,
     ),
     b(
         "dictionary",
@@ -916,6 +1081,30 @@ pub fn meaning_line(prefix: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn weather_reply() {
+        let q = weather_query(&["Austin,".into(), "TX".into()]).unwrap();
+        assert_eq!(q, ("Austin".to_string(), vec!["tx".to_string()]));
+        let results = vec![
+            serde_json::json!({"name": "Austin", "admin1": "Minnesota", "country": "United States", "country_code": "US"}),
+            serde_json::json!({"name": "Austin", "admin1": "Texas", "country": "United States", "country_code": "US"}),
+        ];
+        assert_eq!(pick_place(&results, &q.1).unwrap()["admin1"], "Texas");
+        assert_eq!(pick_place(&results, &[]).unwrap()["admin1"], "Minnesota");
+        assert!(pick_place(&results, &["france".into()]).is_none());
+        let line = weather_line(
+            "Austin, Texas, United States",
+            &serde_json::json!({"temperature_2m": 21.4, "apparent_temperature": 20.0, "relative_humidity_2m": 55,
+                                "weather_code": 2, "wind_speed_10m": 16.1, "wind_direction_10m": 200}),
+        )
+        .unwrap();
+        assert_eq!(
+            line,
+            "Weather in Austin, Texas, United States: Partly cloudy, 21°C (71°F), feels like 20°C (68°F). Humidity 55%. Wind 16 km/h (10 mph) from the S."
+        );
+        assert_eq!(compass(350.0), "N");
+    }
+
     #[test]
     fn watch_time_words() {
         assert_eq!(watch_words(0), "0 minutes");

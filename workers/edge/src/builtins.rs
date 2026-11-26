@@ -143,6 +143,50 @@ impl ChannelDo {
         }
     }
 
+    /// `!weather place`: Open-Meteo's place search, then its current
+    /// weather. Both are free and need no key.
+    async fn weather(&self, args: &[String]) -> String {
+        let Some((name, narrow)) = sylva_core::builtins::weather_query(args) else {
+            return "Ask for a place, such as !weather Paris or !weather Austin, Texas.".into();
+        };
+        let enc = sylva_core::auth::encode(&name);
+        let url = self.lookup_url(
+            &format!("geo/{enc}"),
+            format!("https://geocoding-api.open-meteo.com/v1/search?name={enc}&count=10&language=en&format=json"),
+        );
+        let Some(found) = self.lookup_json(&url).await else {
+            return "The weather service did not answer. Try again in a minute.".into();
+        };
+        let results = found["results"].as_array().cloned().unwrap_or_default();
+        let Some(place) = sylva_core::builtins::pick_place(&results, &narrow) else {
+            return format!("Could not find a place called {}.", args.join(" "));
+        };
+        let (Some(lat), Some(lon)) = (place["latitude"].as_f64(), place["longitude"].as_f64())
+        else {
+            return format!("Could not find a place called {}.", args.join(" "));
+        };
+        let url = self.lookup_url(
+            "weather",
+            format!(
+                "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh"
+            ),
+        );
+        let label: Vec<&str> = ["name", "admin1", "country"]
+            .iter()
+            .filter_map(|k| place[*k].as_str().filter(|v| !v.is_empty()))
+            .fold(Vec::new(), |mut acc, v| {
+                if !acc.contains(&v) {
+                    acc.push(v);
+                }
+                acc
+            });
+        match self.lookup_json(&url).await {
+            Some(v) => sylva_core::builtins::weather_line(&label.join(", "), &v["current"])
+                .unwrap_or_else(|| "The weather service sent nothing for that place.".into()),
+            None => "The weather service did not answer. Try again in a minute.".into(),
+        }
+    }
+
     fn channel_login(&self) -> Result<Option<String>> {
         self.config("channel_login")
     }
@@ -288,6 +332,7 @@ impl ChannelDo {
                     None => pick(FACTS).into(),
                 }
             }
+            "weather" => self.weather(args).await,
             "dictionary" => {
                 let Some(word) = args.first().map(|w| w.to_lowercase()) else {
                     return Ok("Look up a word with !dictionary word.".into());

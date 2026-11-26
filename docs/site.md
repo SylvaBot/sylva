@@ -27,7 +27,8 @@ A sidebar with the pages, the live connection and the signed in channel. On phon
 
 | Page | Path | What it is for |
 | --- | --- | --- |
-| Overview | `/app` | The last 24 hours (followers, subs, bits, raids), a setup checklist until the overlay and a test alert are done, recent activity, alert controls and chat. |
+| Overview | `/app` | The last 24 hours (followers, subs, bits, raids, each with a 7 day trend line), a setup checklist until the overlay and a test alert are done, recent activity, alert controls and chat. |
+| Stats | `/app/stats` | The last 7, 30 or 90 days against the period before: followers, subs and gifts, bits, chat messages, unique chatters and viewers, each with its trend. A day by day chart for each, viewers over time (sampled from Twitch every 5 minutes while live), community growth by kind, every stream side by side (sortable), top chatters, cheerers, gifters and raiders, the commands used most, and when chat is busiest by weekday and hour. Worked out from the event log by `GET .../stats?days=&tz=`. |
 | Activity | `/app/activity` | Every event, newest first, with filters by kind, search by name or message, and Show older. Search runs on the server, so it covers all history. |
 | Alerts | `/app/alerts` | Mute, pause and skip; alert types (on or off, minimum amount, time on screen, label and message, with a live preview); a test alert for each kind; Replay on recent alerts. |
 | Overlay | `/app/overlay` | The overlay editor (every widget on one canvas, published to one link), the goal, single widget links for anyone who prefers one source per widget, New links, and the steps for OBS. |
@@ -50,7 +51,7 @@ A sidebar with the pages, the live connection and the signed in channel. On phon
 
 ## Design
 
-The look takes Cortex's ideas, not its layout: neutral grays, one color per kind of event used everywhere that kind appears, flat cards with 1 px borders, Inter with tabular numbers, a white primary button, and short calm motion. Dark is the default. The light theme uses the same tokens with lighter values, and the choice is applied before the page paints, so it never flashes.
+The look takes Cortex's ideas, not its layout: neutral grays with soft depth (a faint glow behind the page, gentle card shadows), a sidebar grouped into Home, Stream, Bot, Community and Account, a breadcrumb bar with the live status, one color per kind of event used everywhere that kind appears, flat cards with 1 px borders, Inter with tabular numbers, a white primary button, and short calm motion. Dark is the default. The light theme uses the same tokens with lighter values, and the choice is applied before the page paints, so it never flashes.
 
 ## How it was checked
 

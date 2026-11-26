@@ -51,6 +51,7 @@ mod media;
 mod moderation;
 mod nuke;
 mod store;
+mod stats;
 mod streams;
 mod team;
 mod twitch_admin;
@@ -286,6 +287,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["loyalty", ..])
                 | (Method::Get, ["media"])
                 | (Method::Get, ["streams"])
+                | (Method::Get, ["stats"])
                 | (Method::Post, ["media", ..])
                 | (Method::Get, ["scene"])
                 | (Method::Post, ["scene", ..])

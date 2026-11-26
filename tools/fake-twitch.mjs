@@ -186,6 +186,10 @@ export function startFakeTwitch(port = FAKE_PORT) {
         const next = from + first < all.length ? String(from + first) : undefined;
         return json(res, 200, { data, pagination: next ? { cursor: next } : {}, total: all.length });
       }
+      if (req.method === 'GET' && path === '/streams') {
+        const id = url.searchParams.get('user_id');
+        return json(res, 200, { data: [{ user_id: id, type: 'live', viewer_count: 40 + Math.floor(Math.random() * 30) }] });
+      }
       if (req.method === 'GET' && path === '/eventsub/conduits') {
         return json(res, 200, { data: [{ id: 'fake-conduit', shard_count: 1 }] });
       }

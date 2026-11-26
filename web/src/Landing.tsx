@@ -17,13 +17,13 @@ const PREVIEW = [
 
 const FEATURES = [
   { icon: 'bell', c: 'c-sub', title: 'Alerts that just work', text: 'Follows, subs, gifts, cheers and raids play on stream one at a time, in order, and never twice. Pause, mute, skip or replay from the dashboard.' },
-  { icon: 'layers', c: 'c-bits', title: 'An overlay editor', text: 'Place alerts, event lists, labels, a goal bar and chat on one 1920 by 1080 canvas, publish it to one OBS link, and roll back any time.' },
+  { icon: 'layers', c: 'c-bits', title: 'Overlays for OBS', text: 'Clean pill alerts and a Twitch-style chat built in, plus your own widgets. Each overlay is one OBS link that you size and place in OBS, with its own sounds.' },
   { icon: 'code', c: 'c-raid', title: 'Your own widgets', text: 'Write plain HTML, CSS and JavaScript with a live preview. Each widget runs in a sandbox, and StreamElements custom widgets paste straight in.' },
   { icon: 'bot', c: 'c-follow', title: 'A chat bot with the usual commands', text: 'Custom commands, timers, counters, quotes, !followage, !uptime, !clip, !settitle and the rest, with levels and cooldowns you set.' },
   { icon: 'shield', c: 'c-gift', title: 'Moderation that keeps up', text: 'Rules for links, caps, symbols, emotes and banned words with steps that escalate, a !nuke for raids of spam, and a log where you can undo.' },
   { icon: 'gem', c: 'c-reward', title: 'Points, games and rewards', text: 'Viewers earn points for watching and supporting, play !gamble, !slots, !blackjack and !duel, enter raffles, and spend points in your store.' },
   { icon: 'trophy', c: 'c-tip', title: 'Giveaways anyone can check', text: 'Keyword entry, subscriber luck and a winner drawn from a seed committed before the draw, so viewers can see it was fair.' },
-  { icon: 'activity', c: 'c-follow', title: 'Every event in one feed', text: 'One color per kind of event, a 24 hour summary, filters and search, and your chat beside it, live in about a second.' },
+  { icon: 'activity', c: 'c-follow', title: 'Every event in one feed', text: 'One color per kind of event, a 24 hour summary, filters and search, live in about a second.' },
   { icon: 'users', c: 'c-sub', title: 'Your team, your keys', text: 'Give editors and moderators their own access, replace a leaked overlay link at once, and know your Twitch tokens are stored encrypted.' },
 ];
 
@@ -74,7 +74,7 @@ export function Landing({ signedIn, error, notice, notFound }: {
                 <span className="eyebrow"><span className="dot" />For Twitch streamers</span>
                 <h1>Your whole stream, <em>in one calm place.</em></h1>
                 <p className="lede">
-                  Alerts and an overlay editor, a chat bot, moderation, loyalty points with games and a store, and
+                  Alerts and overlays, a chat bot, moderation, loyalty points with games and a store, and
                   giveaways, all in one dashboard that updates live. Sign in with Twitch and it is ready in a minute.
                 </p>
                 <div className="hero-cta">{cta}</div>

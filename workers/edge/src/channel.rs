@@ -920,6 +920,17 @@ impl DurableObject for ChannelDo {
                 self.broadcast_state()?;
                 Response::from_json(&self.alert_state()?)
             }
+            (Method::Post, ["alerts", "reload"]) => {
+                // Every OBS source of this channel loads its page again.
+                for ws in self.state.get_websockets() {
+                    if socket_info(&ws)
+                        .is_some_and(|i| matches!(i.role, Some(Role::Overlay | Role::Widget)))
+                    {
+                        let _ = ws.send_with_str(r#"{"type":"reload"}"#);
+                    }
+                }
+                Response::from_json(&self.alert_state()?)
+            }
             (Method::Post, ["alerts", action]) => {
                 let action: AlertAction =
                     serde_json::from_value(serde_json::Value::String(action.to_string()))

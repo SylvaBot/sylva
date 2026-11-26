@@ -162,11 +162,26 @@
   const mediaUrl = (id) => `${location.origin}/media/${key}/${encodeURIComponent(id)}`;
   let soundOff = false;
   let playing = null;
+  // One audio element per sound, loaded ahead and kept, so a sound starts the
+  // instant its alert shows instead of after a download.
+  const sounds = new Map();
+  const audioFor = (id) => {
+    let a = sounds.get(id);
+    if (!a) {
+      a = new Audio(mediaUrl(id));
+      a.preload = 'auto';
+      sounds.set(id, a);
+      if (sounds.size > 24) sounds.delete(sounds.keys().next().value);
+    }
+    return a;
+  };
+  const preloadSound = (view) => { if (view && view.sound && !soundOff) audioFor(view.sound); };
   const playSound = (view) => {
-    if (playing) { playing.pause(); playing = null; }
+    stopSound();
     if (!view || !view.sound || soundOff) return;
-    const a = new Audio(mediaUrl(view.sound));
+    const a = audioFor(view.sound);
     a.volume = Math.min(1, Math.max(0, (view.volume === undefined ? 70 : view.volume) / 100));
+    try { a.currentTime = 0; } catch (x) { /* not loaded yet */ }
     const p = a.play();
     if (p && p.catch) p.catch(() => {});
     playing = a;
@@ -183,6 +198,7 @@
     return {
       node: stage,
       play(frame) {
+        if (frame.alertId === current) return;
         clearTimeout(timer);
         current = frame.alertId;
         window.sylva.shown.push(frame.alertId);
@@ -382,7 +398,7 @@
 
   // The streamer's own code, in a sandboxed frame (see /overlay-frame). In
   // alert mode it plays alerts from the queue and says when each is done.
-  function customWidget(host, it, ack) {
+  function customWidget(host, it, ack, onShown) {
     const code = it.code || {};
     const frame = el('iframe', 'custom');
     frame.setAttribute('sandbox', 'allow-scripts');
@@ -391,6 +407,8 @@
     frame.src = '/overlay-frame';
     host.appendChild(frame);
     let ready = false, current = null, timer = null;
+    // The alert sent to the widget whose sound waits for it to show.
+    let pending = null;
     const queue = [];
     const post = (m) => {
       const msg = Object.assign({ sylva: true }, m);
@@ -400,6 +418,7 @@
       if (id !== current) return;
       clearTimeout(timer);
       current = null;
+      pending = null;
       ack(id);
     };
     const onMessage = (m) => {
@@ -413,6 +432,19 @@
         }, '*');
         queue.splice(0).forEach((q) => frame.contentWindow.postMessage(q, '*'));
         assetsReady.then((a) => { if (a) frame.contentWindow.postMessage({ sylva: true, type: 'assets', assets: a }, '*'); });
+      } else if (m.data.type === 'shown') {
+        if (!pending || pending.f.alertId !== m.data.id || m.data.id !== current) return;
+        const p = pending;
+        pending = null;
+        // A paced widget says done itself once the alert has left, which can
+        // be later than the alert's time: give it until the server would.
+        if (m.data.paced) {
+          clearTimeout(timer);
+          const id = m.data.id;
+          timer = setTimeout(() => finish(id), 38000);
+        }
+        playSound(p.view);
+        if (onShown) onShown(p.f);
       } else if (m.data.type === 'done') finish(m.data.id);
     };
     addEventListener('message', onMessage);
@@ -421,6 +453,8 @@
       event(e) { post({ type: 'event', event: e }); },
       top(list) { post({ type: 'top', top: list }); },
       play(f) {
+        // A reconnect sends the alert on screen again: it is already showing.
+        if (f.alertId === current) return;
         if (current !== null) finish(current);
         current = f.alertId;
         window.sylva.shown.push(f.alertId);
@@ -430,15 +464,17 @@
           soundUrl: base.sound ? mediaUrl(base.sound) : '',
           imageUrl: base.image ? mediaUrl(base.image) : '',
         });
-        playSound(view);
+        // The sound starts when the widget says the alert is on screen.
+        preloadSound(view);
+        pending = { f, view };
         post({ type: 'alert', id: f.alertId, event: f.event, view });
         // A widget that never says done must not hold up the queue.
         const ms = (linkMs || view.durationMs || 5000) + 15000;
         timer = setTimeout(() => finish(f.alertId), ms);
       },
-      stop(id) { if (id === current) { clearTimeout(timer); current = null; stopSound(); post({ type: 'stop', id }); } },
+      stop(id) { if (id === current) { clearTimeout(timer); current = null; pending = null; stopSound(); post({ type: 'stop', id }); } },
       mute(muted) { post({ type: 'mute', muted }); },
-      remove() { removeEventListener('message', onMessage); clearTimeout(timer); frame.remove(); },
+      remove() { removeEventListener('message', onMessage); clearTimeout(timer); pending = null; frame.remove(); },
     };
   }
 
@@ -448,36 +484,86 @@
   /* ---------------- Connection ---------------- */
   // One socket for a role. The alert box connects as `overlay` (it plays
   // and acknowledges alerts); widgets connect as `widget`.
+  // A socket can die without a close (Wi-Fi blip, sleep, a proxy dropping
+  // it). Ping often and treat a quiet socket as dead, so OBS reconnects in
+  // seconds instead of missing alerts. The server's runtime answers pings
+  // without waking the channel, so this costs nothing.
+  const PING_MS = 10000, DEAD_MS = 25000;
   function socket(role, onFrame) {
-    let ws = null, backoff = 500, closed = false;
+    let ws = null, backoff = 250, closed = false, retry = null, heard = 0;
+    const again = () => {
+      if (closed || retry) return;
+      retry = setTimeout(() => { retry = null; open(); }, backoff + Math.random() * 250);
+      backoff = Math.min(backoff * 2, 5000);
+    };
     const open = () => {
+      if (closed) return;
+      heard = Date.now();
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       // The link's token lets this page connect without signing in.
       const token = params.get('token');
       const query = token ? `?token=${encodeURIComponent(token)}` : '';
-      ws = new WebSocket(`${proto}://${location.host}/v1/channels/${key}/ws${query}`);
-      ws.onopen = () => {
-        backoff = 500;
-        ws.send(JSON.stringify({ type: 'hello', role }));
+      const sock = new WebSocket(`${proto}://${location.host}/v1/channels/${key}/ws${query}`);
+      ws = sock;
+      sock.onopen = () => {
+        if (ws !== sock) return;
+        backoff = 250;
+        heard = Date.now();
+        sock.send(JSON.stringify({ type: 'hello', role }));
         onFrame({ type: 'open' });
       };
-      ws.onmessage = (m) => onFrame(JSON.parse(m.data));
-      ws.onclose = (e) => {
-        if (closed) return;
+      sock.onmessage = (m) => {
+        if (ws !== sock) return;
+        heard = Date.now();
+        let f;
+        try { f = JSON.parse(m.data); } catch (x) { return; }
+        if (f && f.type !== 'pong') onFrame(f);
+      };
+      sock.onclose = (e) => {
+        if (ws !== sock || closed) return;
+        ws = null;
         // 4001: the streamer made a new link. Retrying keeps failing until OBS
         // gets the new one, so retry slowly.
         if (e.code === 4001) backoff = 10000;
         onFrame({ type: 'closed', replaced: e.code === 4001 });
-        setTimeout(open, backoff);
-        backoff = Math.min(backoff * 2, 10000);
+        again();
       };
     };
-    // Keepalive. The server's runtime answers this without waking the channel.
-    const ping = setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"type":"ping"}'); }, 30000);
+    // Drop a socket that went quiet and open a new one right away.
+    const drop = () => {
+      const old = ws;
+      ws = null;
+      if (old) { old.onclose = null; try { old.close(); } catch (x) { /* already gone */ } }
+      onFrame({ type: 'closed', replaced: false });
+      backoff = 250;
+      again();
+    };
+    const ping = setInterval(() => {
+      if (!ws) return;
+      if (ws.readyState === 1) {
+        if (Date.now() - heard > DEAD_MS) drop();
+        else ws.send('{"type":"ping"}');
+      } else if (ws.readyState === 0 && Date.now() - heard > DEAD_MS) drop();
+    }, PING_MS);
+    // Back online: try now instead of waiting out the backoff.
+    const online = () => {
+      if (closed || (ws && ws.readyState <= 1)) return;
+      clearTimeout(retry);
+      retry = null;
+      backoff = 250;
+      open();
+    };
+    addEventListener('online', online);
     open();
     return {
       send(obj) { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(obj)); return true; } return false; },
-      close() { closed = true; clearInterval(ping); if (ws) ws.close(); },
+      close() {
+        closed = true;
+        clearInterval(ping);
+        clearTimeout(retry);
+        removeEventListener('online', online);
+        if (ws) { ws.onclose = null; ws.close(); ws = null; }
+      },
     };
   }
 
@@ -531,7 +617,13 @@
   function overlayPage(host, id) {
     const builtin = id === 'alerts' || id === 'chat';
     let w = null, sig = null, alertConn = null, rules = [], alerts = false;
-    const ack = (aid) => { if (alertConn && alertConn.send({ type: 'ack', alertId: aid })) window.sylva.acked.push(aid); };
+    // The alert on screen now, so a widget made again (new settings) picks it
+    // up instead of leaving the queue waiting for an answer that never comes.
+    let live = null;
+    const ack = (aid) => {
+      if (live && live.alertId === aid) live = null;
+      if (alertConn && alertConn.send({ type: 'ack', alertId: aid })) window.sylva.acked.push(aid);
+    };
     const ring = (kind) => {
       if (soundOff) return;
       for (const r of rules) {
@@ -542,8 +634,8 @@
       }
     };
     const target = {
-      play: (f) => { ring(f.event && f.event.kind); if (w) w.play(f); },
-      stop: (x) => { if (w) w.stop(x); },
+      play: (f) => { live = f; if (w) w.play(f); },
+      stop: (x) => { if (live && live.alertId === x) live = null; if (w) w.stop(x); },
       mute: (m) => { if (w && w.mute) w.mute(m); },
     };
     const resolve = (list) => {
@@ -560,14 +652,16 @@
       sig = s;
       if (w) { w.remove(); w = null; }
       if (!o) { setState('overlay', 'this overlay was deleted'); return; }
-      w = customWidget(host, { widget: 'custom', code: o.code }, ack);
+      // The overlay's own sounds ring with the alert's visual, not before it.
+      w = customWidget(host, { widget: 'custom', code: o.code }, ack, (f) => ring(f.event && f.event.kind));
+      if (soundOff) w.mute(true);
       alerts = !!o.code.alerts;
+      if (alerts && live) w.play(live);
       if (alerts && !alertConn) alertConn = alertConnection(target);
       if (!alerts && alertConn) { alertConn.close(); alertConn = null; delete states.alerts; }
       setState('overlay', o.name || o.code.name || id);
     };
     window.sylva.overlay = id;
-    if (builtin) show(resolve(null));
     const proxy = {
       data: (d) => { if (w) w.data(d); },
       event: (e) => { if (!alerts) ring(e.kind); if (w) w.event(e); },
@@ -610,14 +704,18 @@
   fit();
 
   let alertConn = null;
-  const ackAlert = (id) => { if (alertConn && alertConn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); };
+  const ackAlert = (id) => {
+    if (live && live.alertId === id) live = null;
+    if (alertConn && alertConn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id);
+  };
   const box = alertBox(ackAlert);
   // Alerts go to the alert box, or to a custom widget that plays them.
   let player = box;
   let muted = null;
+  let live = null;
   const alertTarget = {
-    play: (f) => player.play(f),
-    stop: (id) => player.stop(id),
+    play: (f) => { live = f; player.play(f); },
+    stop: (id) => { if (live && live.alertId === id) live = null; player.stop(id); },
     mute: (m) => { if (m !== muted) { muted = m; if (player.mute) player.mute(m); } },
   };
   let drawn = [];
@@ -629,6 +727,7 @@
     drawn.forEach((w) => w.remove && w.remove());
     sceneEl.textContent = '';
     drawn = [];
+    const before = player;
     player = box;
     const items = (published ? published.scene.items : DEFAULT_ITEMS).map(builtIn);
     for (const it of items) {
@@ -649,6 +748,7 @@
       }
     }
     // Alerts are taken only while the scene has something to play them.
+    if (live && player !== before) player.play(live);
     const wantAlerts = items.some((it) => it.widget === 'alerts' || (it.widget === 'custom' && it.code && it.code.alerts));
     if (wantAlerts && !alertConn) alertConn = alertConnection(alertTarget);
     if (!wantAlerts && alertConn) { alertConn.close(); alertConn = null; delete states.alerts; }

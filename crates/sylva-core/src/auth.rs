@@ -62,12 +62,26 @@ pub const COMMAND_SCOPES: &[(&str, &str)] = &[
     ),
 ];
 
+/// Asked for only when the streamer turns on chat alerts that need more
+/// than the sign in scopes.
+pub const ALERT_SCOPES: &[(&str, &str)] = &[
+    (
+        "channel:read:charity",
+        "Announce charity donations in chat",
+    ),
+    ("channel:read:ads", "Announce ad breaks in chat"),
+    ("channel:read:hype_train", "Announce hype trains in chat"),
+    ("channel:read:predictions", "Announce predictions in chat"),
+    ("channel:read:polls", "Announce polls in chat"),
+];
+
 /// Extra permissions, each asked for only when its feature needs it, and
 /// kept as its own grant so a plain sign in does not take it away.
 pub const GRANTS: &[(&str, &[(&str, &str)])] = &[
     ("moderation", MOD_SCOPES),
     ("loyalty", LOYALTY_SCOPES),
     ("commands", COMMAND_SCOPES),
+    ("alerts", ALERT_SCOPES),
 ];
 
 /// True when `granted` holds every scope of `purpose`.

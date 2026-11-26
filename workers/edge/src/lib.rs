@@ -38,6 +38,7 @@ mod auth;
 mod bot;
 mod builtins;
 mod channel;
+mod chat_alerts;
 mod community;
 mod delete;
 mod games;
@@ -229,6 +230,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Get, ["bot"])
                 | (Method::Get, ["bot", "quotes"])
                 | (Method::Post, ["bot", ..])
+                | (Method::Get, ["chat-alerts"])
+                | (Method::Post, ["chat-alerts"])
                 | (Method::Get, ["moderation", ..])
                 | (Method::Post, ["moderation", ..])
                 | (Method::Get, ["giveaways"])

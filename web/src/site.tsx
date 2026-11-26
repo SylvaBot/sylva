@@ -68,6 +68,11 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             someone with the level you set runs !clip, !settitle, !setgame or !followage.
           </li>
           <li>
+            <b>Chat alert permission, if you allow it:</b> a Twitch token that may read your charity
+            donations, ad breaks, hype trains, predictions and polls, encrypted the same way, so the chat
+            alerts you turn on can announce them. Sylva keeps the category and title it last saw, to notice changes.
+          </li>
+          <li>
             <b>Your StreamElements token, if you import:</b> used once to read your StreamElements commands,
             timers and points, then thrown away. Sylva never stores it.
           </li>

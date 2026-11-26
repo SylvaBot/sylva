@@ -108,6 +108,10 @@ CREATE TABLE IF NOT EXISTS timer_state (
     last  INTEGER NOT NULL,
     lines INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS chat_alert_seen (
+    id TEXT PRIMARY KEY,
+    at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS bot_sent (
     at   INTEGER NOT NULL,
     text TEXT NOT NULL
@@ -547,6 +551,19 @@ impl DurableObject for ChannelDo {
                     Err(message) => Response::error(message, 400),
                 }
             }
+            (Method::Get, ["chat-alerts"]) => Response::from_json(&self.chat_alerts_view().await?),
+            (Method::Post, ["chat-alerts"]) => {
+                let Ok(body) = req.json::<sylva_core::chat_alerts::ChatAlertSettings>().await else {
+                    return Response::error("Those chat alert settings could not be read", 400);
+                };
+                match body.validated() {
+                    Ok(s) => {
+                        self.save_chat_alerts(&s).await?;
+                        Response::from_json(&self.chat_alerts_view().await?)
+                    }
+                    Err(Invalid(message)) => Response::error(message, 400),
+                }
+            }
             (Method::Get, ["moderation"]) => Response::from_json(&self.mod_view().await?),
             (Method::Post, ["moderation"]) => {
                 let Ok(body) = req.json::<sylva_core::moderation::ModSettings>().await else {
@@ -973,6 +990,14 @@ impl ChannelDo {
     /// Store an event, then fan it out. Everything here is synchronous, so no
     /// other request can run in between and sequence numbers stay in order.
     async fn ingest(&self, event: Event) -> Result<IngestResult> {
+        if event.raw_type == "channel.chat.notification" {
+            let duplicate = self.chat_notification(&event).await?;
+            return Ok(IngestResult {
+                seq: self.head.get(),
+                duplicate,
+                alert: false,
+            });
+        }
         // Twitch retries a delivery with the same message id: keep the first.
         let existing = self
             .sql
@@ -1053,6 +1078,9 @@ impl ChannelDo {
         }
         if let Err(e) = self.loyalty_event(&stored.event) {
             console_error!("Points could not be added: {e}");
+        }
+        if !is_chat {
+            self.run_chat_alerts(&stored.event).await;
         }
         if stored_raw == "stream.online" {
             self.restart_timers(received_at)?;

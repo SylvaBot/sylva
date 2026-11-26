@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BotPage } from './bot';
+import { ChatAlertsPage } from './chatAlerts';
 import { ROLE_NAMES, useChannel } from './channel';
 import { GiveawaysPage } from './giveaways';
 import { LoyaltyPage } from './loyalty';
@@ -20,6 +21,7 @@ const PAGES = [
   { path: '/app/overlay', label: 'Overlay', icon: 'monitor', view: OverlayPage },
   { path: '/app/chat', label: 'Chat', icon: 'message', view: ChatPage },
   { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage },
+  { path: '/app/chat-alerts', label: 'Chat alerts', icon: 'zap', view: ChatAlertsPage },
   { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage },
   { path: '/app/loyalty', label: 'Loyalty', icon: 'gem', view: LoyaltyPage },
   { path: '/app/store', label: 'Store', icon: 'gift', view: StorePage },

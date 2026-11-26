@@ -231,17 +231,23 @@ fn parse_random(name: &str) -> Option<(i64, i64)> {
     (lo <= hi && hi - lo <= 1_000_000_000).then_some((lo, hi))
 }
 
-/// A trigger is 1 to 25 letters, digits or `_`, stored in lower case.
+/// A trigger is 1 to 25 letters, digits, `_` or emoji (such as `🛒` or a
+/// flag), stored in lower case. Spaces, control characters and other ASCII
+/// punctuation are refused, so `!` and words in chat stay unambiguous.
 fn clean_trigger(raw: &str) -> Result<String, Invalid> {
     let t = raw.trim().trim_start_matches('!').to_lowercase();
     let ok = !t.is_empty()
         && t.chars().count() <= MAX_NAME
-        && t.chars().all(|c| c.is_alphanumeric() || c == '_');
+        && t.chars().all(|c| {
+            c.is_alphanumeric()
+                || c == '_'
+                || (!c.is_ascii() && !c.is_whitespace() && !c.is_control())
+        });
     if ok {
         Ok(t)
     } else {
         Err(Invalid(format!(
-            "\"{}\" cannot be a command. Use up to {MAX_NAME} letters, numbers or _.",
+            "\"{}\" cannot be a command. Use up to {MAX_NAME} letters, numbers, emoji or _, with no spaces.",
             raw.trim()
         )))
     }
@@ -710,6 +716,7 @@ mod tests {
             Some(("so".into(), vec!["@maple".into(), "hi".into()]))
         );
         assert_eq!(parse("  !lurk"), Some(("lurk".into(), vec![])));
+        assert_eq!(parse("!🛒 2"), Some(("🛒".into(), vec!["2".into()])));
         assert_eq!(parse("hello !lurk"), None);
         assert_eq!(parse("!"), None);
         assert_eq!(parse("! lurk"), None);
@@ -739,6 +746,10 @@ mod tests {
             s.validated(&stored).is_err()
         };
         assert!(bad(&|s| s.commands[0].name = "two words".into()));
+        assert!(bad(&|s| s.commands[0].name = "a-b".into()));
+        assert!(!bad(&|s| s.commands[0].name = "🛒".into()));
+        assert!(!bad(&|s| s.commands[0].name = "👋🏽hi".into()));
+        assert!(!bad(&|s| s.commands[0].name = "🇨🇦".into()));
         assert!(bad(&|s| s.commands[0].name = "".into()));
         assert!(bad(&|s| s.commands[1].aliases = vec!["lurk".into()]));
         assert!(bad(&|s| s.commands[0].reply = "  ".into()));

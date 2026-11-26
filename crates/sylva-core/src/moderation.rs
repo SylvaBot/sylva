@@ -195,6 +195,8 @@ pub enum Rule {
     Caps,
     Symbols,
     Emotes,
+    /// A moderator's `!nuke`, or its radiation.
+    Nuke,
 }
 
 impl Rule {
@@ -209,6 +211,7 @@ impl Rule {
             Rule::Caps => "please ease up on the capital letters",
             Rule::Symbols => "please ease up on the symbols",
             Rule::Emotes => "please ease up on the emotes",
+            Rule::Nuke => "that message was caught by a nuke",
         }
     }
 }

@@ -423,6 +423,93 @@ fn settle(hand: Hand, user: &str, name: &str) -> Play {
     }
 }
 
+/// `!raffle`, as StreamElements runs it: a moderator starts it with an
+/// amount, viewers type `!join`, and one of them wins points that Sylva
+/// creates (nobody pays in).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RaffleSettings {
+    pub enabled: bool,
+    /// Seconds the raffle stays open.
+    pub duration: u32,
+    /// The most points one raffle may give.
+    pub max_amount: u32,
+    pub start: String,
+    pub running: String,
+    pub end: String,
+}
+
+pub const RAFFLE_MIN_S: u32 = 10;
+pub const RAFFLE_MAX_S: u32 = 3600;
+pub const MAX_RAFFLE_MESSAGE: usize = 300;
+
+impl Default for RaffleSettings {
+    fn default() -> Self {
+        RaffleSettings {
+            enabled: true,
+            duration: 30,
+            max_amount: 3000,
+            start: "A raffle has begun for {points} {pointsname}! It ends in {time} seconds. Type !join to enter".into(),
+            running: "The raffle for {points} {pointsname} ends in {time} seconds. Type !join to enter".into(),
+            end: "The raffle has ended and {winner} won {points} {pointsname}".into(),
+        }
+    }
+}
+
+impl RaffleSettings {
+    pub fn validated(mut self) -> Result<RaffleSettings, crate::alerts::Invalid> {
+        self.duration = self.duration.clamp(RAFFLE_MIN_S, RAFFLE_MAX_S);
+        self.max_amount = self.max_amount.clamp(1, MAX_BET as u32);
+        let d = RaffleSettings::default();
+        for (msg, fallback) in [
+            (&mut self.start, d.start),
+            (&mut self.running, d.running),
+            (&mut self.end, d.end),
+        ] {
+            let t = msg.trim().to_string();
+            if t.chars().count() > MAX_RAFFLE_MESSAGE {
+                return Err(crate::alerts::Invalid(format!(
+                    "Raffle messages can be up to {MAX_RAFFLE_MESSAGE} characters"
+                )));
+            }
+            *msg = if t.is_empty() { fallback } else { t };
+        }
+        Ok(self)
+    }
+}
+
+/// A raffle that is open now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Raffle {
+    pub amount: i64,
+    pub started_at: i64,
+    pub ends_at: i64,
+    /// Whether the running message went out.
+    pub reminded: bool,
+}
+
+impl Raffle {
+    /// When the running message goes out: halfway, for raffles of 20
+    /// seconds or more.
+    pub fn remind_at(&self) -> Option<i64> {
+        let half = (self.ends_at - self.started_at) / 2;
+        (!self.reminded && half >= 10_000).then_some(self.started_at + half)
+    }
+
+    pub fn next_at(&self) -> i64 {
+        self.remind_at().unwrap_or(self.ends_at)
+    }
+}
+
+/// A raffle message with its variables filled in.
+pub fn raffle_line(template: &str, points: i64, name: &str, secs: i64, winner: &str) -> String {
+    template
+        .replace("{points}", &grouped(points))
+        .replace("{pointsname}", name)
+        .replace("{time}", &secs.max(0).to_string())
+        .replace("{winner}", winner)
+}
+
 /// A duel challenge waiting for the other viewer's `!accept`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Challenge {
@@ -436,6 +523,43 @@ pub struct Challenge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raffles() {
+        let s = RaffleSettings {
+            duration: 1,
+            start: "  ".into(),
+            ..RaffleSettings::default()
+        }
+        .validated()
+        .unwrap();
+        assert_eq!(s.duration, RAFFLE_MIN_S);
+        assert_eq!(s.start, RaffleSettings::default().start);
+        assert_eq!(
+            raffle_line(&RaffleSettings::default().end, 3000, "leaves", 0, "Maple"),
+            "The raffle has ended and Maple won 3,000 leaves"
+        );
+        let r = Raffle {
+            amount: 1,
+            started_at: 0,
+            ends_at: 30_000,
+            reminded: false,
+        };
+        assert_eq!(r.next_at(), 15_000);
+        let short = Raffle {
+            ends_at: 10_000,
+            ..r.clone()
+        };
+        assert_eq!(short.next_at(), 10_000);
+        assert_eq!(
+            Raffle {
+                reminded: true,
+                ..r
+            }
+            .next_at(),
+            30_000
+        );
+    }
 
     #[test]
     fn bets_parse() {

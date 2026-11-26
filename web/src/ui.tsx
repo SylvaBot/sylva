@@ -81,3 +81,46 @@ export function Gate({ on, className, children }: { on: boolean; className?: str
   if (on) return className ? <div className={className}>{children}</div> : <>{children}</>;
   return <fieldset className={'gate' + (className ? ' ' + className : '')} disabled>{children}</fieldset>;
 }
+
+/* ---------- Skeletons: gray shapes that hold the place of what is loading ---------- */
+
+/** One shimmering bar. Width and height in px or any CSS length. */
+export function Skel({ w, h = 12, round }: { w?: number | string; h?: number | string; round?: boolean }) {
+  return <span className={'skel' + (round ? ' round' : '')} style={{ width: w, height: h }} aria-hidden="true" />;
+}
+
+/** List rows the shape of an activity item or a setting row: a tile and two lines. */
+export function SkelRows({ n = 4, tile = true }: { n?: number; tile?: boolean }) {
+  const widths = ['58%', '44%', '66%', '38%', '52%', '61%'];
+  return (
+    <div className="skel-rows" role="status" aria-label="Loading">
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className="skel-row">
+          {tile && <Skel w={40} h={40} />}
+          <div className="skel-lines"><Skel w={widths[i % widths.length]} h={13} /><Skel w="28%" h={10} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A whole card that is still loading: a title, a line under it and some rows. */
+export function SkelCard({ rows = 3, tile = true }: { rows?: number; tile?: boolean }) {
+  return (
+    <section className="card skel-card" aria-busy="true">
+      <div className="card-head"><div className="skel-lines"><Skel w={150} h={15} /><Skel w={260} h={11} /></div></div>
+      <div className="card-body"><SkelRows n={rows} tile={tile} /></div>
+    </section>
+  );
+}
+
+/** A dashboard page in gray: its heading, four number tiles and two cards. */
+export function PageSkel({ kpis = true }: { kpis?: boolean }) {
+  return (
+    <div className="page" role="status" aria-label="Loading">
+      <div className="boot-head"><Skel w={260} h={26} /><Skel w={220} h={13} /></div>
+      {kpis && <div className="kpis four">{[0, 1, 2, 3].map((i) => <div key={i} className="card skel-kpi"><Skel w={90} h={11} /><Skel w={70} h={30} /><Skel w="60%" h={10} /></div>)}</div>}
+      <div className="stack"><SkelCard rows={2} tile={false} /><SkelCard rows={5} /></div>
+    </div>
+  );
+}

@@ -8,7 +8,7 @@ import { useChannel } from './channel';
 import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
-import { errorText, Gate, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, SkelCard, SkelRows, useToast } from './ui';
 
 const ALLOW_URL = '/auth/twitch/start?scopes=loyalty&next=/app/loyalty';
 const PAGE = 50;
@@ -101,7 +101,7 @@ export function LoyaltyPage() {
     <div className="page">
       <PageHead title="Loyalty" desc="Viewers earn points for watching, chatting and supporting you, and check them in chat." />
       {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load loyalty points. Refresh to try again.</p></div></Card>}
-      {!view && !failed && <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>}
+      {!view && !failed && <SkelCard rows={4} />}
       {view && draft && (
         <div className="stack">
           {view.settings.enabled && view.permission !== 'ok' && (
@@ -336,7 +336,7 @@ function Viewers({ name, version, onChanged }: { name: string; version: number; 
         </label>
         {list !== null && <span className="field-hint" role="status">{num(total)} {total === 1 ? 'viewer' : 'viewers'}{searching ? ' found' : ''}</span>}
       </div>
-      {list === null && <p className="empty">Loading</p>}
+      {list === null && <SkelRows n={4} />}
       {list?.length === 0 && (
         <p className="empty">
           <Icon id="gem" />
@@ -428,7 +428,7 @@ function ViewerDetail({ viewer, name, onSaved }: { viewer: PointsViewer; name: s
         </div>
       </form>}
       <h3 className="points-sub">Recent changes</h3>
-      {entries === null && <p className="field-hint">Loading</p>}
+      {entries === null && <SkelRows n={3} tile={false} />}
       {entries?.length === 0 && <p className="field-hint">No changes kept for this viewer.</p>}
       {!!entries?.length && (
         <ul className="points-ledger">

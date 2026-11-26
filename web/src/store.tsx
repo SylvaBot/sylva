@@ -9,7 +9,7 @@ import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
 import { SiteFooter, SiteHeader } from './site';
-import { errorText, Icon, num, useToast } from './ui';
+import { errorText, Icon, num, SkelCard, SkelRows, useToast } from './ui';
 
 const COOLDOWNS = [0, 1, 5, 10, 15, 30, 60, 120, 360, 720, 1440, 10080];
 
@@ -65,7 +65,7 @@ export function StorePage() {
     <div className="page">
       <PageHead title="Store" desc="Rewards viewers buy with their points. What they buy waits here until you mark it done." />
       {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load the store. Refresh to try again.</p></div></Card>}
-      {!view && !failed && <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>}
+      {!view && !failed && <SkelCard rows={4} />}
       {view && (
         <div className="stack">
           {!view.pointsOn && (
@@ -163,7 +163,7 @@ function Queue({ view, name, onChanged }: { view: StoreView; name: string; onCha
         </div>
       }
     >
-      {list === null && <p className="empty">Loading</p>}
+      {list === null && <SkelRows n={3} />}
       {list?.length === 0 && (
         <p className="empty">
           <Icon id="gift" />
@@ -446,7 +446,7 @@ export function PublicStorePage({ login, signedIn }: { login: string; signedIn: 
         {header}
         <main id="content" className="prose wrap">
           {data === null
-            ? <p className="prose-lede" role="status">Loading</p>
+            ? <SkelRows n={4} />
             : <>
                 <h1>{data === 'missing' ? 'No points here' : 'Something went wrong'}</h1>
                 <p className="prose-lede">

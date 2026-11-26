@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, type BotCounter, type BotSettings, type BotView, type Quote } from './api';
 import { useChannel } from './channel';
 import { Card } from './pages';
-import { errorText, Gate, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, SkelRows, useToast } from './ui';
 
 type Save = (next: BotSettings, done?: string, undo?: BotSettings) => Promise<boolean>;
 
@@ -223,7 +223,7 @@ export function Quotes({ view, onSave }: { view: BotView; onSave: Save }) {
             />
           </li>
         )}
-        {quotes === null && <li className="empty">Loading</li>}
+        {quotes === null && <li><SkelRows n={3} tile={false} /></li>}
         {quotes?.length === 0 && editing !== 'new' && <li className="empty">No quotes yet. Add the first one here, or with !addquote in chat.</li>}
         {quotes !== null && quotes.length > 0 && list.length === 0 && <li className="empty">No quote matches that search.</li>}
         {list.slice(0, shown).map((q) => (

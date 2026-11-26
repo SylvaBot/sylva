@@ -12,6 +12,7 @@ import { navigate, usePath } from './router';
 import { Shell } from './Shell';
 import { PrivacyPage } from './site';
 import { PublicStorePage } from './store';
+import { PageSkel, Skel } from './ui';
 
 const SIGNIN_ERRORS: Record<string, string> = {
   denied: 'You cancelled on Twitch, so nothing changed. Sign in when you are ready.',
@@ -57,7 +58,7 @@ export function App() {
   const commands = /^\/c\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
   if (commands) return <PublicCommandsPage login={commands[1].toLowerCase()} signedIn={!!me} />;
   if (inApp) {
-    if (!me) return <div className="loading" role="status">Loading your channel</div>;
+    if (!me) return <BootSkeleton numbers={path === '/app' || path.startsWith('/app/stats')} />;
     return (
       <ChannelProvider me={me} onSignedOut={() => { setMe(null); navigate('/', true); }}>
         <Shell path={path} />
@@ -65,4 +66,23 @@ export function App() {
     );
   }
   return <Landing signedIn={!!me} error={error} notice={notice} notFound={path !== '/'} />;
+}
+
+/** The dashboard's frame in gray while your account loads, so the real one
+ * appears in place instead of replacing a loading line. */
+function BootSkeleton({ numbers }: { numbers: boolean }) {
+  return (
+    <div className="shell boot" role="status" aria-label="Loading your channel">
+      <aside className="rail" aria-hidden="true">
+        <span className="rail-brand"><img src="/logo.svg" alt="" width="32" height="32" /></span>
+        <div className="rail-nav">{Array.from({ length: 9 }, (_, i) => <Skel key={i} />)}</div>
+      </aside>
+      <div className="frame">
+        <header className="appbar"><span className="boot-menu"><Skel w={22} h={16} /></span><Skel w={140} h={16} /><Skel w={36} h={36} round /></header>
+        <main className="main">
+          <PageSkel kpis={numbers} />
+        </main>
+      </div>
+    </div>
+  );
 }

@@ -11,7 +11,7 @@ import { Link } from './router';
 import { ImportCard } from './import';
 import { TeamCard } from './team';
 import { getTheme, setTheme, type Theme } from './theme';
-import { ago, Avatar, errorText, Gate, Icon, num, useToast } from './ui';
+import { ago, Avatar, errorText, Gate, Icon, num, PageSkel, SkelRows, useToast } from './ui';
 
 export function PageHead({ title, desc, children }: { title: string; desc?: ReactNode; children?: ReactNode }) {
   return (
@@ -63,6 +63,9 @@ export function OverviewPage() {
   const first = ch.you.split(/\s+/)[0];
   const week = useStats(7).data;
   const spark = (k: 'follows' | 'subs' | 'bits' | 'raids') => week?.series.map((d) => (k === 'subs' ? d.subs + d.gifted : d[k]));
+  // Until the first events arrive the whole page is a skeleton, so the setup
+  // card and the lists appear together instead of pushing each other down.
+  if (!ch.loaded) return <PageSkel />;
 
   return (
     <div className="page">
@@ -89,7 +92,7 @@ export function OverviewPage() {
             events={ch.events.slice(0, 8)}
             freshFrom={ch.freshFrom}
             onReplay={ch.can.moderate ? ch.replay : undefined}
-            empty={ch.loaded ? 'No activity yet. Follows, subs, cheers and raids appear here the moment they happen.' : 'Loading activity'}
+            empty="No activity yet. Follows, subs, cheers and raids appear here the moment they happen."
           />
         </Card>
         <div className="stack">
@@ -299,6 +302,7 @@ export function AlertsPage() {
             freshFrom={ch.freshFrom}
             onReplay={ch.can.moderate ? ch.replay : undefined}
             empty="Alerts you can replay show up here."
+            loading={!ch.loaded}
           />
         </Card>
       </div>
@@ -364,8 +368,7 @@ export function ActivityPage() {
   const busy = results ? loading : ch.loadingMore;
 
   let empty: string;
-  if (!ch.loaded) empty = 'Loading activity';
-  else if (q && loading) empty = 'Searching';
+  if (q && loading) empty = 'Searching';
   else if (q) empty = `Nothing matches "${q}"${shown.size ? ' with these filters' : ''}.`;
   else if (ch.events.length) empty = 'Nothing here for these filters yet.';
   else empty = 'No activity yet. Follows, subs, cheers and raids appear here the moment they happen.';
@@ -389,7 +392,7 @@ export function ActivityPage() {
           </label>
           <Filters shown={shown} toggle={toggle} counts={counts} total={total} />
         </div>
-        <FeedList events={visible} freshFrom={ch.freshFrom} onReplay={ch.can.moderate ? ch.replay : undefined} empty={empty} />
+        <FeedList events={visible} freshFrom={ch.freshFrom} onReplay={ch.can.moderate ? ch.replay : undefined} empty={empty} loading={!ch.loaded || (!!q && loading && !results)} />
         {hasMore && visible.length > 0 && (
           <div className="feed-more">
             <button className="btn" type="button" disabled={busy} onClick={results ? searchMore : ch.loadMore}>
@@ -505,7 +508,7 @@ function ConnectedApps() {
 
   return (
     <Card id="apps" title="Connected apps" desc="Apps such as Cortex that you allowed to use your Sylva.">
-      {apps === null && <div className="card-body"><p className="card-text">Loading</p></div>}
+      {apps === null && <div className="card-body"><SkelRows n={1} tile={false} /></div>}
       {apps && apps.length === 0 && (
         <div className="card-body">
           <p className="card-text">No apps yet. To connect one, sign in to Sylva from the app and enter its code at <Link href="/device">{location.host}/device</Link>.</p>

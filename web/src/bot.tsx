@@ -8,7 +8,7 @@ import { useChannel } from './channel';
 import { Counters, Quotes } from './community';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
-import { errorText, Gate, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, SkelCard, useToast } from './ui';
 
 export const LEVELS: { id: UserLevel; label: string; who: string }[] = [
   { id: 'everyone', label: 'Everyone', who: 'everyone' },
@@ -102,7 +102,7 @@ export function BotPage() {
     <div className="page">
       <PageHead title="Chat bot" desc="Commands, timers, counters and quotes for your chat. Try them here before your viewers do." />
       {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load your bot. Refresh to try again.</p></div></Card>}
-      {!view && !failed && <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>}
+      {!view && !failed && <SkelCard rows={5} />}
       {settings && (
         <div className="stack">
           <Card id="bot-on">

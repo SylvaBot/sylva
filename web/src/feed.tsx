@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Kind, SylvaEvent } from './api';
-import { ago, Icon, num } from './ui';
+import { ago, Icon, num, SkelRows } from './ui';
 
 export interface Group { id: string; label: string; color: string; icon: string; kinds: Kind[] }
 
@@ -324,7 +324,10 @@ export function FeedList(props: {
   onReplay?(e: SylvaEvent): Promise<void>;
   empty: ReactNode;
   flush?: boolean;
+  /** Still waiting for the first events: rows in gray instead of the empty note. */
+  loading?: boolean;
 }) {
+  if (!props.events.length && props.loading) return <div className="feed-skel"><SkelRows n={6} /></div>;
   if (!props.events.length) {
     return <div className="empty"><Icon id="activity" />{props.empty}</div>;
   }

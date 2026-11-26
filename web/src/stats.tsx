@@ -10,7 +10,7 @@ import { api, type Recap, type StatTotals, type Stats } from './api';
 import { useChannel } from './channel';
 import { DayBars, Heatmap, RankList, Sparkline, TimeLine } from './charts';
 import { PageHead } from './pages';
-import { Icon, num } from './ui';
+import { Icon, num, Skel } from './ui';
 
 const RANGES = [7, 30, 90, 365] as const;
 const RANGE_KEY = 'sylva.statsDays';
@@ -50,14 +50,14 @@ export function Delta({ pct, label }: { pct: number | null; label: string }) {
   return <span className={'delta ' + cls} title={label}><span className="sr-only">{r > 0 ? 'Up' : r < 0 ? 'Down' : 'No change'} </span>{text}</span>;
 }
 
-export function Kpi({ c, label, value, pct, spark, note, unit }: {
-  c: string; label: string; value: number | null; pct?: number | null; spark?: number[]; note: string; unit?: string;
+export function Kpi({ c, label, value, pct, spark, note, unit, loading }: {
+  c: string; label: string; value: number | null; pct?: number | null; spark?: number[]; note: string; unit?: string; loading?: boolean;
 }) {
   return (
     <div className={'card kpi ' + c}>
       <span className="kpi-label"><span className="bar" />{label}</span>
       <div className="kpi-num">
-        {value === null ? '-' : <NumberFlow value={value} />}{unit && value !== null && <small>{unit}</small>}
+        {value === null ? (loading ? <Skel /> : '-') : <NumberFlow value={value} />}{unit && value !== null && <small>{unit}</small>}
         {pct !== undefined && value !== null && <Delta pct={pct} label={note} />}
       </div>
       <div className="kpi-foot">
@@ -99,11 +99,11 @@ const TABS: { id: Tab; label: string }[] = [
 const RANGE_NAMES: Record<number, string> = { 7: '7 days', 30: '30 days', 90: '90 days', 365: '1 year' };
 
 /** One small number in the metric grid, with its change when there is something to compare. */
-function Cell({ label, value, before, text, hint }: { label: string; value: number | null; before?: number | null; text?: string; hint?: string }) {
+function Cell({ label, value, before, text, hint, loading }: { label: string; value: number | null; before?: number | null; text?: string; hint?: string; loading?: boolean }) {
   return (
     <div className="cell" title={hint}>
       <span className="cell-label">{label}</span>
-      <span className="cell-num">{value === null ? '-' : text ?? num(value)}</span>
+      <span className="cell-num">{value === null ? (loading ? <Skel w={48} h={20} /> : '-') : text ?? num(value)}</span>
       {value !== null && before !== undefined && before !== null && <Delta pct={change(value, before)} label="vs the period before" />}
     </div>
   );
@@ -178,36 +178,36 @@ export function StatsPage() {
 
       <h2 className="section-label">Growth</h2>
       <div className={'kpis four' + (s && !data ? ' loading' : '')} role="group" aria-label="Growth">
-        <Kpi c="c-follow" label="Followers gained" value={t ? t.follows : null} pct={t && p ? change(t.follows, p.follows) : undefined} spark={col('follows')} note={vs} />
-        <Kpi c="c-sub" label="Subs and gifts" value={t ? t.subs + t.gifted : null} pct={t && p ? change(t.subs + t.gifted, p.subs + p.gifted) : undefined} note={vs}
+        <Kpi loading={!s} c="c-follow" label="Followers gained" value={t ? t.follows : null} pct={t && p ? change(t.follows, p.follows) : undefined} spark={col('follows')} note={vs} />
+        <Kpi loading={!s} c="c-sub" label="Subs and gifts" value={t ? t.subs + t.gifted : null} pct={t && p ? change(t.subs + t.gifted, p.subs + p.gifted) : undefined} note={vs}
           spark={s ? s.series.map((d) => d.subs + d.gifted) : []} />
-        <Kpi c="c-viewers" label="Average viewers" value={s ? viewerStats?.avg ?? null : null}
+        <Kpi loading={!s} c="c-viewers" label="Average viewers" value={s ? viewerStats?.avg ?? null : null}
           pct={viewerStats && b4?.avgViewers ? change(viewerStats.avg, b4.avgViewers) : undefined}
           note={viewerStats ? `Peak ${num(viewerStats.peak)}, ${vs}` : 'Counted while you are live'} />
-        <Kpi c="c-chat" label="New chatters" value={s ? s.newChatters : null} pct={s && b4 ? change(s.newChatters, b4.newChatters) : undefined}
+        <Kpi loading={!s} c="c-chat" label="New chatters" value={s ? s.newChatters : null} pct={s && b4 ? change(s.newChatters, b4.newChatters) : undefined}
           note="First message ever" spark={col('chatters')} />
       </div>
 
       <h2 className="section-label">Everything else</h2>
       <div className={'card cells' + (s && !data ? ' loading' : '')} role="group" aria-label="More numbers">
-        <Cell label="Peak viewers" value={s ? viewerStats?.peak ?? null : null} before={b4?.peakViewers} />
-        <Cell label="Hours live" value={s ? liveH : null} text={hours(liveMs)} before={b4 ? prevH : undefined} />
-        <Cell label="Streams" value={s ? streams.length : null} before={b4?.streams} />
-        <Cell label="Average stream" value={s && streams.length ? liveMs / streams.length : null} text={hours(streams.length ? liveMs / streams.length : 0)}
+        <Cell loading={!s} label="Peak viewers" value={s ? viewerStats?.peak ?? null : null} before={b4?.peakViewers} />
+        <Cell loading={!s} label="Hours live" value={s ? liveH : null} text={hours(liveMs)} before={b4 ? prevH : undefined} />
+        <Cell loading={!s} label="Streams" value={s ? streams.length : null} before={b4?.streams} />
+        <Cell loading={!s} label="Average stream" value={s && streams.length ? liveMs / streams.length : null} text={hours(streams.length ? liveMs / streams.length : 0)}
           before={b4 && b4.streams ? b4.liveMs / b4.streams : undefined} />
-        <Cell label="Followers per hour live" value={t && liveH ? t.follows / liveH : null} text={t && liveH ? one.format(t.follows / liveH) : undefined}
+        <Cell loading={!s} label="Followers per hour live" value={t && liveH ? t.follows / liveH : null} text={t && liveH ? one.format(t.follows / liveH) : undefined}
           before={p && prevH ? p.follows / prevH : undefined} hint="Followers gained divided by hours live" />
-        <Cell label="New subs" value={t ? t.subs : null} before={p?.subs} />
-        <Cell label="Gifted subs" value={t ? t.gifted : null} before={p?.gifted} />
-        <Cell label="Bits" value={t ? t.bits : null} before={p?.bits} />
-        <Cell label="Raids received" value={t ? t.raids : null} before={p?.raids} />
-        <Cell label="Raid viewers" value={t ? t.raiders : null} before={p?.raiders} />
-        <Cell label="Chat messages" value={t ? t.chat : null} before={p?.chat} />
-        <Cell label="People who chatted" value={t ? t.chatters : null} before={p?.chatters} />
-        <Cell label="Returning chatters" value={returning} before={prevReturning} hint="Chatted before this range too" />
-        <Cell label="Messages per chatter" value={t && t.chatters ? t.chat / t.chatters : null} text={t && t.chatters ? one.format(t.chat / t.chatters) : undefined}
+        <Cell loading={!s} label="New subs" value={t ? t.subs : null} before={p?.subs} />
+        <Cell loading={!s} label="Gifted subs" value={t ? t.gifted : null} before={p?.gifted} />
+        <Cell loading={!s} label="Bits" value={t ? t.bits : null} before={p?.bits} />
+        <Cell loading={!s} label="Raids received" value={t ? t.raids : null} before={p?.raids} />
+        <Cell loading={!s} label="Raid viewers" value={t ? t.raiders : null} before={p?.raiders} />
+        <Cell loading={!s} label="Chat messages" value={t ? t.chat : null} before={p?.chat} />
+        <Cell loading={!s} label="People who chatted" value={t ? t.chatters : null} before={p?.chatters} />
+        <Cell loading={!s} label="Returning chatters" value={returning} before={prevReturning} hint="Chatted before this range too" />
+        <Cell loading={!s} label="Messages per chatter" value={t && t.chatters ? t.chat / t.chatters : null} text={t && t.chatters ? one.format(t.chat / t.chatters) : undefined}
           before={p && p.chatters ? p.chat / p.chatters : undefined} />
-        <Cell label="Redemptions" value={t ? t.redemptions : null} before={p?.redemptions} />
+        <Cell loading={!s} label="Redemptions" value={t ? t.redemptions : null} before={p?.redemptions} />
       </div>
 
       <section className="card chart-card" aria-labelledby="trend-title">

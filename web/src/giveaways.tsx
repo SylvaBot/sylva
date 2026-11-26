@@ -8,7 +8,7 @@ import { useChannel } from './channel';
 import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
-import { errorText, Gate, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, SkelCard, useToast } from './ui';
 
 const LEVELS: { id: UserLevel; label: string }[] = [
   { id: 'everyone', label: 'Everyone' },
@@ -42,7 +42,7 @@ export function GiveawaysPage() {
     <div className="page">
       <PageHead title="Giveaways" desc="Viewers enter with a word in chat. Each draw uses a seed Sylva fixes before anyone enters, so anyone can check it was fair." />
       {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load giveaways. Refresh to try again.</p></div></Card>}
-      {!view && !failed && <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>}
+      {!view && !failed && <SkelCard rows={3} />}
       {view && (
         <div className="stack">
           {!view.botOn && (

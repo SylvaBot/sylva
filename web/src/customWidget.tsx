@@ -221,8 +221,17 @@ export function CodeDialog({ initial, width, height, canPlayAlerts, onSave, onCl
             {Object.keys(fields).length > 0 && (
               <div className="code-fields">
                 <h4>Settings</h4>
-                {Object.entries(fields).map(([k, f]) => (
-                  <FieldInput key={k} id={k} f={f} value={valueOf(k, f)} onChange={(v) => setValue(k, v)} />
+                {Object.entries(fields).map(([k, f], n, all) => (
+                  <div key={k} className="code-field">
+                    {f.group && f.group !== all[n - 1]?.[1].group && <h5>{f.group}</h5>}
+                    <FieldInput
+                      id={k}
+                      f={f}
+                      value={valueOf(k, f)}
+                      onChange={(v) => setValue(k, v)}
+                      onPress={() => send.current?.({ type: 'button', field: k, value: f.value })}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -233,10 +242,15 @@ export function CodeDialog({ initial, width, height, canPlayAlerts, onSave, onCl
   );
 }
 
-function FieldInput({ id, f, value, onChange }: { id: string; f: Field; value: unknown; onChange: (v: unknown) => void }) {
+function FieldInput({ id, f, value, onChange, onPress }: {
+  id: string; f: Field; value: unknown; onChange: (v: unknown) => void; onPress: () => void;
+}) {
   const label = f.label || id;
   const htmlId = `field-${id}`;
   switch (f.type) {
+    case 'button':
+      // StreamElements sends the widget a "widget-button" event.
+      return <button className="btn sm" type="button" onClick={onPress}>{label}</button>;
     case 'checkbox':
       return (
         <label className="field inline" htmlFor={htmlId}>

@@ -1,0 +1,125 @@
+:root {
+  --font: 'Inter', sans-serif;
+  --size: 3.8vw;
+  --text: #EFEFF1;
+  --line: 1.5;
+  --gap: 0.2em;
+  --pad: 0.4em;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* The chat fills the whole canvas. Sizes are a share of the screen width,
+   so it looks the same however small the source is scaled in OBS. */
+.region {
+  position: absolute;
+  box-sizing: border-box;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  padding: var(--pad);
+  overflow: hidden;
+  font-family: var(--font);
+  font-size: var(--size);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.region.fade-top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 3em);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 3em);
+}
+
+/* Newest message sits at the bottom, older ones move up */
+.list {
+  position: absolute;
+  left: var(--pad);
+  right: var(--pad);
+  bottom: var(--pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  will-change: transform;
+}
+
+/* One chat line, laid out like Twitch: badges, name, colon, message */
+.msg {
+  line-height: var(--line);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  animation: msg-in 0.25s ease-out both;
+}
+
+.shadow .msg {
+  text-shadow: 0 0.05em 0.1em rgba(0, 0, 0, 0.9), 0 0 0.3em rgba(0, 0, 0, 0.5);
+}
+
+.msg.removing {
+  animation: msg-out 0.4s ease forwards;
+}
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(0.3em); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes msg-out {
+  to { opacity: 0; }
+}
+
+/* Reply header ("Replying to @name: ...") */
+.reply {
+  display: block;
+  font-size: 0.8em;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  display: inline-block;
+  height: 1.1em;
+  width: auto;
+  margin-right: 0.2em;
+  vertical-align: middle;
+  position: relative;
+  top: -0.08em;
+  border-radius: 0.1em;
+}
+
+.badge:last-of-type { margin-right: 0.25em; }
+
+.name {
+  font-weight: 700;
+}
+
+.colon {
+  margin-right: 0.3em;
+}
+
+.action .text {
+  /* /me messages use the name color, like Twitch */
+  color: var(--name-color);
+}
+
+.mention {
+  font-weight: 700;
+}
+
+.emote {
+  display: inline-block;
+  height: 1.75em;
+  width: auto;
+  margin: -0.45em 0.05em;
+  vertical-align: middle;
+}

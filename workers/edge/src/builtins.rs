@@ -237,6 +237,22 @@ impl ChannelDo {
             },
             "gamesplayed" => self.games_played(channel)?,
             "followage" | "followsince" => self.follow(name, args, ask, who).await?,
+            "watchtime" => {
+                let login = match args.first() {
+                    Some(a) => a.trim_start_matches('@').to_lowercase(),
+                    None => who.actor.map(|a| a.login.clone()).unwrap_or_else(|| who.name.to_lowercase()),
+                };
+                match self.watch_by_login(&login)? {
+                    Some((user, m)) if m > 0 => format!(
+                        "{user} has spent {} watching {channel}.",
+                        sylva_core::builtins::watch_words(m)
+                    ),
+                    _ => format!(
+                        "{} has no watch time in {channel} yet.",
+                        args.first().map(|a| a.trim_start_matches('@')).unwrap_or(who.name)
+                    ),
+                }
+            }
             "accountage" | "accountsince" => self.account_age(name, args, ask, who).await?,
             "ping" => format!(
                 "{} is here and listening in {channel}'s chat.",
@@ -627,16 +643,6 @@ impl ChannelDo {
         })
     }
 
-    fn mod_token_words(p: Permission) -> String {
-        match p {
-            Permission::Expired => {
-                "Twitch no longer accepts Sylva's permission to moderate. The streamer can allow it again on the Moderation page."
-            }
-            _ => "Sylva is not allowed to moderate here yet. The streamer can allow it on the Moderation page.",
-        }
-        .into()
-    }
-
     async fn patch_channel(&self, body: Value) -> Result<std::result::Result<(), String>> {
         let Some(broadcaster) = self.broadcaster_id() else {
             return Ok(Err("Sylva has not heard from this channel yet.".into()));
@@ -982,14 +988,15 @@ impl ChannelDo {
         let Some(broadcaster) = self.broadcaster_id() else {
             return Ok(Err("Sylva has not heard from this channel yet.".into()));
         };
-        let token = match self.user_token("moderation").await? {
+        let moderator = self.moderator_id();
+        let token = match self.mod_token().await? {
             Token::Ok(t) => t,
-            Token::No(p) => return Ok(Err(Self::mod_token_words(p))),
+            Token::No(p) => return Ok(Err(crate::grants::mod_words(p))),
         };
         let (status, v) = App::user(&self.env, &token)?
             .helix(
                 Method::Post,
-                &format!("/moderation/bans?broadcaster_id={broadcaster}&moderator_id={broadcaster}"),
+                &format!("/moderation/bans?broadcaster_id={broadcaster}&moderator_id={moderator}"),
                 Some(json!({ "data": { "user_id": user_id, "duration": seconds, "reason": reason } })),
             )
             .await?;
@@ -999,10 +1006,7 @@ impl ChannelDo {
         Ok(if (200..300).contains(&status) {
             Ok(())
         } else {
-            Err(format!(
-                "Twitch said no: {}",
-                v["message"].as_str().unwrap_or("no reason given")
-            ))
+            Err(crate::grants::mod_refusal(status, &v))
         })
     }
 
@@ -1186,7 +1190,7 @@ impl ChannelDo {
         };
         Ok(json!({
             "commands": state(self.user_token("commands").await?),
-            "moderation": state(self.user_token("moderation").await?),
+            "moderation": self.mod_permission().await?,
         }))
     }
 }

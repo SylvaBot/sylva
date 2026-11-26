@@ -78,6 +78,8 @@
   .chat { position: absolute; inset: 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; overflow: hidden; }
   .line { padding: 6px 12px; border-radius: 8px; background: rgba(22, 22, 24, .82); border: 1px solid #2a2a2f; animation: slide 300ms var(--ease) both; overflow-wrap: anywhere; }
   .line b { font-weight: 650; margin-right: 6px; color: #c9b8ff; }
+  .line .badge { height: 1.1em; vertical-align: -0.15em; margin-right: 4px; }
+  .line .emote { height: 1.6em; vertical-align: middle; margin: -0.3em 0; }
 
   /* Scene: a 1920 by 1080 canvas scaled to the source, items placed on it. */
   .fill-page { position: fixed; inset: 0; }
@@ -95,6 +97,11 @@
 (() => {
   const key = decodeURIComponent(location.pathname.split('/').pop());
   const params = new URLSearchParams(location.search);
+  // Badge images and 7TV, BetterTTV and FrankerFaceZ emotes for chat.
+  let assets = null;
+  const assetsReady = fetch(`/v1/chat-assets/${key}`)
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    .then((a) => { assets = a; return a; });
   const sceneMode = params.has('scene');
   const widget = sceneMode ? 'scene' : (params.get('widget') || 'alerts');
   if (params.has('debug')) document.body.classList.add('debug');
@@ -302,15 +309,40 @@
     const limit = clamp(opts.limit, 1, 30, 12);
     const box = el('div', 'chat');
     host.appendChild(box);
+    const img = (cls, src, alt) => { const i = el('img', cls); i.src = src; i.alt = alt; return i; };
     const line = (e) => {
       const l = el('div', 'line');
-      l.appendChild(el('b', null, nameOf(e)));
-      l.appendChild(document.createTextNode(e.message || ''));
+      const raw = e.raw || {};
+      const a = assets || { badges: {}, emotes: {} };
+      for (const b of raw.badges || []) {
+        const u = a.badges[b.set_id + '/' + b.id];
+        if (u) l.appendChild(img('badge', u, ''));
+      }
+      const name = el('b', null, nameOf(e));
+      if (/^#[0-9a-f]{6}$/i.test(raw.color || '')) name.style.color = raw.color;
+      l.appendChild(name);
+      // Twitch's own emotes come marked in the message; 7TV, BetterTTV and
+      // FrankerFaceZ ones are found by name.
+      const twitch = {};
+      for (const f of (raw.message && raw.message.fragments) || []) {
+        if (f && f.type === 'emote' && f.emote && /^[\w-]+$/.test(f.emote.id || '')) {
+          twitch[f.text] = `https://static-cdn.jtvnw.net/emoticons/v2/${f.emote.id}/default/dark/2.0`;
+        }
+      }
+      for (const w of String(e.message || '').split(/(\s+)/)) {
+        const own = Object.prototype.hasOwnProperty;
+        const u = own.call(twitch, w) ? twitch[w] : own.call(a.emotes, w) ? a.emotes[w].urls['2'] : null;
+        l.appendChild(u ? img('emote', u, w) : document.createTextNode(w));
+      }
       return l;
     };
     const trim = () => { while (box.children.length > limit) box.firstChild.remove(); };
     return {
-      data(d) { box.textContent = ''; d.chat.forEach((e) => box.appendChild(line(e))); trim(); },
+      data(d) {
+        const fill = () => { box.textContent = ''; d.chat.forEach((e) => box.appendChild(line(e))); trim(); };
+        fill();
+        if (!assets) assetsReady.then((x) => { if (x) fill(); });
+      },
       event(e) { if (e.kind === 'chat') { box.appendChild(line(e)); trim(); } },
     };
   }
@@ -347,6 +379,7 @@
           data: window.sylva.data, channel: '',
         }, '*');
         queue.splice(0).forEach((q) => frame.contentWindow.postMessage(q, '*'));
+        assetsReady.then((a) => { if (a) frame.contentWindow.postMessage({ sylva: true, type: 'assets', assets: a }, '*'); });
       } else if (m.data.type === 'done') finish(m.data.id);
     };
     addEventListener('message', onMessage);
@@ -365,6 +398,7 @@
         timer = setTimeout(() => finish(f.alertId), ms);
       },
       stop(id) { if (id === current) { clearTimeout(timer); current = null; post({ type: 'stop', id }); } },
+      mute(muted) { post({ type: 'mute', muted }); },
       remove() { removeEventListener('message', onMessage); clearTimeout(timer); frame.remove(); },
     };
   }
@@ -421,6 +455,7 @@
       else if (f.type === 'stop') box.stop(f.alertId);
       else if (f.type === 'ready' || f.type === 'state') {
         const s = f.state || f;
+        if (box.mute) box.mute(!!s.muted);
         setState('alerts', `${s.queued} queued${s.paused ? ', paused' : ''}${s.muted ? ', muted' : ''}`);
       } else if (f.type === 'open') setState('alerts', 'connected');
       else if (f.type === 'closed') setState('alerts', f.replaced ? 'this link was replaced' : 'reconnecting');
@@ -482,7 +517,12 @@
   const box = alertBox(ackAlert);
   // Alerts go to the alert box, or to a custom widget that plays them.
   let player = box;
-  const alertTarget = { play: (f) => player.play(f), stop: (id) => player.stop(id) };
+  let muted = null;
+  const alertTarget = {
+    play: (f) => player.play(f),
+    stop: (id) => player.stop(id),
+    mute: (m) => { if (m !== muted) { muted = m; if (player.mute) player.mute(m); } },
+  };
   let drawn = [];
   let version = null;
 

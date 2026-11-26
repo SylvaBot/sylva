@@ -11,7 +11,7 @@ export function ImportCard() {
   const ch = useChannel();
   const toast = useToast();
   const [token, setToken] = useState('');
-  const [pick, setPick] = useState({ commands: true, timers: true, points: true });
+  const [pick, setPick] = useState({ commands: true, timers: true, points: true, watchtime: true });
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<ImportResult | null>(null);
 
@@ -34,7 +34,7 @@ export function ImportCard() {
     <Card
       id="import"
       title="Move from StreamElements"
-      desc={<>Bring over your StreamElements bot commands, timers and loyalty points. Copy your JWT token from StreamElements under Account, Channels, Show secrets. Sylva uses it for this import only and does not keep it.</>}
+      desc={<>Bring over your StreamElements bot commands, timers, loyalty points and watch time. Copy your JWT token from StreamElements under Account, Channels, Show secrets. Sylva uses it for this import only and does not keep it.</>}
     >
       <form className="card-body import-form" onSubmit={(e) => { e.preventDefault(); void run(); }}>
         <label className="field" htmlFor="import-token">
@@ -43,21 +43,21 @@ export function ImportCard() {
         </label>
         <fieldset className="import-pick">
           <legend className="sr-only">What to bring over</legend>
-          {(['commands', 'timers', 'points'] as const).map((k) => (
+          {(['commands', 'timers', 'points', 'watchtime'] as const).map((k) => (
             <label key={k} className="check">
               <input type="checkbox" checked={pick[k]} onChange={(e) => setPick({ ...pick, [k]: e.target.checked })} />
-              {k === 'points' ? 'Loyalty points' : k[0].toUpperCase() + k.slice(1)}
+              {k === 'points' ? 'Loyalty points' : k === 'watchtime' ? 'Watch time' : k[0].toUpperCase() + k.slice(1)}
             </label>
           ))}
         </fieldset>
-        <button className="btn primary" type="submit" disabled={busy || !token.trim() || !(pick.commands || pick.timers || pick.points)}>
+        <button className="btn primary" type="submit" disabled={busy || !token.trim() || !(pick.commands || pick.timers || pick.points || pick.watchtime)}>
           {busy ? 'Bringing it over' : 'Import'}
         </button>
       </form>
       {done && (
         <div className="card-body import-done" aria-live="polite">
           <p>
-            Brought over {plural(done.commands, 'command')}, {plural(done.timers, 'timer')} and points for {plural(done.points, 'viewer')}.
+            Brought over {plural(done.commands, 'command')}, {plural(done.timers, 'timer')}, points for {plural(done.points, 'viewer')} and watch time for {plural(done.watchtime, 'viewer')}.
             Commands with a name Sylva already uses were left alone, and viewers keep whichever balance is higher.
           </p>
           {done.skipped.length > 0 && (

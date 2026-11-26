@@ -388,7 +388,9 @@ impl ChannelDo {
             }
         }
         let now = Date::now().as_millis() as i64;
+        let minutes = (self.tick_ms() / 60_000).max(1);
         for w in watching.iter().filter(|w| self.earns(&w.id)) {
+            self.add_watch(w, minutes, false)?;
             let chatted = active.iter().any(|a| a.user_id == w.id);
             let pay = i64::from(s.watch) + if chatted { i64::from(s.active) } else { 0 };
             if pay > 0 {
@@ -396,6 +398,60 @@ impl ChannelDo {
             }
         }
         self.trim_ledger()
+    }
+
+    /// Add to a viewer's watch time, or with `at_least` raise it to `minutes`
+    /// (an import), so running an import twice changes nothing.
+    pub(crate) fn add_watch(&self, who: &Actor, minutes: i64, at_least: bool) -> Result<bool> {
+        let have = self.watch_minutes(&who.id)?.unwrap_or(0);
+        let next = if at_least { minutes } else { have + minutes };
+        if next <= have {
+            return Ok(false);
+        }
+        self.sql.exec(
+            "INSERT INTO watch_time (user_id, login, name, minutes) VALUES (?, ?, ?, ?)
+             ON CONFLICT(user_id) DO UPDATE SET login = excluded.login, name = excluded.name,
+             minutes = excluded.minutes",
+            vec![
+                who.id.as_str().into(),
+                who.login.to_lowercase().into(),
+                who.display_name.as_str().into(),
+                (next as f64).into(),
+            ],
+        )?;
+        Ok(true)
+    }
+
+    fn watch_minutes(&self, user_id: &str) -> Result<Option<i64>> {
+        #[derive(serde::Deserialize)]
+        struct Row {
+            minutes: f64,
+        }
+        let rows: Vec<Row> = self
+            .sql
+            .exec(
+                "SELECT minutes FROM watch_time WHERE user_id = ?",
+                vec![user_id.into()],
+            )?
+            .to_array()?;
+        Ok(rows.first().map(|r| r.minutes as i64))
+    }
+
+    /// `(display name, minutes)` for a login.
+    pub(crate) fn watch_by_login(&self, login: &str) -> Result<Option<(String, i64)>> {
+        #[derive(serde::Deserialize)]
+        struct Row {
+            name: String,
+            minutes: f64,
+        }
+        let rows: Vec<Row> = self
+            .sql
+            .exec(
+                "SELECT name, minutes FROM watch_time WHERE login = ?",
+                vec![login.to_lowercase().into()],
+            )?
+            .to_array()?;
+        Ok(rows.first().map(|r| (r.name.clone(), r.minutes as i64)))
     }
 
     /// Everyone in chat, from Twitch, when the streamer allowed it.

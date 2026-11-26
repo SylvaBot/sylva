@@ -1,0 +1,122 @@
+{
+  "testChat": {
+    "type": "button",
+    "label": "Send test messages",
+    "value": "test",
+    "group": "Testing"
+  },
+  "hideCommands": {
+    "type": "checkbox",
+    "label": "Hide commands",
+    "value": true,
+    "group": "Hiding"
+  },
+  "commandPrefixes": {
+    "type": "text",
+    "label": "Command starts with (separate with spaces)",
+    "value": "!",
+    "group": "Hiding"
+  },
+  "hiddenUsers": {
+    "type": "text",
+    "label": "Hide these users (comma separated)",
+    "value": "sylva_bot, streamelements, nightbot, moobot, fossabot, streamlabs, wizebot, soundalerts, sery_bot, kofistreambot",
+    "group": "Hiding"
+  },
+  "fontFamily": {
+    "type": "googleFont",
+    "label": "Font",
+    "value": "Inter",
+    "group": "Style"
+  },
+  "textSize": {
+    "type": "number",
+    "label": "Text size (% of screen width)",
+    "value": 3.8,
+    "min": 1,
+    "max": 15,
+    "step": 0.1,
+    "group": "Style"
+  },
+  "lineHeight": {
+    "type": "number",
+    "label": "Line spacing",
+    "value": 1.5,
+    "min": 1,
+    "max": 2.5,
+    "step": 0.05,
+    "group": "Style"
+  },
+  "messageGap": {
+    "type": "number",
+    "label": "Space between messages (in text heights)",
+    "value": 0.2,
+    "min": 0,
+    "max": 2,
+    "step": 0.05,
+    "group": "Style"
+  },
+  "edgeSpace": {
+    "type": "number",
+    "label": "Space from the edges (in text heights)",
+    "value": 0.4,
+    "min": 0,
+    "max": 5,
+    "step": 0.05,
+    "group": "Style"
+  },
+  "textColor": {
+    "type": "colorpicker",
+    "label": "Message text color",
+    "value": "#EFEFF1",
+    "group": "Style"
+  },
+  "textShadow": {
+    "type": "checkbox",
+    "label": "Soft shadow behind text (readable on any background)",
+    "value": true,
+    "group": "Style"
+  },
+  "fadeTop": {
+    "type": "checkbox",
+    "label": "Fade out old messages at the top edge",
+    "value": true,
+    "group": "Style"
+  },
+  "readableColors": {
+    "type": "checkbox",
+    "label": "Brighten dark name colors",
+    "value": true,
+    "group": "Style"
+  },
+  "showBadges": {
+    "type": "checkbox",
+    "label": "Show badges",
+    "value": true,
+    "group": "Messages"
+  },
+  "showReplies": {
+    "type": "checkbox",
+    "label": "Show \"Replying to\" line",
+    "value": true,
+    "group": "Messages"
+  },
+  "fadeAfter": {
+    "type": "number",
+    "label": "Remove messages after (seconds, 0 = never)",
+    "value": 0,
+    "min": 0,
+    "max": 3600,
+    "step": 1,
+    "group": "Messages"
+  },
+  "maxMessages": {
+    "type": "number",
+    "label": "Max messages kept",
+    "value": 50,
+    "min": 5,
+    "max": 200,
+    "step": 1,
+    "group": "Messages"
+  }
+}

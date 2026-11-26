@@ -135,6 +135,13 @@ CREATE TABLE IF NOT EXISTS points_ledger (
     at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS points_ledger_user ON points_ledger(user_id, id);
+CREATE TABLE IF NOT EXISTS watch_time (
+    user_id TEXT PRIMARY KEY,
+    login   TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    minutes INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS watch_time_login ON watch_time(login);
 CREATE TABLE IF NOT EXISTS points_active (
     user_id TEXT PRIMARY KEY,
     login   TEXT NOT NULL,
@@ -773,6 +780,8 @@ impl DurableObject for ChannelDo {
                     "points",
                     "points_ledger",
                     "points_active",
+                    "watch_time",
+                    "raffle_entries",
                     "redemptions",
                     "giveaways",
                     "giveaway_entries",

@@ -175,13 +175,22 @@ pub fn add_timers(settings: &mut BotSettings, list: &Value) -> (usize, Vec<Skipp
 
 /// `(login, points)` from a page of StreamElements' points list.
 pub fn point_rows(page: &Value) -> Vec<(String, i64)> {
+    rows(page, "points")
+}
+
+/// `(login, minutes)` from a page of StreamElements' watch time list.
+pub fn watch_rows(page: &Value) -> Vec<(String, i64)> {
+    rows(page, "minutes")
+}
+
+fn rows(page: &Value, field: &str) -> Vec<(String, i64)> {
     page["users"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|u| {
             let login = u["username"].as_str()?.trim().to_lowercase();
-            let points = num(&u["points"]);
+            let points = num(&u[field]);
             (!login.is_empty() && points > 0).then_some((login, points))
         })
         .collect()
@@ -241,6 +250,12 @@ mod tests {
         assert_eq!(s.timers[1].message, "Discord!");
         assert_eq!(s.timers[0].interval, 15);
         assert_eq!(s.timers[0].lines, 10);
+    }
+
+    #[test]
+    fn watch_time_rows() {
+        let page = json!({"users": [{"username": "Maple", "minutes": 90}, {"username": "x", "minutes": 0}]});
+        assert_eq!(watch_rows(&page), vec![("maple".to_string(), 90)]);
     }
 
     #[test]

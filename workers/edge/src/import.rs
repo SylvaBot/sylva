@@ -5,7 +5,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sylva_core::event::Actor;
-use sylva_core::import::{add_commands, add_timers, point_rows, Skipped, MAX_POINT_USERS, SE_API};
+use sylva_core::import::{
+    add_commands, add_timers, point_rows, watch_rows, Skipped, MAX_POINT_USERS, SE_API,
+};
 use worker::*;
 
 use crate::channel::ChannelDo;
@@ -20,6 +22,8 @@ pub(crate) struct ImportRequest {
     timers: bool,
     #[serde(default)]
     points: bool,
+    #[serde(default)]
+    watchtime: bool,
 }
 
 #[derive(Serialize, Default)]
@@ -27,6 +31,7 @@ pub(crate) struct ImportResult {
     commands: usize,
     timers: usize,
     points: usize,
+    watchtime: usize,
     skipped: Vec<Skipped>,
 }
 
@@ -60,7 +65,7 @@ impl ChannelDo {
         if token.is_empty() || token.len() > 4000 || token.contains(char::is_whitespace) {
             return Ok(Err("Paste your StreamElements JWT token".into()));
         }
-        if !(r.commands || r.timers || r.points) {
+        if !(r.commands || r.timers || r.points || r.watchtime) {
             return Ok(Err("Choose what to bring over".into()));
         }
         let (status, me) = self.se_get(&token, "/channels/me").await?;
@@ -125,15 +130,39 @@ impl ChannelDo {
                 });
             }
         }
+        if r.watchtime {
+            let (status, page) = self
+                .se_get(
+                    &token,
+                    &format!("/points/{se}/watchtime?limit={MAX_POINT_USERS}&offset=0"),
+                )
+                .await?;
+            if status != 200 {
+                return Ok(Err(format!(
+                    "StreamElements did not send your watch time ({status})."
+                )));
+            }
+            let rows = watch_rows(&page);
+            for (who, minutes) in self.twitch_users(&rows).await? {
+                if self.add_watch(&who, minutes, true)? {
+                    out.watchtime += 1;
+                }
+            }
+            let missing = rows.len() - out.watchtime;
+            if missing > 0 {
+                out.skipped.push(Skipped {
+                    what: format!("Watch time for {missing} viewer{}", if missing == 1 { "" } else { "s" }),
+                    why: "Their Twitch name no longer exists, or they already have more watch time in Sylva".into(),
+                });
+            }
+        }
         Ok(Ok(out))
     }
 
-    /// Give each viewer their StreamElements points, when that is more than
-    /// they have in Sylva, so running the import twice changes nothing.
-    async fn import_points(&self, rows: &[(String, i64)]) -> Result<usize> {
+    /// The Twitch viewer behind each StreamElements login, with its number.
+    async fn twitch_users(&self, rows: &[(String, i64)]) -> Result<Vec<(Actor, i64)>> {
         let app = App::new(&self.env).await?;
-        let now = Date::now().as_millis() as i64;
-        let mut done = 0;
+        let mut out = Vec::new();
         for chunk in rows.chunks(100) {
             let q: Vec<String> = chunk.iter().map(|(l, _)| format!("login={l}")).collect();
             let (status, v) = app
@@ -146,21 +175,34 @@ impl ChannelDo {
                 let (Some(id), Some(login)) = (u["id"].as_str(), u["login"].as_str()) else {
                     continue;
                 };
-                let Some((_, points)) = chunk.iter().find(|(l, _)| l == login) else {
+                let Some((_, n)) = chunk.iter().find(|(l, _)| l == login) else {
                     continue;
                 };
-                let have = self.viewer(id)?.map_or(0, |v| v.balance);
-                if *points <= have {
-                    continue;
-                }
-                let who = Actor {
-                    id: id.into(),
-                    login: login.into(),
-                    display_name: u["display_name"].as_str().unwrap_or(login).into(),
-                };
-                self.credit(&who, points - have, "Imported from StreamElements", now)?;
-                done += 1;
+                out.push((
+                    Actor {
+                        id: id.into(),
+                        login: login.into(),
+                        display_name: u["display_name"].as_str().unwrap_or(login).into(),
+                    },
+                    *n,
+                ));
             }
+        }
+        Ok(out)
+    }
+
+    /// Give each viewer their StreamElements points, when that is more than
+    /// they have in Sylva, so running the import twice changes nothing.
+    async fn import_points(&self, rows: &[(String, i64)]) -> Result<usize> {
+        let now = Date::now().as_millis() as i64;
+        let mut done = 0;
+        for (who, points) in self.twitch_users(rows).await? {
+            let have = self.viewer(&who.id)?.map_or(0, |v| v.balance);
+            if points <= have {
+                continue;
+            }
+            self.credit(&who, points - have, "Imported from StreamElements", now)?;
+            done += 1;
         }
         Ok(done)
     }

@@ -1,0 +1,15 @@
+/* Launch polish: small fixes found in the final review, kept apart so they read as one list. */
+
+/* Rule rows wrap their number fields on narrow screens; the switch stays with the title. */
+.mod-rule .type-row { align-items: flex-start; }
+.mod-rule .type-row > .switch { margin-top: 2px; }
+
+/* Platform tabs never break inside a tab. */
+.ca-tabs button { white-space: nowrap; }
+.ca-soon { padding: 1px 6px; border-radius: 999px; background: var(--surface-3); }
+
+@media (max-width: 560px) {
+  /* Tile notes wrap instead of ending in "...". */
+  .kpi-foot { align-items: flex-end; }
+  .kpi-foot > span { white-space: normal; overflow: visible; }
+}

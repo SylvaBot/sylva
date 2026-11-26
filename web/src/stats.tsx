@@ -37,12 +37,15 @@ export function useStats(days: number) {
 }
 
 /** Percent change against the period before, or null when there is nothing to compare. */
-export function change(now: number, before: number): number | null {
-  if (!before) return now ? null : 0;
+/** Percent change; null when there was nothing before (shown as New), and
+ * undefined when both are zero, where a "0%" would only add noise. */
+export function change(now: number, before: number): number | null | undefined {
+  if (!before) return now ? null : undefined;
   return ((now - before) / before) * 100;
 }
 
-export function Delta({ pct, label }: { pct: number | null; label: string }) {
+export function Delta({ pct, label }: { pct: number | null | undefined; label: string }) {
+  if (pct === undefined) return null;
   if (pct === null) return <span className="delta new" title={label}>New</span>;
   const r = Math.round(pct) || 0;
   const cls = r > 0 ? 'up' : r < 0 ? 'down' : 'flat';

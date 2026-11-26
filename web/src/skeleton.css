@@ -38,4 +38,4 @@
 .recap-skel > div { display: flex; flex-direction: column; gap: 8px; }
 .boot .boot-menu { display: none; }
 .boot .appbar > .skel:nth-child(2) { margin-right: auto; }
-@media (max-width: 860px) { .boot .boot-menu { display: block; } .boot .rail { display: none; } }
+@media (max-width: 640px) { .boot .boot-menu { display: block; } .boot .rail { display: none; } }

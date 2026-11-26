@@ -66,7 +66,7 @@ export function Shell({ path }: { path: string }) {
     if (!open) return;
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
     // Wider than a phone there is no drawer, so nothing may stay inert.
-    const wide = matchMedia('(min-width: 861px)');
+    const wide = matchMedia('(min-width: 641px)');
     const resized = () => wide.matches && setOpen(false);
     addEventListener('keydown', esc);
     wide.addEventListener('change', resized);

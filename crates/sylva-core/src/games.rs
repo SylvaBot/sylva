@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::bot::UserLevel;
 use crate::loyalty::grouped;
 
 /// The most a single bet may be, whatever the settings say.
@@ -34,12 +35,123 @@ pub struct GameSettings {
     pub slots: bool,
     pub blackjack: bool,
     pub duel: bool,
-    /// The smallest bet.
+    /// The smallest bet, for a game without its own.
     pub min_bet: u32,
-    /// The largest bet, or 0 for no limit besides the viewer's own points.
+    /// The largest bet, or 0 for no limit besides the viewer's own points,
+    /// for a game without its own.
     pub max_bet: u32,
-    /// Seconds a viewer waits between games.
+    /// Seconds a viewer waits between games, for a game without its own.
     pub cooldown: u32,
+    /// Who may play each game, and its own bets and cooldown.
+    pub rules: GameRules,
+    /// What each game pays.
+    pub odds: Odds,
+}
+
+/// One game's own limits. A missing number falls back to the shared one
+/// above, which is how settings saved before these existed keep working.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GameRule {
+    pub level: UserLevel,
+    /// Seconds before the same viewer may play again.
+    pub cooldown: Option<u32>,
+    /// Seconds before anyone may start this game again.
+    pub global_cooldown: u32,
+    pub min_bet: Option<u32>,
+    /// 0 for no limit.
+    pub max_bet: Option<u32>,
+}
+
+impl Default for GameRule {
+    fn default() -> Self {
+        GameRule {
+            level: UserLevel::Everyone,
+            cooldown: None,
+            global_cooldown: 0,
+            min_bet: None,
+            max_bet: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GameRules {
+    pub gamble: GameRule,
+    pub roulette: GameRule,
+    pub slots: GameRule,
+    pub blackjack: GameRule,
+    pub duel: GameRule,
+}
+
+/// Payouts as the percent of the bet that comes back, so 200 doubles it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Odds {
+    /// The lowest roll of 1 to 100 that wins `!gamble`.
+    pub gamble_win_at: u32,
+    pub gamble_win: u32,
+    /// A roll of 100.
+    pub gamble_jackpot: u32,
+    /// Red, black, even or odd.
+    pub roulette_color: u32,
+    pub roulette_number: u32,
+    pub slots_pair: u32,
+    pub slots_triple: u32,
+    /// Three 💎.
+    pub slots_jackpot: u32,
+    /// A blackjack on the first two cards.
+    pub blackjack_natural: u32,
+    /// Seconds a challenged viewer has to answer a duel.
+    pub duel_wait: u32,
+}
+
+impl Default for Odds {
+    fn default() -> Self {
+        Odds {
+            gamble_win_at: 56,
+            gamble_win: 200,
+            gamble_jackpot: 400,
+            roulette_color: 200,
+            roulette_number: 3600,
+            slots_pair: 150,
+            slots_triple: 1000,
+            slots_jackpot: 2000,
+            blackjack_natural: 250,
+            duel_wait: 120,
+        }
+    }
+}
+
+impl Odds {
+    fn validated(mut self) -> Odds {
+        self.gamble_win_at = self.gamble_win_at.clamp(2, 100);
+        for (v, lo, hi) in [
+            (&mut self.gamble_win, 101, 1_000),
+            (&mut self.gamble_jackpot, 101, 100_000),
+            (&mut self.roulette_color, 101, 1_000),
+            (&mut self.roulette_number, 101, 10_000),
+            (&mut self.slots_pair, 0, 1_000),
+            (&mut self.slots_triple, 101, 100_000),
+            (&mut self.slots_jackpot, 101, 100_000),
+            (&mut self.blackjack_natural, 101, 1_000),
+            (&mut self.duel_wait, 15, 600),
+        ] {
+            *v = (*v).clamp(lo, hi);
+        }
+        self
+    }
+}
+
+/// One game's limits with the shared ones filled in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    pub level: UserLevel,
+    pub cooldown: u32,
+    pub global_cooldown: u32,
+    pub min_bet: u32,
+    pub max_bet: u32,
 }
 
 impl Default for GameSettings {
@@ -53,6 +165,8 @@ impl Default for GameSettings {
             min_bet: 10,
             max_bet: 0,
             cooldown: 30,
+            rules: GameRules::default(),
+            odds: Odds::default(),
         }
     }
 }
@@ -65,6 +179,24 @@ impl GameSettings {
             self.max_bet = self.min_bet;
         }
         self.cooldown = self.cooldown.min(3600);
+        for r in [
+            &mut self.rules.gamble,
+            &mut self.rules.roulette,
+            &mut self.rules.slots,
+            &mut self.rules.blackjack,
+            &mut self.rules.duel,
+        ] {
+            r.cooldown = r.cooldown.map(|c| c.min(3600));
+            r.global_cooldown = r.global_cooldown.min(3600);
+            r.min_bet = r.min_bet.map(|b| b.clamp(1, MAX_BET as u32));
+            r.max_bet = r.max_bet.map(|b| b.min(MAX_BET as u32));
+            if let (Some(lo), Some(hi)) = (r.min_bet, r.max_bet) {
+                if hi != 0 && hi < lo {
+                    r.max_bet = Some(lo);
+                }
+            }
+        }
+        self.odds = self.odds.validated();
         self
     }
 
@@ -79,8 +211,42 @@ impl GameSettings {
         }
     }
 
+    /// A game's limits, with the shared ones where it has none of its own.
+    pub fn limits(&self, game: Game) -> Limits {
+        let r = match game {
+            Game::Gamble => &self.rules.gamble,
+            Game::Roulette => &self.rules.roulette,
+            Game::Slots => &self.rules.slots,
+            Game::Blackjack => &self.rules.blackjack,
+            Game::Duel => &self.rules.duel,
+        };
+        let min_bet = r.min_bet.unwrap_or(self.min_bet);
+        let max_bet = r.max_bet.unwrap_or(self.max_bet);
+        Limits {
+            level: r.level,
+            cooldown: r.cooldown.unwrap_or(self.cooldown),
+            global_cooldown: r.global_cooldown,
+            min_bet,
+            max_bet: if max_bet != 0 {
+                max_bet.max(min_bet)
+            } else {
+                0
+            },
+        }
+    }
+
     /// Check a bet against the limits, as the line to post when it fails.
-    pub fn check(&self, bet: i64, balance: i64, user: &str, name: &str) -> Result<(), String> {
+    pub fn check(
+        &self,
+        game: Game,
+        bet: i64,
+        balance: i64,
+        user: &str,
+        name: &str,
+    ) -> Result<(), String> {
+        let Limits {
+            min_bet, max_bet, ..
+        } = self.limits(game);
         if balance <= 0 {
             return Err(format!("{user}, you have no {name} yet."));
         }
@@ -90,16 +256,16 @@ impl GameSettings {
                 grouped(balance)
             ));
         }
-        if bet < i64::from(self.min_bet) {
+        if bet < i64::from(min_bet) {
             return Err(format!(
                 "{user}, the smallest bet is {} {name}.",
-                grouped(self.min_bet.into())
+                grouped(min_bet.into())
             ));
         }
-        if self.max_bet != 0 && bet > i64::from(self.max_bet) {
+        if max_bet != 0 && bet > i64::from(max_bet) {
             return Err(format!(
                 "{user}, the largest bet is {} {name}.",
-                grouped(self.max_bet.into())
+                grouped(max_bet.into())
             ));
         }
         Ok(())
@@ -168,13 +334,23 @@ pub fn bet(arg: &str, balance: i64) -> Option<i64> {
     (n > 0).then_some(n.min(MAX_BET))
 }
 
-/// `!gamble`: a roll of 1 to 100. 56 or more doubles the bet, and 100
-/// pays four times.
-pub fn gamble(roll: u32, bet: i64, user: &str, name: &str) -> (i64, String) {
-    let (net, how) = match roll {
-        100 => (bet * 3, "hit the jackpot and won"),
-        56..=99 => (bet, "won"),
-        _ => (-bet, "lost"),
+/// The points that come back for `pct` percent of `bet`.
+fn pays(bet: i64, pct: u32) -> i64 {
+    bet.saturating_mul(i64::from(pct)) / 100
+}
+
+/// `!gamble`: a roll of 1 to 100. By default 56 or more doubles the bet,
+/// and 100 pays four times.
+pub fn gamble(roll: u32, bet: i64, odds: &Odds, user: &str, name: &str) -> (i64, String) {
+    let (net, how) = if roll >= 100 {
+        (
+            pays(bet, odds.gamble_jackpot) - bet,
+            "hit the jackpot and won",
+        )
+    } else if roll >= odds.gamble_win_at {
+        (pays(bet, odds.gamble_win) - bet, "won")
+    } else {
+        (-bet, "lost")
     };
     (
         net,
@@ -236,15 +412,23 @@ fn color(n: u32) -> &'static str {
 
 /// `!roulette`: a wheel with 0 to 36. Colors, even and odd pay even money;
 /// a single number pays 35 to 1.
-pub fn roulette(spin: u32, pick: Pick, bet: i64, user: &str, name: &str) -> (i64, String) {
-    let won_times = match pick {
-        Pick::Red => (color(spin) == "red").then_some(1),
-        Pick::Black => (color(spin) == "black").then_some(1),
-        Pick::Even => (spin != 0 && spin.is_multiple_of(2)).then_some(1),
-        Pick::Odd => (spin % 2 == 1).then_some(1),
-        Pick::Number(n) => (n == spin).then_some(35),
+pub fn roulette(
+    spin: u32,
+    pick: Pick,
+    bet: i64,
+    odds: &Odds,
+    user: &str,
+    name: &str,
+) -> (i64, String) {
+    let (c, n) = (odds.roulette_color, odds.roulette_number);
+    let won = match pick {
+        Pick::Red => (color(spin) == "red").then_some(c),
+        Pick::Black => (color(spin) == "black").then_some(c),
+        Pick::Even => (spin != 0 && spin.is_multiple_of(2)).then_some(c),
+        Pick::Odd => (spin % 2 == 1).then_some(c),
+        Pick::Number(x) => (x == spin).then_some(n),
     };
-    let net = won_times.map_or(-bet, |t| bet * t);
+    let net = won.map_or(-bet, |pct| pays(bet, pct) - bet);
     let how = if net > 0 { "won" } else { "lost" };
     (
         net,
@@ -261,16 +445,16 @@ pub const SYMBOLS: [&str; 6] = ["🍒", "🍋", "🍇", "🔔", "⭐", "💎"];
 
 /// `!slots`: three reels of six symbols. Three of a kind pays ten times
 /// (twenty for 💎), two of a kind gives back one and a half times the bet.
-pub fn slots(reels: [usize; 3], bet: i64, user: &str, name: &str) -> (i64, String) {
+pub fn slots(reels: [usize; 3], bet: i64, odds: &Odds, user: &str, name: &str) -> (i64, String) {
     let [a, b, c] = reels.map(|r| r % SYMBOLS.len());
     let back = if a == b && b == c {
         if SYMBOLS[a] == "💎" {
-            bet * 20
+            pays(bet, odds.slots_jackpot)
         } else {
-            bet * 10
+            pays(bet, odds.slots_triple)
         }
     } else if a == b || b == c || a == c {
-        bet + bet / 2
+        pays(bet, odds.slots_pair)
     } else {
         0
     };
@@ -334,7 +518,14 @@ pub enum Play {
 }
 
 /// Deal a new hand. The bet is taken before this.
-pub fn deal(bet: i64, now: i64, draw: &mut dyn FnMut() -> u8, user: &str, name: &str) -> Play {
+pub fn deal(
+    bet: i64,
+    now: i64,
+    natural_pays: u32,
+    draw: &mut dyn FnMut() -> u8,
+    user: &str,
+    name: &str,
+) -> Play {
     let player = vec![draw(), draw()];
     let dealer = vec![draw(), draw()];
     let hand = Hand {
@@ -344,7 +535,7 @@ pub fn deal(bet: i64, now: i64, draw: &mut dyn FnMut() -> u8, user: &str, name: 
         at: now,
     };
     if natural(&hand.player) || natural(&hand.dealer) {
-        return settle(hand, user, name);
+        return settle(hand, natural_pays, user, name);
     }
     let line = format!(
         "{user}, you have {}. The dealer shows {}. Type !hit or !stand.",
@@ -355,7 +546,13 @@ pub fn deal(bet: i64, now: i64, draw: &mut dyn FnMut() -> u8, user: &str, name: 
 }
 
 /// `!hit`: one more card.
-pub fn hit(mut hand: Hand, draw: &mut dyn FnMut() -> u8, user: &str, name: &str) -> Play {
+pub fn hit(
+    mut hand: Hand,
+    natural_pays: u32,
+    draw: &mut dyn FnMut() -> u8,
+    user: &str,
+    name: &str,
+) -> Play {
     hand.player.push(draw());
     let t = total(&hand.player);
     if t > 21 {
@@ -369,7 +566,7 @@ pub fn hit(mut hand: Hand, draw: &mut dyn FnMut() -> u8, user: &str, name: &str)
         };
     }
     if t == 21 {
-        return stand(hand, draw, user, name);
+        return stand(hand, natural_pays, draw, user, name);
     }
     let line = format!(
         "{user}, you have {}. The dealer shows {}. Type !hit or !stand.",
@@ -380,22 +577,29 @@ pub fn hit(mut hand: Hand, draw: &mut dyn FnMut() -> u8, user: &str, name: &str)
 }
 
 /// `!stand`: the dealer draws to 17, then the hands are compared.
-pub fn stand(mut hand: Hand, draw: &mut dyn FnMut() -> u8, user: &str, name: &str) -> Play {
+pub fn stand(
+    mut hand: Hand,
+    natural_pays: u32,
+    draw: &mut dyn FnMut() -> u8,
+    user: &str,
+    name: &str,
+) -> Play {
     while total(&hand.dealer) < 17 {
         hand.dealer.push(draw());
     }
-    settle(hand, user, name)
+    settle(hand, natural_pays, user, name)
 }
 
-fn settle(hand: Hand, user: &str, name: &str) -> Play {
+fn settle(hand: Hand, natural_pays: u32, user: &str, name: &str) -> Play {
     let (p, d) = (total(&hand.player), total(&hand.dealer));
     let bet = hand.bet;
     let (back, how) = if natural(&hand.player) && natural(&hand.dealer) {
         (bet, "Both have blackjack, a push.".to_string())
     } else if natural(&hand.player) {
-        let won = bet * 3 / 2;
+        let back = pays(bet, natural_pays);
+        let won = back - bet;
         (
-            bet + won,
+            back,
             format!("Blackjack! {user} won {} {name}.", grouped(won)),
         )
     } else if natural(&hand.dealer) {
@@ -583,29 +787,49 @@ mod tests {
             max_bet: 500,
             ..GameSettings::default()
         };
-        assert!(s.check(100, 1000, "a", "points").is_ok());
-        assert!(s.check(5, 1000, "a", "points").is_err());
-        assert!(s.check(600, 1000, "a", "points").is_err());
-        assert!(s.check(100, 50, "a", "points").is_err());
-        assert!(s.check(100, 0, "a", "points").is_err());
+        assert!(s.check(Game::Gamble, 100, 1000, "a", "points").is_ok());
+        assert!(s.check(Game::Gamble, 5, 1000, "a", "points").is_err());
+        assert!(s.check(Game::Gamble, 600, 1000, "a", "points").is_err());
+        assert!(s.check(Game::Gamble, 100, 50, "a", "points").is_err());
+        assert!(s.check(Game::Gamble, 100, 0, "a", "points").is_err());
     }
 
     #[test]
     fn gamble_rolls() {
-        assert_eq!(gamble(55, 100, "a", "p").0, -100);
-        assert_eq!(gamble(56, 100, "a", "p").0, 100);
-        assert_eq!(gamble(100, 100, "a", "p").0, 300);
-        assert_eq!(gamble(1, 100, "a", "p").1, "a rolled 1 and lost 100 p.");
+        assert_eq!(gamble(55, 100, &Odds::default(), "a", "p").0, -100);
+        assert_eq!(gamble(56, 100, &Odds::default(), "a", "p").0, 100);
+        assert_eq!(gamble(100, 100, &Odds::default(), "a", "p").0, 300);
+        assert_eq!(
+            gamble(1, 100, &Odds::default(), "a", "p").1,
+            "a rolled 1 and lost 100 p."
+        );
     }
 
     #[test]
     fn roulette_pays() {
-        assert_eq!(roulette(1, Pick::Red, 10, "a", "p").0, 10);
-        assert_eq!(roulette(2, Pick::Red, 10, "a", "p").0, -10);
-        assert_eq!(roulette(0, Pick::Even, 10, "a", "p").0, -10);
-        assert_eq!(roulette(17, Pick::Number(17), 10, "a", "p").0, 350);
+        assert_eq!(roulette(1, Pick::Red, 10, &Odds::default(), "a", "p").0, 10);
         assert_eq!(
-            roulette(0, Pick::parse("green").unwrap(), 10, "a", "p").0,
+            roulette(2, Pick::Red, 10, &Odds::default(), "a", "p").0,
+            -10
+        );
+        assert_eq!(
+            roulette(0, Pick::Even, 10, &Odds::default(), "a", "p").0,
+            -10
+        );
+        assert_eq!(
+            roulette(17, Pick::Number(17), 10, &Odds::default(), "a", "p").0,
+            350
+        );
+        assert_eq!(
+            roulette(
+                0,
+                Pick::parse("green").unwrap(),
+                10,
+                &Odds::default(),
+                "a",
+                "p"
+            )
+            .0,
             350
         );
         assert_eq!(Pick::parse("37"), None);
@@ -613,10 +837,10 @@ mod tests {
 
     #[test]
     fn slots_pay() {
-        assert_eq!(slots([0, 0, 0], 100, "a", "p").0, 900);
-        assert_eq!(slots([5, 5, 5], 100, "a", "p").0, 1900);
-        assert_eq!(slots([1, 1, 2], 100, "a", "p").0, 50);
-        assert_eq!(slots([0, 1, 2], 100, "a", "p").0, -100);
+        assert_eq!(slots([0, 0, 0], 100, &Odds::default(), "a", "p").0, 900);
+        assert_eq!(slots([5, 5, 5], 100, &Odds::default(), "a", "p").0, 1900);
+        assert_eq!(slots([1, 1, 2], 100, &Odds::default(), "a", "p").0, 50);
+        assert_eq!(slots([0, 1, 2], 100, &Odds::default(), "a", "p").0, -100);
     }
 
     fn shoe(cards: &[u8]) -> impl FnMut() -> u8 + '_ {
@@ -635,23 +859,23 @@ mod tests {
         assert_eq!(total(&[10, 6, 1]), 17);
         // Player A K against dealer 9 7: blackjack pays 3 to 2.
         let mut d = shoe(&[1, 13, 9, 7]);
-        match deal(100, 0, &mut d, "a", "p") {
+        match deal(100, 0, 250, &mut d, "a", "p") {
             Play::Done { back, .. } => assert_eq!(back, 250),
             other => panic!("{other:?}"),
         }
         // Player 10 6 against dealer 9 8, hits a 10 and busts.
         let mut d = shoe(&[10, 6, 9, 8, 10]);
-        let Play::Going(hand, _) = deal(100, 0, &mut d, "a", "p") else {
+        let Play::Going(hand, _) = deal(100, 0, 250, &mut d, "a", "p") else {
             panic!()
         };
         assert!(matches!(
-            hit(hand.clone(), &mut d, "a", "p"),
+            hit(hand.clone(), 250, &mut d, "a", "p"),
             Play::Done { back: 0, .. }
         ));
         // Standing on 16 against 17 loses; dealer drawing past 21 wins.
         let mut none = shoe(&[2]);
         assert!(matches!(
-            stand(hand.clone(), &mut none, "a", "p"),
+            stand(hand.clone(), 250, &mut none, "a", "p"),
             Play::Done { back: 0, .. }
         ));
         let soft = Hand {
@@ -660,8 +884,29 @@ mod tests {
         };
         let mut ten = shoe(&[10]);
         assert!(matches!(
-            stand(soft, &mut ten, "a", "p"),
+            stand(soft, 250, &mut ten, "a", "p"),
             Play::Done { back: 200, .. }
         ));
+    }
+
+    #[test]
+    fn custom_odds_and_limits() {
+        let odds = Odds {
+            gamble_win_at: 90,
+            gamble_win: 300,
+            ..Odds::default()
+        };
+        assert_eq!(gamble(89, 100, &odds, "a", "p").0, -100);
+        assert_eq!(gamble(90, 100, &odds, "a", "p").0, 200);
+        let mut s = GameSettings::default();
+        s.rules.slots.min_bet = Some(500);
+        s.rules.slots.cooldown = Some(5);
+        assert!(s.check(Game::Slots, 100, 1000, "a", "p").is_err());
+        assert!(s.check(Game::Gamble, 100, 1000, "a", "p").is_ok());
+        assert_eq!(s.limits(Game::Slots).cooldown, 5);
+        assert_eq!(s.limits(Game::Gamble).cooldown, 30);
+        let old: GameSettings = serde_json::from_str(r#"{"minBet":20,"cooldown":10}"#).unwrap();
+        assert_eq!(old.limits(Game::Duel).min_bet, 20);
+        assert_eq!(old.odds, Odds::default());
     }
 }

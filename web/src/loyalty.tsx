@@ -3,7 +3,7 @@
 // crates/sylva-core/src/loyalty.rs, which checks every save again.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type GameSettings, type LoyaltySettings, type RaffleSettings, type LoyaltyView, type PointsEntry, type PointsViewer } from './api';
+import { api, type LoyaltySettings, type LoyaltyView, type PointsEntry, type PointsViewer } from './api';
 import { useChannel } from './channel';
 import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
@@ -49,7 +49,6 @@ export function LoyaltyPage() {
 
   const changed = !!view && !!draft && !same(draft, view.settings);
   const set = (patch: Partial<LoyaltySettings>) => draft && setDraft({ ...draft, ...patch });
-  const setGames = (patch: Partial<GameSettings>) => draft && setDraft({ ...draft, games: { ...draft.games, ...patch } });
 
   const save = async (next: LoyaltySettings, done?: string) => {
     setBusy(true);
@@ -80,18 +79,6 @@ export function LoyaltyPage() {
         setBusy(false);
       }
     })();
-  };
-
-  // The raffle card saves on its own, keeping any other edits as a draft.
-  const saveRaffle = async (raffle: RaffleSettings) => {
-    if (!view) return;
-    try {
-      const v = await api.saveLoyalty(ch.key, { ...view.settings, raffle });
-      setView(v);
-      setDraft((d) => (d ? { ...d, raffle: v.settings.raffle } : v.settings));
-    } catch (x) {
-      toast(errorText(x), true);
-    }
   };
 
   const name = view?.settings.name ?? 'points';
@@ -169,32 +156,8 @@ export function LoyaltyPage() {
             <p className="card-body field-hint points-foot">You and your bot never earn. A balance never drops below zero.</p>
           </Card>
 
-          <Card
-            id="points-games"
-            title="Games"
-            desc={`Viewers bet their ${name} in chat. Bets can be a number, 2k, half, 25% or all.`}
-          >
-            <Gate on={ch.can.edit}>
-              <ul className="types points-cmds">
-                {GAMES.map((g) => (
-                  <li key={g.key} className={'type' + (draft.games[g.key] ? '' : ' off')}>
-                    <div className="type-row">
-                      <div className="type-main">
-                        <b><code>{g.cmd}</code></b>
-                        <span>{g.what}</span>
-                      </div>
-                      <button className="switch" type="button" role="switch" aria-checked={draft.games[g.key]} aria-label={g.cmd} onClick={() => setGames({ [g.key]: !draft.games[g.key] })} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <div className="card-body games-limits">
-                <div className="field"><span>Smallest bet</span><NumberField label="Smallest bet" value={draft.games.minBet} min={1} max={MAX_BET} onChange={(n) => setGames({ minBet: n })} /></div>
-                <div className="field"><span>Largest bet (0 for no limit)</span><NumberField label="Largest bet (0 for no limit)" value={draft.games.maxBet} min={0} max={MAX_BET} onChange={(n) => setGames({ maxBet: n })} /></div>
-                <div className="field"><span>Seconds between games</span><NumberField label="Seconds between games" value={draft.games.cooldown} min={0} max={3600} onChange={(n) => setGames({ cooldown: n })} /></div>
-              </div>
-            </Gate>
-          </Card>
+          <Card id="points-games" title="Games" desc={`!gamble, !roulette, !slots, !blackjack, !duel and !raffle, with their odds, bets and cooldowns, are on the Chat bot page.`}
+            action={<Link className="btn sm" href="/app/bot#games">Open Games</Link>}>{null}</Card>
 
           {changed && (
             <div className="save-bar" role="region" aria-label="Unsaved changes">
@@ -204,7 +167,6 @@ export function LoyaltyPage() {
             </div>
           )}
 
-          <RaffleCard settings={view.settings.raffle} name={name} canEdit={ch.can.edit} onSave={saveRaffle} />
 
           <Card id="points-commands" title="Chat commands" desc="What viewers and moderators can type. Viewers wait 5 seconds between checks; moderators never wait.">
             <ul className="types points-cmds">
@@ -222,63 +184,6 @@ export function LoyaltyPage() {
   );
 }
 
-const MAX_BET = 10_000_000;
-
-function RaffleCard({ settings, name, canEdit, onSave }: {
-  settings: RaffleSettings; name: string; canEdit: boolean; onSave(r: RaffleSettings): Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [r, setR] = useState(settings);
-  const timer = useRef<number | undefined>(undefined);
-  // While the form is open it keeps what was typed (the server trims spaces).
-  useEffect(() => { if (!open) setR(settings); }, [settings, open]);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  // Changes save by themselves, a moment after the last keystroke.
-  const change = (patch: Partial<RaffleSettings>, now = false) => {
-    const next = { ...r, ...patch };
-    setR(next);
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => void onSave(next), now ? 0 : 800);
-  };
-  const text = (k: 'start' | 'running' | 'end', label: string) => (
-    <label className="field" htmlFor={`raffle-${k}`}>
-      <span>{label}</span>
-      <textarea id={`raffle-${k}`} className="input" rows={2} maxLength={300} value={r[k]} onChange={(e) => change({ [k]: e.target.value })} />
-    </label>
-  );
-  return (
-    <Card
-      id="points-raffle"
-      title="Raffle"
-      desc={`A moderator types !raffle or !raffle 1000, viewers type !join, and one of them wins the ${name}. Nobody pays to enter.`}
-      action={
-        <div className="field inline points-switch">
-          {canEdit && <button className="btn sm" type="button" aria-expanded={open} aria-controls="raffle-edit" onClick={() => setOpen((o) => !o)}>{open ? 'Done' : 'Edit'}</button>}
-          <button className="switch" type="button" role="switch" aria-checked={r.enabled} aria-label="Raffle" disabled={!canEdit} onClick={() => change({ enabled: !r.enabled }, true)} />
-        </div>
-      }
-    >
-      {open && canEdit && (
-        <div id="raffle-edit" className="card-body points-settings">
-          <div className="field inline"><span>Duration (seconds)</span><NumberField label="Duration in seconds" value={r.duration} min={10} max={3600} onChange={(n) => change({ duration: n }, true)} /></div>
-          <div className="field inline"><span>Maximum amount ({name})</span><NumberField label="Maximum amount" value={r.maxAmount} min={1} max={MAX_BET} onChange={(n) => change({ maxAmount: n }, true)} /></div>
-          {text('start', 'Start message')}
-          {text('running', 'Running message (sent halfway)')}
-          {text('end', 'End message')}
-          <p className="field-hint">Variables: {'{points}'}, {'{pointsname}'}, {'{time}'} and {'{winner}'}. Changes save automatically.</p>
-        </div>
-      )}
-    </Card>
-  );
-}
-type GameKey = 'gamble' | 'roulette' | 'slots' | 'blackjack' | 'duel';
-const GAMES: { key: GameKey; cmd: string; what: string }[] = [
-  { key: 'gamble', cmd: '!gamble 100', what: 'Rolls 1 to 100. 56 or more doubles the bet, and 100 pays four times.' },
-  { key: 'roulette', cmd: '!roulette 100 red', what: 'Bet on red, black, even, odd, green or a number from 0 to 36. A single number pays 35 to 1.' },
-  { key: 'slots', cmd: '!slots 100', what: 'Three reels. Three of a kind pays 10 times (20 for 💎), two of a kind 1.5 times.' },
-  { key: 'blackjack', cmd: '!blackjack 100', what: 'Then !hit or !stand. Blackjack pays 3 to 2, and the dealer stands on 17. Also !bj.' },
-  { key: 'duel', cmd: '!duel @name 100', what: 'The other viewer has 2 minutes to !accept or !deny. The winner takes the bet.' },
-];
 
 function CommandRow({ cmd, alt, what, off }: { cmd: string; alt?: string; what: string; off?: boolean }) {
   return (

@@ -18,6 +18,16 @@ use crate::channel::ChannelDo;
 use crate::community::Ask;
 use crate::util::random_bytes;
 
+/// `120` as "2 minutes", `45` as "45 seconds".
+fn wait_words(secs: u32) -> String {
+    match (secs / 60, secs % 60) {
+        (0, s) => format!("{s} seconds"),
+        (1, 0) => "a minute".into(),
+        (m, 0) => format!("{m} minutes"),
+        (m, s) => format!("{m} minutes {s} seconds"),
+    }
+}
+
 /// A random number below `n`.
 fn below(n: u32) -> Result<u32> {
     let b = random_bytes::<8>()?;
@@ -80,19 +90,32 @@ impl ChannelDo {
         if !s.enabled || !s.games.on(game) {
             return Ok(None);
         }
-        let Ask { now, dry, .. } = *ask;
+        let Ask {
+            now, dry, level, ..
+        } = *ask;
         if !dry && who.is_none() {
             return Ok(None);
         }
         let id = who.map_or("test", |w| w.id.as_str());
         let starts = STARTS.contains(&trigger);
+        let limits = s.games.limits(game);
+        if starts && level < limits.level {
+            return Ok(None);
+        }
         if starts && !dry {
-            let key = format!("g:{}:{id}", game.key());
-            let wait = i64::from(s.games.cooldown) * 1000;
-            if self.last_used(&key)?.is_some_and(|l| now - l < wait) {
-                return Ok(None);
+            let mine = format!("g:{}:{id}", game.key());
+            let all = format!("g:{}", game.key());
+            let waits = [
+                (&mine, i64::from(limits.cooldown) * 1000),
+                (&all, i64::from(limits.global_cooldown) * 1000),
+            ];
+            for (key, wait) in waits {
+                if wait > 0 && self.last_used(key)?.is_some_and(|l| now - l < wait) {
+                    return Ok(None);
+                }
             }
-            self.mark_used(&key, now)?;
+            self.mark_used(&mine, now)?;
+            self.mark_used(&all, now)?;
         }
         let balance = match who {
             Some(w) => self.viewer(&w.id)?.map_or(0, |v| v.balance),
@@ -109,15 +132,15 @@ impl ChannelDo {
                 let Some(b) = args.first().and_then(|a| bet(a, balance)) else {
                     return usage(&format!("!{trigger} 100 or !{trigger} all"));
                 };
-                if let Err(line) = s.games.check(b, balance, user, name) {
+                if let Err(line) = s.games.check(game, b, balance, user, name) {
                     return Ok(Some(line));
                 }
                 let (net, line) = if trigger == "gamble" {
-                    gamble(1 + below(100)?, b, user, name)
+                    gamble(1 + below(100)?, b, &s.games.odds, user, name)
                 } else {
                     let n = SYMBOLS.len() as u32;
                     let reels = [below(n)?, below(n)?, below(n)?].map(|r| r as usize);
-                    slots(reels, b, user, name)
+                    slots(reels, b, &s.games.odds, user, name)
                 };
                 if let (false, Some(w)) = (dry, who) {
                     let why = if trigger == "gamble" {
@@ -141,10 +164,10 @@ impl ChannelDo {
                 let (Some(b), Some(pick)) = (bet(amount, balance), pick) else {
                     return usage("!roulette 100 red, or black, even, odd, green or 0 to 36");
                 };
-                if let Err(line) = s.games.check(b, balance, user, name) {
+                if let Err(line) = s.games.check(game, b, balance, user, name) {
                     return Ok(Some(line));
                 }
-                let (net, line) = roulette(below(37)?, pick, b, user, name);
+                let (net, line) = roulette(below(37)?, pick, b, &s.games.odds, user, name);
                 if let (false, Some(w)) = (dry, who) {
                     self.credit(w, net, "Roulette", now)?;
                 }
@@ -173,6 +196,7 @@ impl ChannelDo {
         dry: bool,
     ) -> Result<Option<String>> {
         let name = s.name.as_str();
+        let pays = s.games.odds.blackjack_natural;
         let key = format!("bj:{}", who.map_or("test", |w| w.id.as_str()));
         let open: Option<Hand> = if dry { None } else { self.stored(&key)? };
         let mut draw = drawer(shoe()?);
@@ -198,11 +222,11 @@ impl ChannelDo {
         if let Some(hand) = open {
             if now - hand.at > ANSWER_MS {
                 // A hand left too long stands where it is.
-                return finish(stand(hand, &mut draw, user, name));
+                return finish(stand(hand, pays, &mut draw, user, name));
             }
             return finish(match trigger {
-                "hit" => hit(hand, &mut draw, user, name),
-                "stand" => stand(hand, &mut draw, user, name),
+                "hit" => hit(hand, pays, &mut draw, user, name),
+                "stand" => stand(hand, pays, &mut draw, user, name),
                 _ => {
                     return Ok(Some(format!(
                         "{user}, you are still playing a hand. Type !hit or !stand."
@@ -216,13 +240,13 @@ impl ChannelDo {
         let Some(b) = args.first().and_then(|a| bet(a, balance)) else {
             return Ok(Some(format!("{user}, try !blackjack 100.")));
         };
-        if let Err(line) = s.games.check(b, balance, user, name) {
+        if let Err(line) = s.games.check(Game::Blackjack, b, balance, user, name) {
             return Ok(Some(line));
         }
         if let (false, Some(w)) = (dry, who) {
             self.credit(w, -b, "Blackjack bet", now)?;
         }
-        finish(deal(b, now, &mut draw, user, name))
+        finish(deal(b, now, pays, &mut draw, user, name))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -238,6 +262,7 @@ impl ChannelDo {
         dry: bool,
     ) -> Result<Option<String>> {
         let name = s.name.as_str();
+        let wait_ms = i64::from(s.games.odds.duel_wait) * 1000;
         let me = who.map_or_else(|| user.to_lowercase(), |w| w.login.clone());
         if trigger == "duel" {
             let target = args.first().and_then(|a| sylva_core::loyalty::login_arg(a));
@@ -248,19 +273,20 @@ impl ChannelDo {
             if target == me {
                 return Ok(None);
             }
-            if let Err(line) = s.games.check(b, balance, user, name) {
+            if let Err(line) = s.games.check(Game::Duel, b, balance, user, name) {
                 return Ok(Some(line));
             }
             let line = format!(
-                "{user} challenges {target} to a duel for {} {name}. {target}, type !accept or !deny within 2 minutes.",
-                grouped(b)
+                "{user} challenges {target} to a duel for {} {name}. {target}, type !accept or !deny within {}.",
+                grouped(b),
+                wait_words(s.games.odds.duel_wait)
             );
             let (false, Some(w)) = (dry, who) else {
                 return Ok(Some(line));
             };
             let key = format!("duel:{target}");
             if let Some(c) = self.stored::<Challenge>(&key)? {
-                if now - c.at <= ANSWER_MS {
+                if now - c.at <= wait_ms {
                     return Ok(Some(format!("{target} already has a duel waiting.")));
                 }
             }
@@ -282,7 +308,7 @@ impl ChannelDo {
             return Ok(None);
         };
         self.clear_config(&key)?;
-        if now - c.at > ANSWER_MS {
+        if now - c.at > wait_ms {
             return Ok(None);
         }
         if trigger == "deny" {

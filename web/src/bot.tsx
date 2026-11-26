@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, type Builtin, type BuiltinGroup, type BuiltinSetting, type TimerStatus, type UserLevel } from './api';
 import { useChannel } from './channel';
 import { Counters, Quotes } from './community';
+import { GamesTab } from './games';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
 import { errorText, Gate, Icon, num, useToast } from './ui';
@@ -45,10 +46,11 @@ const blank = (): BotCommand => ({
   name: '', aliases: [], reply: '', level: 'everyone', cooldown: 0, userCooldown: 0, enabled: true, count: 0,
 });
 
-type BotTab = 'commands' | 'builtins' | 'timers' | 'counters' | 'quotes' | 'test';
+type BotTab = 'commands' | 'builtins' | 'games' | 'timers' | 'counters' | 'quotes' | 'test';
 const BOT_TABS: { id: BotTab; label: string }[] = [
   { id: 'commands', label: 'Your commands' },
   { id: 'builtins', label: 'Built-in' },
+  { id: 'games', label: 'Games' },
   { id: 'timers', label: 'Timers' },
   { id: 'counters', label: 'Counters' },
   { id: 'quotes', label: 'Quotes' },
@@ -237,6 +239,8 @@ export function BotPage() {
           </Card>}
 
           {tab === 'builtins' && <Builtins view={view!} onSave={save} />}
+
+          {tab === 'games' && <GamesTab />}
 
           {tab === 'timers' && <Gate on={ch.can.edit}><Timers view={view!} onSave={save} onView={setView} /></Gate>}
 

@@ -553,7 +553,10 @@ impl DurableObject for ChannelDo {
             }
             (Method::Get, ["chat-alerts"]) => Response::from_json(&self.chat_alerts_view().await?),
             (Method::Post, ["chat-alerts"]) => {
-                let Ok(body) = req.json::<sylva_core::chat_alerts::ChatAlertSettings>().await else {
+                let Ok(body) = req
+                    .json::<sylva_core::chat_alerts::ChatAlertSettings>()
+                    .await
+                else {
                     return Response::error("Those chat alert settings could not be read", 400);
                 };
                 match body.validated() {

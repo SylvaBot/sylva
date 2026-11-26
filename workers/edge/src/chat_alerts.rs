@@ -73,11 +73,7 @@ impl ChannelDo {
         };
         let app = App::new(&self.env).await?;
         let (status, v) = app
-            .helix(
-                Method::Get,
-                &format!("/channels?broadcaster_id={id}"),
-                None,
-            )
+            .helix(Method::Get, &format!("/channels?broadcaster_id={id}"), None)
             .await?;
         if status != 200 {
             return Err(Error::RustError(format!("Twitch answered {status}")));

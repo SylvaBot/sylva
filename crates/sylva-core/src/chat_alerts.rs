@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::event::{Event, EventKind, Platform};
 use crate::alerts::Invalid;
+use crate::event::{Event, EventKind, Platform};
 
 /// Twitch's limit for one chat message.
 pub const MAX_MESSAGE: usize = 500;
@@ -811,7 +811,14 @@ pub fn lines_for(settings: &ChatAlertSettings, ev: &Event, facts: &Facts) -> Vec
                 "live",
                 vec![
                     ("channel", channel.clone()),
-                    ("game", if game.is_empty() { "something".into() } else { game }),
+                    (
+                        "game",
+                        if game.is_empty() {
+                            "something".into()
+                        } else {
+                            game
+                        },
+                    ),
                     ("title", facts.title.clone().unwrap_or_default()),
                 ],
             );
@@ -846,10 +853,15 @@ pub fn lines_for(settings: &ChatAlertSettings, ev: &Event, facts: &Facts) -> Vec
                 "prediction_lock",
                 vec![
                     ("title", s(e, "title")),
-                    ("highest_vote", best.map(|o| s(o, "title")).unwrap_or_default()),
+                    (
+                        "highest_vote",
+                        best.map(|o| s(o, "title")).unwrap_or_default(),
+                    ),
                     (
                         "highest_vote_count",
-                        best.map(|o| n(o, "channel_points")).unwrap_or(0).to_string(),
+                        best.map(|o| n(o, "channel_points"))
+                            .unwrap_or(0)
+                            .to_string(),
                     ),
                     ("total_votes", total.to_string()),
                 ],
@@ -984,7 +996,10 @@ mod tests {
         let err = s.clone().validated().unwrap_err().0;
         assert!(err.contains("${bits}"), "{err}");
         s.alerts.get_mut("raid").unwrap().message = "  ${user} with ${viewers}  ".into();
-        assert_eq!(s.validated().unwrap().alerts["raid"].message, "${user} with ${viewers}");
+        assert_eq!(
+            s.validated().unwrap().alerts["raid"].message,
+            "${user} with ${viewers}"
+        );
     }
 
     #[test]
@@ -1004,7 +1019,10 @@ mod tests {
             "channel.chat.notification",
             json!({"notice_type": "sub", "chatter_user_name": "Ann", "sub": {"sub_tier": "1000", "is_prime": true}}),
         );
-        assert_eq!(texts(&s, &prime, &f), ["Ann just subscribed with Prime Gaming!"]);
+        assert_eq!(
+            texts(&s, &prime, &f),
+            ["Ann just subscribed with Prime Gaming!"]
+        );
         let t3 = ev(
             "channel.chat.notification",
             json!({"notice_type": "resub", "chatter_user_name": "Bo",

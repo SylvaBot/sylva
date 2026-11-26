@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sylva_core::event::Actor;
 use sylva_core::import::{
-    add_commands, add_timers, history_len, history_rows, history_span, past_streams, point_rows,
-    watch_rows, Skipped, HISTORY_PAGE, HISTORY_TYPES, MAX_POINT_USERS, SE_API,
+    activities_query, add_commands, add_timers, created_ms, history_len, history_rows,
+    history_span, past_streams, point_rows, watch_rows, Skipped, HISTORY_ASKS, MAX_POINT_USERS,
+    SE_API,
 };
 use worker::*;
 
@@ -216,23 +217,53 @@ impl ChannelDo {
             .and_then(|r| r.v)
             .map_or(now, |v| v as i64);
         let before_count = self.history_count()?;
-        let types: String = HISTORY_TYPES
-            .iter()
-            .map(|t| format!("&types={t}"))
-            .collect();
-        let (mut after, mut before) = (EARLIEST, cutoff);
-        for _ in 0..MAX_HISTORY_PAGES {
-            let (status, page) = self
-                .se_get(
-                    token,
-                    &format!("/activities/{se}?after={after}&before={before}&limit={HISTORY_PAGE}{types}"),
-                )
-                .await?;
-            if status != 200 {
-                return Ok(Err(format!(
-                    "StreamElements did not send your activity history ({status})."
-                )));
+        // A day before the StreamElements account was made is early enough.
+        let earliest = created_ms(se).map_or(EARLIEST, |c| (c - 86_400_000).max(EARLIEST));
+        let (mut after, mut before) = (earliest.min(cutoff - 1), cutoff);
+        let mut ask: Option<(usize, bool, bool)> = None;
+        let mut pages = 0;
+        while pages < MAX_HISTORY_PAGES {
+            let tries: Vec<_> = match ask {
+                Some(a) => vec![a],
+                None => HISTORY_ASKS.to_vec(),
+            };
+            let mut got = None;
+            let mut refused = (0u16, String::new());
+            for a in tries {
+                pages += 1;
+                let path = format!("/activities/{se}?{}", activities_query(after, before, a));
+                let (status, page) = self.se_get(token, &path).await?;
+                if status == 200 {
+                    ask = Some(a);
+                    got = Some(page);
+                    break;
+                }
+                let why = page["message"]
+                    .as_str()
+                    .unwrap_or("")
+                    .chars()
+                    .take(300)
+                    .collect::<String>();
+                console_log!(
+                    "StreamElements activities {status} (limit {}, json types {}, iso {}): {why}",
+                    a.0,
+                    a.1,
+                    a.2
+                );
+                refused = (status, why);
+                if status != 400 {
+                    break;
+                }
             }
+            let Some(page) = got else {
+                let (status, why) = refused;
+                return Ok(Err(if why.is_empty() {
+                    format!("StreamElements did not send your activity history ({status}).")
+                } else {
+                    format!("StreamElements did not send your activity history ({status}: {why}).")
+                }));
+            };
+            let limit = ask.map_or(0, |a| a.0);
             for row in history_rows(&page).into_iter().filter(|r| r.at < cutoff) {
                 self.sql.exec(
                     "INSERT OR IGNORE INTO history_events (id, kind, at, amount, name) VALUES (?, ?, ?, ?, ?)",
@@ -245,7 +276,7 @@ impl ChannelDo {
                     ],
                 )?;
             }
-            if history_len(&page) < HISTORY_PAGE {
+            if history_len(&page) < limit {
                 break;
             }
             let Some((lo, hi, newest_first)) = history_span(&page) else {

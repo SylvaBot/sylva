@@ -474,7 +474,10 @@ impl ChannelDo {
                     .await?
                 {
                     Some(r) => Some(r),
-                    None => self.store_reply(&trigger, &args, &ask, None, &user)?,
+                    None => match self.store_reply(&trigger, &args, &ask, None, &user)? {
+                        Some(r) => Some(r),
+                        None => self.game_reply(&trigger, &args, &ask, None, &user).await?,
+                    },
                 },
             };
             return Ok(Ok(match reply {
@@ -627,9 +630,19 @@ impl ChannelDo {
                     .await?
                 {
                     Some(r) => Some(r),
-                    None => {
-                        self.store_reply(&trigger, &args, &ask, Some(actor), &actor.display_name)?
-                    }
+                    None => match self.store_reply(
+                        &trigger,
+                        &args,
+                        &ask,
+                        Some(actor),
+                        &actor.display_name,
+                    )? {
+                        Some(r) => Some(r),
+                        None => {
+                            self.game_reply(&trigger, &args, &ask, Some(actor), &actor.display_name)
+                                .await?
+                        }
+                    },
                 },
             };
             if let Some(reply) = reply {

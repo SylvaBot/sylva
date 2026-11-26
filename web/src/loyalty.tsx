@@ -3,7 +3,7 @@
 // crates/sylva-core/src/loyalty.rs, which checks every save again.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type LoyaltySettings, type LoyaltyView, type PointsEntry, type PointsViewer } from './api';
+import { api, type GameSettings, type LoyaltySettings, type LoyaltyView, type PointsEntry, type PointsViewer } from './api';
 import { useChannel } from './channel';
 import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
@@ -49,6 +49,7 @@ export function LoyaltyPage() {
 
   const changed = !!view && !!draft && !same(draft, view.settings);
   const set = (patch: Partial<LoyaltySettings>) => draft && setDraft({ ...draft, ...patch });
+  const setGames = (patch: Partial<GameSettings>) => draft && setDraft({ ...draft, games: { ...draft.games, ...patch } });
 
   const save = async (next: LoyaltySettings, done?: string) => {
     setBusy(true);
@@ -156,6 +157,33 @@ export function LoyaltyPage() {
             <p className="card-body field-hint points-foot">You and your bot never earn. A balance never drops below zero.</p>
           </Card>
 
+          <Card
+            id="points-games"
+            title="Games"
+            desc={`Viewers bet their ${name} in chat. Bets can be a number, 2k, half, 25% or all.`}
+          >
+            <Gate on={ch.can.edit}>
+              <ul className="types points-cmds">
+                {GAMES.map((g) => (
+                  <li key={g.key} className={'type' + (draft.games[g.key] ? '' : ' off')}>
+                    <div className="type-row">
+                      <div className="type-main">
+                        <b><code>{g.cmd}</code></b>
+                        <span>{g.what}</span>
+                      </div>
+                      <button className="switch" type="button" role="switch" aria-checked={draft.games[g.key]} aria-label={g.cmd} onClick={() => setGames({ [g.key]: !draft.games[g.key] })} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="card-body points-settings">
+                <div className="field inline"><span>Smallest bet</span><NumberField label="Smallest bet" value={draft.games.minBet} min={1} max={MAX_BET} onChange={(n) => setGames({ minBet: n })} /></div>
+                <div className="field inline"><span>Largest bet (0 for no limit)</span><NumberField label="Largest bet (0 for no limit)" value={draft.games.maxBet} min={0} max={MAX_BET} onChange={(n) => setGames({ maxBet: n })} /></div>
+                <div className="field inline"><span>Seconds between games</span><NumberField label="Seconds between games" value={draft.games.cooldown} min={0} max={3600} onChange={(n) => setGames({ cooldown: n })} /></div>
+              </div>
+            </Gate>
+          </Card>
+
           {changed && (
             <div className="save-bar" role="region" aria-label="Unsaved changes">
               <span>You have changes that are not saved yet.</span>
@@ -179,6 +207,16 @@ export function LoyaltyPage() {
     </div>
   );
 }
+
+const MAX_BET = 10_000_000;
+type GameKey = 'gamble' | 'roulette' | 'slots' | 'blackjack' | 'duel';
+const GAMES: { key: GameKey; cmd: string; what: string }[] = [
+  { key: 'gamble', cmd: '!gamble 100', what: 'Rolls 1 to 100. 56 or more doubles the bet, and 100 pays four times.' },
+  { key: 'roulette', cmd: '!roulette 100 red', what: 'Bet on red, black, even, odd, green or a number from 0 to 36. A single number pays 35 to 1.' },
+  { key: 'slots', cmd: '!slots 100', what: 'Three reels. Three of a kind pays 10 times (20 for 💎), two of a kind 1.5 times.' },
+  { key: 'blackjack', cmd: '!blackjack 100', what: 'Then !hit or !stand. Blackjack pays 3 to 2, and the dealer stands on 17. Also !bj.' },
+  { key: 'duel', cmd: '!duel @name 100', what: 'The other viewer has 2 minutes to !accept or !deny. The winner takes the bet.' },
+];
 
 function CommandRow({ cmd, alt, what, off }: { cmd: string; alt?: string; what: string; off?: boolean }) {
   return (

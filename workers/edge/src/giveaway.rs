@@ -265,6 +265,7 @@ impl ChannelDo {
             .iter()
             .chain(sylva_core::loyalty::TRIGGERS.iter())
             .chain(sylva_core::store::TRIGGERS.iter())
+            .chain(sylva_core::games::TRIGGERS.iter())
             .any(|t| *t == s.keyword)
             || s.keyword == points.name.replace(' ', "");
         if taken {

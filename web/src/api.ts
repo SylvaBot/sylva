@@ -146,7 +146,11 @@ export interface ModTry { rule?: ModRule; skipped: boolean; steps: [number, numb
 
 export interface LoyaltySettings {
   enabled: boolean; name: string; watch: number; active: number; follow: number; sub: number;
-  gift: number; cheer: number; give: boolean;
+  gift: number; cheer: number; give: boolean; games: GameSettings;
+}
+export interface GameSettings {
+  gamble: boolean; roulette: boolean; slots: boolean; blackjack: boolean; duel: boolean;
+  minBet: number; maxBet: number; cooldown: number;
 }
 export interface LoyaltyView {
   settings: LoyaltySettings; permission: 'ok' | 'missing' | 'expired'; live: boolean; botOn: boolean;

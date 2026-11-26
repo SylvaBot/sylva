@@ -191,6 +191,7 @@ export interface ModSettings {
 export interface ModView {
   settings: ModSettings;
   permission: ModPermission;
+  operator: boolean;
   presets: [ModPreset, { rules: ModRules; exempt: UserLevel; steps: [number, number, number] }][];
 }
 export interface ModEntry {

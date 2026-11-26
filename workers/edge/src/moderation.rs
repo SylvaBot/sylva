@@ -45,6 +45,9 @@ pub struct PresetInfo {
 pub struct ModView {
     pub settings: ModSettings,
     pub permission: Permission,
+    /// True on a channel of whoever runs Sylva (Worker var
+    /// SYLVA_OPERATOR_IDS), who can fix a missing Sylva_Bot sign in.
+    pub operator: bool,
     pub presets: [(Preset, PresetInfo); 3],
 }
 
@@ -185,6 +188,7 @@ impl ChannelDo {
         Ok(ModView {
             settings: self.mod_settings()?,
             permission: self.mod_permission().await?,
+            operator: self.is_operator(),
             presets: [
                 info(Preset::Relaxed),
                 info(Preset::Standard),

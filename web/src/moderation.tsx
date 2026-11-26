@@ -127,11 +127,20 @@ export function ModerationPage() {
               </span>
             </div>
           )}
-          {view.permission === 'botMissing' && (
+          {view.permission === 'botMissing' && (view.operator && ch.can.own ? (
             <div className="notice">
-              <span>Sylva_Bot is not set up to moderate yet, so your rules are paused. This is on Sylva&rsquo;s side, and nothing is needed from you.</span>
+              <span>
+                Your rules are paused because Sylva_Bot has not given Sylva permission to moderate yet.
+                Sign in to Twitch as <b>sylva_bot</b> (a private window is easiest), then open Set up Sylva_Bot and choose Authorize.
+                After that, type <code>/mod sylva_bot</code> in your chat if you have not already.
+              </span>
+              <a className="btn primary sm" href="/auth/twitch/bot" target="_blank" rel="noopener"><Icon id="twitch" />Set up Sylva_Bot</a>
             </div>
-          )}
+          ) : (
+            <div className="notice">
+              <span>Sylva_Bot is not set up to moderate yet, so your rules are paused. Sylva is fixing this, and nothing is needed from you.</span>
+            </div>
+          ))}
           {(view.permission === 'missing' || view.permission === 'expired') && (
             <div className="notice">
               <span>

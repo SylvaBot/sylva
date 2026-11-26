@@ -106,6 +106,18 @@ impl ChannelDo {
         crate::bot::sender(&self.env, &broadcaster).id
     }
 
+    /// Whether this channel belongs to whoever runs Sylva: the Twitch ids in
+    /// the Worker var `SYLVA_OPERATOR_IDS` (comma separated).
+    pub(crate) fn is_operator(&self) -> bool {
+        let Some(me) = self.broadcaster_id() else {
+            return false;
+        };
+        self.env
+            .var("SYLVA_OPERATOR_IDS")
+            .map(|v| v.to_string().split(',').any(|id| id.trim() == me))
+            .unwrap_or(false)
+    }
+
     fn bot_moderates(&self) -> Option<String> {
         let broadcaster = self.broadcaster_id()?;
         let s = crate::bot::sender(&self.env, &broadcaster);

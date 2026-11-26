@@ -46,6 +46,9 @@ TWITCH_API_URL = "https://api.twitch.tv/helix"
 # sign in to the bot account at /auth/twitch/bot and copy the values it shows.
 SYLVA_BOT_USER_ID = "1613810135"
 SYLVA_BOT_LOGIN = "sylva_bot"
+# Twitch ids of whoever runs Sylva (comma separated). Their Moderation page
+# shows how to set up Sylva_Bot when its sign in is missing.
+SYLVA_OPERATOR_IDS = "122720786"
 # Leave empty. The end to end tests point the public services that some chat
 # commands read (jokes, facts, dictionaries, emotes) at a local stand-in.
 SYLVA_LOOKUP_URL = ""

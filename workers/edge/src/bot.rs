@@ -17,6 +17,7 @@ use sylva_core::bot::{self, BotSettings, ReplyContext, Skip, UserLevel};
 use sylva_core::StoredEvent;
 use worker::*;
 
+use crate::builtins::{Chatter, Outcome};
 use crate::channel::ChannelDo;
 use crate::twitch_api::App;
 
@@ -44,6 +45,11 @@ pub struct BotView {
     /// When each timer posts next, in the same order as `settings.timers`.
     pub timers: Vec<TimerStatus>,
     pub live: bool,
+    /// Every built-in command, for the dashboard's list.
+    pub builtins: &'static [sylva_core::builtins::Builtin],
+    /// Whether Sylva has the permissions some built-in commands need:
+    /// `commands` and `moderation`, each `ok`, `missing` or `expired`.
+    pub permissions: serde_json::Value,
 }
 
 /// When a timer posts next, or what it waits for.
@@ -161,6 +167,7 @@ impl ChannelDo {
         let s = self
             .config("bot")?
             .and_then(|v| serde_json::from_str::<BotSettings>(&v).ok())
+            .map(BotSettings::upgraded)
             .unwrap_or_default();
         self.bot.replace(Some(s.clone()));
         Ok(s)
@@ -194,7 +201,7 @@ impl ChannelDo {
             .to_array::<TimerRow>()
     }
 
-    pub(crate) fn bot_view(&self) -> Result<BotView> {
+    pub(crate) async fn bot_view(&self) -> Result<BotView> {
         let id = self.broadcaster_id().unwrap_or_default();
         let settings = self.bot_settings()?;
         let live = self.uptime_ms()?.is_some();
@@ -236,6 +243,8 @@ impl ChannelDo {
             sender: sender(&self.env, &id),
             timers,
             live,
+            builtins: sylva_core::builtins::BUILTINS,
+            permissions: self.builtin_permissions().await?,
         })
     }
 
@@ -431,6 +440,33 @@ impl ChannelDo {
                 dry: true,
             };
             let user = short(t.user.as_deref(), "Maple");
+            if settings.counter(&trigger).is_none() {
+                let who = Chatter {
+                    actor: None,
+                    name: &user,
+                };
+                match self
+                    .builtin_reply(&mut settings, &trigger, &args, &ask, &who)
+                    .await?
+                {
+                    Some(Outcome::Reply(reply)) => {
+                        return Ok(Ok(TryResult {
+                            reply: Some(reply),
+                            skip: None,
+                            command: Some(trigger),
+                        }))
+                    }
+                    Some(Outcome::Quiet) => {
+                        return Ok(Ok(TryResult {
+                            reply: None,
+                            skip: None,
+                            command: Some(trigger),
+                        }))
+                    }
+                    Some(Outcome::Skip(s)) => return Ok(Ok(skip(s, Some(trigger)))),
+                    None => {}
+                }
+            }
             let reply = match self.community_reply(&mut settings, &trigger, &args, &ask)? {
                 Some(r) => Some(r),
                 None => match self
@@ -448,9 +484,7 @@ impl ChannelDo {
                     command: Some(trigger),
                 },
                 None => {
-                    let level_too_low = (settings.quotes.enabled
-                        && matches!(trigger.as_str(), "addquote" | "delquote"))
-                        || (trigger == "addpoints" && self.loyalty_settings()?.enabled);
+                    let level_too_low = trigger == "addpoints" && self.loyalty_settings()?.enabled;
                     skip(
                         if level_too_low {
                             Skip::Level
@@ -569,6 +603,21 @@ impl ChannelDo {
             if self.giveaway_running()? {
                 if let Some(r) = self.giveaway_entry(&trigger, level, actor, now)? {
                     self.say(&broadcaster, &from, &r, now).await?;
+                }
+            }
+            if settings.counter(&trigger).is_none() {
+                let who = Chatter {
+                    actor: Some(actor),
+                    name: &actor.display_name,
+                };
+                if let Some(out) = self
+                    .builtin_reply(&mut settings, &trigger, &args, &ask, &who)
+                    .await?
+                {
+                    if let Outcome::Reply(r) = out {
+                        self.say(&broadcaster, &from, &r, now).await?;
+                    }
+                    return Ok(());
                 }
             }
             let reply = match self.community_reply(&mut settings, &trigger, &args, &ask)? {

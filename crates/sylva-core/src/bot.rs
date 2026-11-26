@@ -23,7 +23,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::alerts::Invalid;
-use crate::community::{validate_counters, Counter, QuoteSettings, QUOTE_TRIGGERS};
+use crate::builtins::{self, BuiltinSetting};
+use crate::community::{validate_counters, Counter, QuoteSettings};
 
 pub const MAX_COMMANDS: usize = 100;
 pub const MAX_NAME: usize = 25;
@@ -116,6 +117,11 @@ pub struct BotSettings {
     pub counters: Vec<Counter>,
     #[serde(default)]
     pub quotes: QuoteSettings,
+    /// Each built-in command's switch, level and cooldown, in the order of
+    /// [`builtins::BUILTINS`]. Empty only in settings saved before built-in
+    /// commands existed; [`BotSettings::upgraded`] fills it.
+    #[serde(default)]
+    pub builtins: Vec<BuiltinSetting>,
 }
 
 impl Default for BotSettings {
@@ -126,6 +132,7 @@ impl Default for BotSettings {
             timers: Vec::new(),
             counters: Vec::new(),
             quotes: QuoteSettings::default(),
+            builtins: builtins::normalize(&[]),
         }
     }
 }
@@ -176,7 +183,8 @@ impl Timer {
 }
 
 /// The commands every channel starts with. They are ordinary commands the
-/// streamer can change or delete.
+/// streamer can change or delete. `!commands`, `!uptime` and the rest are
+/// built in (see [`builtins`]).
 pub fn default_commands() -> Vec<Command> {
     let c = |name: &str, reply: &str, level: UserLevel, cooldown: u32| Command {
         name: name.into(),
@@ -189,13 +197,6 @@ pub fn default_commands() -> Vec<Command> {
         count: 0,
     };
     vec![
-        c("commands", "Commands: ${commands}", UserLevel::Everyone, 30),
-        c(
-            "uptime",
-            "${channel} has been live for ${uptime}.",
-            UserLevel::Everyone,
-            30,
-        ),
         c(
             "lurk",
             "${user} is lurking. Enjoy the stream!",
@@ -332,16 +333,50 @@ impl BotSettings {
                 )));
             }
         }
-        if self.quotes.enabled {
-            for t in QUOTE_TRIGGERS {
-                if seen.iter().any(|s| s == t) || self.counters.iter().any(|c| c.name == t) {
-                    return Err(Invalid(format!(
-                        "!{t} is used by quotes. Rename your !{t}, or turn quotes off."
-                    )));
+        // A command or counter named like a built-in one replaces it.
+        self.builtins = builtins::normalize(&self.builtins);
+        Ok(self)
+    }
+
+    /// Settings as stored before built-in commands existed, brought up to
+    /// date: every built-in gets its defaults, the quote commands take the
+    /// old "who may add quotes" level, and the old `!commands` and `!uptime`
+    /// commands, if never changed, make way for the built-in ones.
+    pub fn upgraded(mut self) -> BotSettings {
+        if self.builtins.is_empty() {
+            let add_level = self.quotes.add_level;
+            let mut list = builtins::normalize(&[]);
+            for b in &mut list {
+                if matches!(b.name.as_str(), "addquote" | "editquote" | "deletequote") {
+                    b.level = add_level;
                 }
             }
+            self.builtins = builtins::normalize(&list);
+            self.commands.retain(|c| {
+                let old = match c.name.as_str() {
+                    "commands" => "Commands: ${commands}",
+                    "uptime" => "${channel} has been live for ${uptime}.",
+                    _ => return true,
+                };
+                !(c.reply == old && c.aliases.is_empty() && c.enabled)
+            });
+        } else if self.builtins.len() != builtins::BUILTINS.len() {
+            // A newer Sylva added built-ins since this was saved.
+            self.builtins = builtins::normalize(&self.builtins);
         }
-        Ok(self)
+        self
+    }
+
+    /// A built-in command's settings, when `trigger` names one that no
+    /// command or counter of the streamer's replaces.
+    pub fn builtin(&self, trigger: &str) -> Option<(&'static builtins::Builtin, &BuiltinSetting)> {
+        let t = trigger.to_lowercase();
+        let b = builtins::builtin(&t)?;
+        if self.find(&t).is_some() || self.counters.iter().any(|c| c.name == t) {
+            return None;
+        }
+        let s = self.builtins.iter().find(|s| s.name == b.name)?;
+        Some((b, s))
     }
 
     /// The counter answering to `trigger`, if it is on.
@@ -621,13 +656,43 @@ mod tests {
             "Haruxee is offline right now."
         );
         assert_eq!(render("${random.1-10}", &c), "6");
-        assert_eq!(render("${commands}", &c), "!commands, !uptime, !lurk");
+        assert_eq!(render("${commands}", &c), "!lurk");
         assert_eq!(render("${nope} ${unclosed", &c), "${nope} ${unclosed");
         let none: Vec<String> = vec![];
         assert_eq!(render("${touser}", &ctx(&none, &cmds)), "Maple");
         let long = "x".repeat(600);
         assert_eq!(render(&long, &c).len(), MAX_REPLY);
         assert_eq!(render("a\nb   c", &c), "a b c");
+    }
+
+    #[test]
+    fn built_ins_can_be_replaced_and_old_settings_upgrade() {
+        let mut s = BotSettings::default();
+        assert_eq!(s.builtin("UPTIME").unwrap().0.name, "uptime");
+        assert_eq!(s.builtin("delquote").unwrap().0.name, "deletequote");
+        assert!(s.builtin("lurk").is_none());
+        s.commands[0].name = "uptime".into();
+        assert!(s.builtin("uptime").is_none(), "the streamer's !uptime wins");
+
+        let old: BotSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "commands": [
+                {"name": "commands", "reply": "Commands: ${commands}"},
+                {"name": "uptime", "reply": "Live for ${uptime}!"},
+                {"name": "lurk", "reply": "lurking"}
+            ],
+            "quotes": {"enabled": true, "addLevel": "vip"}
+        }))
+        .unwrap();
+        let up = old.upgraded();
+        let names: Vec<&str> = up.commands.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["uptime", "lurk"], "a changed !uptime is kept");
+        assert_eq!(up.builtins.len(), builtins::BUILTINS.len());
+        let level = |n: &str| up.builtins.iter().find(|b| b.name == n).unwrap().level;
+        assert_eq!(level("addquote"), UserLevel::Vip);
+        assert_eq!(level("deletequote"), UserLevel::Vip);
+        assert_eq!(level("quote"), UserLevel::Everyone);
+        assert_eq!(up.clone().upgraded(), up, "upgrading twice changes nothing");
     }
 
     #[test]
@@ -653,18 +718,20 @@ mod tests {
     #[test]
     fn settings_are_checked_and_counts_kept() {
         let mut stored = BotSettings::default();
-        stored.commands[2].count = 41;
+        stored.commands[0].count = 41;
         let mut s = BotSettings::default();
-        s.commands[2].count = 9999;
-        s.commands[2].name = " !LURK ".into();
-        s.commands[2].aliases = vec!["away".into(), "AWAY".into(), "lurk".into(), " ".into()];
-        s.commands[2].cooldown = 99_999;
+        s.commands[0].count = 9999;
+        s.commands[0].name = " !LURK ".into();
+        s.commands[0].aliases = vec!["away".into(), "AWAY".into(), "lurk".into(), " ".into()];
+        s.commands[0].cooldown = 99_999;
+        s.builtins.clear();
         let ok = s.validated(&stored).unwrap();
-        assert_eq!(ok.commands[2].name, "lurk");
-        assert_eq!(ok.commands[2].aliases, vec!["away".to_string()]);
-        assert_eq!(ok.commands[2].count, 41);
-        assert_eq!(ok.commands[2].cooldown, MAX_COOLDOWN_S);
-        assert_eq!(ok.find("AWAY"), Some(2));
+        assert_eq!(ok.commands[0].name, "lurk");
+        assert_eq!(ok.commands[0].aliases, vec!["away".to_string()]);
+        assert_eq!(ok.commands[0].count, 41);
+        assert_eq!(ok.commands[0].cooldown, MAX_COOLDOWN_S);
+        assert_eq!(ok.find("AWAY"), Some(0));
+        assert_eq!(ok.builtins.len(), builtins::BUILTINS.len());
 
         let bad = |f: &dyn Fn(&mut BotSettings)| {
             let mut s = BotSettings::default();
@@ -673,7 +740,7 @@ mod tests {
         };
         assert!(bad(&|s| s.commands[0].name = "two words".into()));
         assert!(bad(&|s| s.commands[0].name = "".into()));
-        assert!(bad(&|s| s.commands[1].aliases = vec!["commands".into()]));
+        assert!(bad(&|s| s.commands[1].aliases = vec!["lurk".into()]));
         assert!(bad(&|s| s.commands[0].reply = "  ".into()));
         assert!(bad(&|s| s.commands[0].reply = "${what}".into()));
         assert!(bad(&|s| s.commands[0].reply = "${user".into()));

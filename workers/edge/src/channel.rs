@@ -348,7 +348,10 @@ impl DurableObject for ChannelDo {
         let q: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
         // Ingest comes from the Worker's webhook route only; clients never
         // reach it because the Worker forwards a fixed list of routes.
-        let internal = matches!(segs.as_slice(), ["ingest"] | ["ingest-batch"] | ["public"]);
+        let internal = matches!(
+            segs.as_slice(),
+            ["ingest"] | ["ingest-batch"] | ["public"] | ["public", "commands"]
+        );
         let access = self.access(&req)?;
         if let Some(k) = req.headers().get(CHANNEL_HEADER)? {
             self.remember_key(&k)?;
@@ -450,7 +453,15 @@ impl DurableObject for ChannelDo {
                     Err(Invalid(message)) => Response::error(message, 400),
                 }
             }
-            (Method::Get, ["bot"]) => Response::from_json(&self.bot_view()?),
+            (Method::Get, ["bot"]) => {
+                // `!commands` links to the commands page on this site.
+                self.remember_site(&url)?;
+                Response::from_json(&self.bot_view().await?)
+            }
+            (Method::Get, ["public", "commands"]) => match self.public_commands()? {
+                Some(p) => Response::from_json(&p),
+                None => Response::error("This channel's bot is off", 404),
+            },
             (Method::Post, ["bot"]) => {
                 let Ok(body) = req.json::<sylva_core::bot::BotSettings>().await else {
                     return Response::error("Those bot settings could not be read", 400);
@@ -459,13 +470,13 @@ impl DurableObject for ChannelDo {
                     Ok(s) => {
                         self.save_bot_settings(&s)?;
                         self.schedule().await?;
-                        Response::from_json(&self.bot_view()?)
+                        Response::from_json(&self.bot_view().await?)
                     }
                     Err(Invalid(message)) => Response::error(message, 400),
                 }
             }
             (Method::Post, ["bot", "timers", id, "send"]) => match self.send_timer_now(id).await? {
-                Ok(()) => Response::from_json(&self.bot_view()?),
+                Ok(()) => Response::from_json(&self.bot_view().await?),
                 Err((status, message)) => Response::error(message, status),
             },
             (Method::Get, ["bot", "quotes"]) => Response::from_json(&crate::community::QuoteList {
@@ -508,7 +519,7 @@ impl DurableObject for ChannelDo {
                     return Response::error("That number could not be read", 400);
                 };
                 if self.set_counter(name, body.value)? {
-                    Response::from_json(&self.bot_view()?)
+                    Response::from_json(&self.bot_view().await?)
                 } else {
                     Response::error("That counter no longer exists", 404)
                 }
@@ -820,6 +831,9 @@ impl DurableObject for ChannelDo {
         }
         if let Err(e) = self.run_loyalty(now).await {
             console_error!("Points could not be paid: {e}");
+        }
+        if let Err(e) = self.run_filesay(now).await {
+            console_error!("A !filesay line could not post: {e}");
         }
         self.schedule().await?;
         Response::ok("ok")
@@ -1582,7 +1596,8 @@ impl ChannelDo {
     }
 
     /// Set the one alarm a Durable Object has to the earliest thing waiting:
-    /// the timeout of the alert on screen, or the next timer message.
+    /// the timeout of the alert on screen, the next timer message, points or
+    /// `!filesay` line.
     pub(crate) async fn schedule(&self) -> Result<()> {
         let now = Date::now().as_millis() as i64;
         let alert = self
@@ -1590,8 +1605,15 @@ impl ChannelDo {
             .map(|p| p.started_at.unwrap_or(0.0) as i64 + ALERT_TIMEOUT_MS);
         let timer = self.next_timer_at(now)?;
         let points = self.next_loyalty_at()?;
+        let filesay = self.next_filesay_at()?;
         let storage = self.state.storage();
-        match alert.into_iter().chain(timer).chain(points).min() {
+        match alert
+            .into_iter()
+            .chain(timer)
+            .chain(points)
+            .chain(filesay)
+            .min()
+        {
             // Careful: a Duration here is an offset from now, not a timestamp.
             Some(at) => {
                 storage

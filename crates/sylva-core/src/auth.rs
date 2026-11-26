@@ -48,10 +48,27 @@ pub const LOYALTY_SCOPES: &[(&str, &str)] = &[(
     "See who is in your chat, so viewers who only watch earn points too",
 )];
 
+/// Asked for only when the streamer lets chat commands act on the channel:
+/// `!clip`, `!settitle`, `!setgame`, `!followage` and `!followsince`.
+pub const COMMAND_SCOPES: &[(&str, &str)] = &[
+    ("clips:edit", "Make clips when chat types !clip"),
+    (
+        "channel:manage:broadcast",
+        "Change your title and category with !settitle and !setgame",
+    ),
+    (
+        "moderator:read:followers",
+        "Answer !followage and !followsince",
+    ),
+];
+
 /// Extra permissions, each asked for only when its feature needs it, and
 /// kept as its own grant so a plain sign in does not take it away.
-pub const GRANTS: &[(&str, &[(&str, &str)])] =
-    &[("moderation", MOD_SCOPES), ("loyalty", LOYALTY_SCOPES)];
+pub const GRANTS: &[(&str, &[(&str, &str)])] = &[
+    ("moderation", MOD_SCOPES),
+    ("loyalty", LOYALTY_SCOPES),
+    ("commands", COMMAND_SCOPES),
+];
 
 /// True when `granted` holds every scope of `purpose`.
 pub fn has_grant(purpose: &str, granted: &[String]) -> bool {

@@ -3,10 +3,11 @@
 // crates/sylva-core/src/bot.rs, which checks every save again.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, type TimerStatus, type UserLevel } from './api';
+import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, type Builtin, type BuiltinGroup, type BuiltinSetting, type TimerStatus, type UserLevel } from './api';
 import { useChannel } from './channel';
 import { Counters, Quotes } from './community';
 import { Card, PageHead } from './pages';
+import { Link } from './router';
 import { errorText, Gate, Icon, num, useToast } from './ui';
 
 export const LEVELS: { id: UserLevel; label: string; who: string }[] = [
@@ -190,6 +191,8 @@ export function BotPage() {
             </ul>
           </Card>
 
+          <Builtins view={view!} onSave={save} />
+
           <Gate on={ch.can.edit}><Timers view={view!} onSave={save} onView={setView} /></Gate>
 
           <Counters view={view!} onSave={save} onView={setView} />
@@ -200,6 +203,143 @@ export function BotPage() {
         </div>
       )}
     </div>
+  );
+}
+
+const GROUPS: { id: BuiltinGroup; label: string }[] = [
+  { id: 'info', label: 'Stream info' },
+  { id: 'fun', label: 'Fun' },
+  { id: 'commands', label: 'Commands and counters' },
+  { id: 'quotes', label: 'Quotes' },
+  { id: 'stream', label: 'Your stream' },
+  { id: 'moderation', label: 'Moderation' },
+];
+const LEVEL_ORDER: UserLevel[] = ['everyone', 'subscriber', 'vip', 'moderator', 'broadcaster'];
+const ALLOW_COMMANDS_URL = '/auth/twitch/start?scopes=commands&next=/app/bot';
+
+/** Commands every channel has, each with a switch, who may use it and a cooldown. */
+function Builtins({ view, onSave }: {
+  view: BotView;
+  onSave(next: BotSettings, done?: string): Promise<boolean>;
+}) {
+  const ch = useChannel();
+  const [open, setOpen] = useState<string | null>(null);
+  const { settings, builtins, permissions } = view;
+  const mine = (b: Builtin) => settings.builtins.find((s) => s.name === b.name) ?? { name: b.name, enabled: b.on, level: b.level, cooldown: b.cooldown };
+  const replaced = (b: Builtin) => settings.commands.some((c) => c.name === b.name || c.aliases.includes(b.name))
+    || settings.counters.some((c) => c.name === b.name);
+  const set = (b: Builtin, patch: Partial<BuiltinSetting>, done: string) => onSave({
+    ...settings,
+    builtins: builtins.map((x) => (x.name === b.name ? { ...mine(x), ...patch } : mine(x))),
+  }, done);
+  const waiting = (needs: 'commands' | 'moderation') => permissions[needs] !== 'ok'
+    && builtins.some((b) => b.needs === needs && mine(b).enabled && !replaced(b));
+  const names = (needs: 'commands' | 'moderation') => builtins.filter((b) => b.needs === needs && mine(b).enabled).map((b) => '!' + b.name);
+  const list = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
+
+  return (
+    <Card
+      id="builtins"
+      title="Built-in commands"
+      desc="Ready in every channel. Turn each one on or off and choose who can use it. A command of yours with the same name replaces the built-in one."
+    >
+      {(waiting('commands') || waiting('moderation')) && (
+        <div className="card-body builtin-notes">
+          {waiting('commands') && (
+            <div className="notice">
+              <span>
+                {list(names('commands'))} {names('commands').length === 1 ? 'needs' : 'need'} {ch.can.own ? 'your' : `${ch.name}'s`} permission
+                {permissions.commands === 'expired' ? ' again, because Twitch no longer accepts the old one.' : ' to make clips, change the title and category, and see followers.'}
+                {!ch.can.own && ` Only ${ch.name} can allow it.`}
+              </span>
+              {ch.can.own && <a className="btn primary sm" href={ALLOW_COMMANDS_URL}><Icon id="twitch" />Allow</a>}
+            </div>
+          )}
+          {waiting('moderation') && (
+            <div className="notice">
+              <span>
+                {list(names('moderation'))} {names('moderation').length === 1 ? 'needs' : 'need'} Sylva to be allowed to moderate
+                {ch.can.own ? '. You can allow it on the Moderation page.' : `. Only ${ch.name} can allow it, on the Moderation page.`}
+              </span>
+              <Link className="btn sm" href="/app/moderation">Open Moderation</Link>
+            </div>
+          )}
+        </div>
+      )}
+      {GROUPS.map((g) => {
+        const items = builtins.filter((b) => b.group === g.id);
+        if (!items.length) return null;
+        return (
+          <section key={g.id} className="builtin-group" aria-labelledby={`builtin-${g.id}`}>
+            <h3 id={`builtin-${g.id}`} className="builtin-head">{g.label}</h3>
+            <ul className="types">
+              {items.map((b) => {
+                const s = mine(b);
+                const over = replaced(b);
+                const quotesOff = b.group === 'quotes' && !settings.quotes.enabled;
+                const isOpen = open === b.name;
+                const meta = [levelOf(s.level).label];
+                if (s.cooldown) meta.push(`${seconds(s.cooldown)} cooldown`);
+                const levels = LEVELS.filter((l) => LEVEL_ORDER.indexOf(l.id) >= LEVEL_ORDER.indexOf(b.min));
+                return (
+                  <li key={b.name} className={'type cmd' + (isOpen ? ' open' : '') + (s.enabled && !over && !quotesOff ? '' : ' off')}>
+                    <div className="type-row">
+                      <div className="type-main">
+                        <b className="cmd-name">!{b.name}{b.aliases.length > 0 && <span className="cmd-alias"> {b.aliases.map((a) => '!' + a).join(' ')}</span>}</b>
+                        <span className="cmd-reply">{b.about}</span>
+                        <span className="cmd-meta">
+                          {over ? `Replaced by your own !${b.name}` : quotesOff ? 'Quotes are off in chat' : meta.join(' · ')}
+                        </span>
+                      </div>
+                      <button
+                        className="btn sm ghost"
+                        type="button"
+                        aria-expanded={isOpen}
+                        aria-controls={`builtin-edit-${b.name}`}
+                        aria-label={`${isOpen ? 'Close' : ch.can.edit ? 'Edit' : 'View'} !${b.name}`}
+                        onClick={() => setOpen(isOpen ? null : b.name)}
+                      >
+                        {isOpen ? 'Close' : ch.can.edit ? 'Edit' : 'View'}
+                      </button>
+                      <button
+                        className="switch"
+                        type="button"
+                        role="switch"
+                        aria-checked={s.enabled}
+                        aria-label={`!${b.name}`}
+                        disabled={!ch.can.edit}
+                        onClick={() => void set(b, { enabled: !s.enabled }, `!${b.name} ${s.enabled ? 'off' : 'on'}`)}
+                      />
+                    </div>
+                    {isOpen && (
+                      <Gate on={ch.can.edit}>
+                        <div className="builtin-edit" id={`builtin-edit-${b.name}`}>
+                          <p className="builtin-usage">Type <code>{b.usage}</code></p>
+                          <label className="field" htmlFor={`builtin-${b.name}-level`}>
+                            Who can use it
+                            <select id={`builtin-${b.name}-level`} className="select" value={s.level}
+                              onChange={(e) => void set(b, { level: e.target.value as UserLevel }, `Saved !${b.name}`)}>
+                              {levels.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+                            </select>
+                          </label>
+                          <label className="field" htmlFor={`builtin-${b.name}-cooldown`}>
+                            Cooldown
+                            <select id={`builtin-${b.name}-cooldown`} className="select" value={s.cooldown}
+                              onChange={(e) => void set(b, { cooldown: Number(e.target.value) }, `Saved !${b.name}`)}>
+                              {(COOLDOWNS.includes(s.cooldown) ? COOLDOWNS : [...COOLDOWNS, s.cooldown].sort((x, y) => x - y)).map((n) => <option key={n} value={n}>{seconds(n)}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      </Gate>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
+    </Card>
   );
 }
 

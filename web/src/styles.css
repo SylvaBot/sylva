@@ -1033,6 +1033,15 @@ h1, h2, h3, p { margin: 0; }
 .pub-item .pub-tags { font-size: 12px; color: var(--faint); }
 .pub-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pub-cost { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pub-cmd { flex: none; min-width: 96px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; font-weight: 600; color: var(--text); }
+.pub-cmds li { align-items: flex-start; }
+.pub-item .pub-text { color: var(--text-2); }
+.builtin-notes { display: flex; flex-direction: column; gap: 8px; padding-bottom: 4px; }
+.builtin-group + .builtin-group { border-top: 1px solid var(--border); }
+.builtin-head { margin: 0; padding: 16px 20px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.builtin-edit { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)); gap: 12px 16px; padding: 4px 20px 18px; align-items: end; }
+.builtin-usage { grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--muted); }
+.builtin-usage code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .95em; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); overflow-wrap: anywhere; }
 @media (max-width: 860px) { .pub-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 560px) { .pub { padding-block: 32px 48px; } .pub-head h1 { font-size: 28px; } .pub-items li, .pub-top li { padding-inline: 16px; } }
 .store-queue .segmented button { white-space: nowrap; }

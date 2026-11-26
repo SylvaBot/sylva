@@ -29,6 +29,7 @@
   let current = null;
   let alertsMode = false;
   let loaded = false;
+  let resumes = false;
   const waiting = [];
   const send = (m) => parent.postMessage(Object.assign({ sylvaFrame: true }, m), '*');
   const emit = (type, arg) => (handlers[type] || []).slice().forEach((fn) => {
@@ -47,7 +48,7 @@
     },
   };
   window.SE_API = {
-    resumeQueue() { window.Sylva.done(); },
+    resumeQueue() { resumes = true; window.Sylva.done(); },
     store: { get: () => Promise.resolve(null), set() {} },
     counters: { get: () => Promise.resolve(null) },
     sanitize: (m) => Promise.resolve({ result: { message: (m && m.message) || '' }, skip: false }),
@@ -69,24 +70,79 @@
   const fill = (text, fields) => String(text || '').replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, k) => (k in fields ? String(fields[k]) : m));
 
   const nameOf = (e) => (e.actor ? e.actor.displayName : 'Anonymous');
+  // Badge images and 7TV, BetterTTV and FrankerFaceZ emotes, from the page.
+  let assets = { badges: {}, emotes: {} };
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const twitchEmote = (name, id) => {
+    const u = (s) => `https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/dark/${s}`;
+    return { type: 'twitch', name, id, gif: false, urls: { 1: u('1.0'), 2: u('2.0'), 4: u('3.0') } };
+  };
+  // A chat line as StreamElements' "message" event has it.
+  const seChat = (e, name) => {
+    const raw = e.raw || {};
+    const login = (e.actor && e.actor.login) || name.toLowerCase();
+    let text = e.message || '';
+    let isAction = false;
+    const me = /^\u0001ACTION (.*)\u0001$/.exec(text);
+    if (me) { text = me[1]; isAction = true; }
+    const emotes = [];
+    const seen = {};
+    const addEmote = (x) => { if (!seen[x.name]) { seen[x.name] = x; emotes.push(x); } };
+    for (const f of (raw.message && raw.message.fragments) || []) {
+      if (f && f.type === 'emote' && f.emote && /^[\w-]+$/.test(f.emote.id || '')) addEmote(twitchEmote(f.text, f.emote.id));
+    }
+    for (const w of text.split(/\s+/)) {
+      const x = w && !seen[w] && Object.prototype.hasOwnProperty.call(assets.emotes, w) && assets.emotes[w];
+      if (x) addEmote({ type: x.provider, name: w, id: x.id, gif: false, urls: x.urls });
+    }
+    const badges = ((raw.badges) || []).map((b) => ({
+      type: b.set_id, version: b.id, description: b.set_id, url: assets.badges[b.set_id + '/' + b.id] || '',
+    })).filter((b) => b.url);
+    const reply = raw.reply || null;
+    const tags = {
+      'display-name': name, color: raw.color || '', 'user-id': (e.actor && e.actor.id) || '', id: raw.message_id || '',
+      badges: ((raw.badges) || []).map((b) => b.set_id + '/' + b.id).join(','),
+    };
+    if (reply) {
+      tags['reply-parent-display-name'] = reply.parent_user_name || reply.parent_user_login || '';
+      tags['reply-parent-msg-body'] = reply.parent_message_body || '';
+    }
+    const renderedText = text.split(/(\s+)/).map((w) => (seen[w]
+      ? `<img src="${esc(seen[w].urls[1])}" srcset="${esc(seen[w].urls[1])} 1x, ${esc(seen[w].urls[2])} 2x, ${esc(seen[w].urls[4])} 4x" title="${esc(w)}" class="emote">`
+      : esc(w))).join('');
+    return {
+      listener: 'message',
+      event: {
+        service: 'twitch',
+        data: {
+          time: Date.now(), tags, nick: login, userId: tags['user-id'], displayName: name,
+          displayColor: raw.color || '', badges, channel: '', text, isAction, emotes, msgId: raw.message_id || '',
+        },
+        renderedText,
+      },
+    };
+  };
   // A Sylva event as StreamElements' onEventReceived has it.
   const seEvent = (e) => {
     const name = nameOf(e);
+    const tier = e.tier || '1000';
     switch (e.kind) {
       case 'follow': return { listener: 'follower-latest', event: { name, type: 'follower' } };
-      case 'subscriber': return { listener: 'subscriber-latest', event: { name, amount: e.amount || 1, message: e.message || '', type: 'subscriber' } };
-      case 'giftedSub': return { listener: 'subscriber-latest', event: { name, amount: 1, gifted: true, type: 'subscriber' } };
-      case 'communityGift': return { listener: 'subscriber-latest', event: { name, sender: name, amount: e.amount || 1, gifted: true, bulkGifted: true, type: 'subscriber' } };
+      case 'subscriber': return { listener: 'subscriber-latest', event: { name, amount: e.amount || 1, tier, message: e.message || '', type: 'subscriber' } };
+      case 'giftedSub': return { listener: 'subscriber-latest', event: { name, amount: 1, tier, gifted: true, sender: e.sender || 'Anonymous', type: 'subscriber' } };
+      case 'communityGift': return { listener: 'subscriber-latest', event: { name, sender: name, amount: e.amount || 1, tier, gifted: true, bulkGifted: true, type: 'subscriber' } };
       case 'cheer': return { listener: 'cheer-latest', event: { name, amount: e.amount || 0, message: e.message || '', type: 'cheer' } };
       case 'raid': return { listener: 'raid-latest', event: { name, amount: e.amount || 0, type: 'raid' } };
       case 'tip': return { listener: 'tip-latest', event: { name, amount: e.amount || 0, message: e.message || '', type: 'tip' } };
-      case 'redemption': return { listener: 'redemption-latest', event: { name, item: e.redemption || '', message: e.message || '', type: 'redemption' } };
-      case 'chat': {
-        const login = (e.actor && e.actor.login) || name.toLowerCase();
-        const text = e.message || '';
-        const safe = text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-        return { listener: 'message', event: { data: { text, displayName: name, nick: login, userId: (e.actor && e.actor.id) || '', badges: [], emotes: [], msgId: '' }, renderedText: safe } };
-      }
+      // Twitch channel points come through StreamElements' general listener.
+      case 'redemption': return {
+        listener: 'event',
+        event: {
+          type: 'channelPointsRedemption', provider: 'twitch',
+          data: { username: (e.actor && e.actor.login) || '', displayName: name, redemption: e.redemption || '', amount: e.amount || 0, message: e.message || '' },
+        },
+      };
+      case 'chat': return seChat(e, name);
       default: return null;
     }
   };
@@ -94,7 +150,7 @@
     const data = {};
     for (const e of (d && d.latest) || []) {
       const s = seEvent(e);
-      if (s && s.listener !== 'message') data[s.listener] = s.event;
+      if (s && /-latest$/.test(s.listener)) data[s.listener] = s.event;
     }
     return { data };
   };
@@ -134,13 +190,21 @@
       emit('alert', { id: f.id, event: f.event, view: f.view });
       const s = seEvent(f.event);
       if (s) dispatch('onEventReceived', s);
-      // Nothing listening: let the queue go on after the alert's time.
-      if (!(handlers.alert || []).length && !window.__seListens) {
-        setTimeout(() => window.Sylva.done(f.id), (f.view && f.view.durationMs) || 5000);
+      // Nothing says when the alert ends: let the queue go on after the
+      // alert's time. StreamElements widgets that call resumeQueue end it
+      // themselves; ones that keep their own queue get the next alert then.
+      if (!(handlers.alert || []).length && !(window.__seListens && resumes)) {
+        const id = f.id;
+        setTimeout(() => { if (current === id) window.Sylva.done(id); }, (f.view && f.view.durationMs) || 5000);
       }
     } else if (f.type === 'stop') {
       emit('stop', { id: f.id });
       if (current === f.id) current = null;
+      if (alertsMode) dispatch('onEventReceived', { listener: 'event:skip', event: {} });
+    } else if (f.type === 'mute') {
+      dispatch('onEventReceived', { listener: 'alertService:toggleSound', event: { muted: !!f.muted } });
+    } else if (f.type === 'button') {
+      dispatch('onEventReceived', { listener: 'widget-button', event: { field: f.field, value: f.value } });
     }
   };
 
@@ -187,7 +251,9 @@
     if (m.source !== parent) return;
     const f = m.data;
     if (!f || f.sylva !== true) return;
-    if (f.type === 'load') {
+    if (f.type === 'assets') {
+      if (f.assets && typeof f.assets === 'object') assets = { badges: f.assets.badges || {}, emotes: f.assets.emotes || {} };
+    } else if (f.type === 'load') {
       if (!document.getElementById('widget')) load(f);
     } else if (loaded) live(f);
     else waiting.push(f);

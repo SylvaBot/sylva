@@ -258,8 +258,12 @@ function Builtins({ view, onSave }: {
           {waiting('moderation') && (
             <div className="notice">
               <span>
-                {list(names('moderation'))} {names('moderation').length === 1 ? 'needs' : 'need'} Sylva to be allowed to moderate
-                {ch.can.own ? '. You can allow it on the Moderation page.' : `. Only ${ch.name} can allow it, on the Moderation page.`}
+                {list(names('moderation'))} {names('moderation').length === 1 ? 'needs' : 'need'}
+                {permissions.moderation === 'notMod'
+                  ? ' Sylva_Bot to be a moderator. Type /mod sylva_bot in chat.'
+                  : permissions.moderation === 'botMissing'
+                    ? ' Sylva_Bot, which is not set up to moderate yet.'
+                    : ch.can.own ? ' Sylva to be allowed to moderate. You can allow it on the Moderation page.' : ` Sylva to be allowed to moderate. Only ${ch.name} can allow it, on the Moderation page.`}
               </span>
               <Link className="btn sm" href="/app/moderation">Open Moderation</Link>
             </div>

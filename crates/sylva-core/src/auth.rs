@@ -179,10 +179,17 @@ pub fn twitch_bot_authorize_url(
     )
 }
 
-/// What the shared bot account grants: `user:bot` to be a bot, and
+/// What the shared bot account grants: `user:bot` to be a bot,
 /// `user:write:chat`, which Twitch also asks of whoever sends a chat message
-/// with the app's token.
-pub const BOT_SCOPES: &[&str] = &["user:bot", "user:write:chat"];
+/// with the app's token, and the moderator scopes, so deletes, timeouts and
+/// bans are done by the bot and never by the streamer.
+pub const BOT_SCOPES: &[&str] = &[
+    "user:bot",
+    "user:write:chat",
+    "moderator:manage:chat_messages",
+    "moderator:manage:banned_users",
+    "moderator:read:chatters",
+];
 
 fn authorize_url(
     auth_base: &str,

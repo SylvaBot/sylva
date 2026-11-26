@@ -119,7 +119,20 @@ export function ModerationPage() {
       {!view && !failed && <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>}
       {view && draft && next && (
         <div className="stack">
-          {view.permission !== 'ok' && (
+          {view.permission === 'notMod' && (
+            <div className="notice">
+              <span>
+                Sylva moderates as <b>Sylva_Bot</b>, so deletes, timeouts and bans never show as {ch.can.own ? 'you' : ch.name}.
+                Make it a moderator first: type <code>/mod sylva_bot</code> in {ch.can.own ? 'your' : `${ch.name}'s`} chat.
+              </span>
+            </div>
+          )}
+          {view.permission === 'botMissing' && (
+            <div className="notice">
+              <span>Sylva_Bot is not set up to moderate yet, so your rules are paused. This is on Sylva&rsquo;s side, and nothing is needed from you.</span>
+            </div>
+          )}
+          {(view.permission === 'missing' || view.permission === 'expired') && (
             <div className="notice">
               <span>
                 {!ch.can.own

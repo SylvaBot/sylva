@@ -211,7 +211,40 @@ async fn bot_finish(req: &Request, env: &Env, code: &str) -> Result<Response> {
             .replace('>', "&gt;")
             .replace('"', "&quot;")
     };
-    let body = if ok {
+    let bot_id = env
+        .var("SYLVA_BOT_USER_ID")
+        .map(|v| v.to_string().trim().to_string())
+        .unwrap_or_default();
+    let mut saved = false;
+    if ok && who.user_id == bot_id {
+        // Keep the bot's own token, sealed, so it can moderate every channel
+        // that makes it a moderator.
+        let key = parse_key(&env.secret("SYLVA_TOKEN_KEY")?.to_string())
+            .ok_or_else(|| Error::RustError("SYLVA_TOKEN_KEY must be 64 hex characters".into()))?;
+        let now = Date::now().as_millis() as i64;
+        let res = post(
+            &account(env, crate::grants::BOT_ACCOUNT)?,
+            "/grant/save",
+            &crate::account::Grant {
+                purpose: crate::grants::BOT_PURPOSE.into(),
+                platform: "twitch".into(),
+                platform_user_id: who.user_id.clone(),
+                scopes: who.scopes.clone(),
+                access_token: seal(&key, random_bytes()?, &tokens.access_token),
+                refresh_token: seal(&key, random_bytes()?, &tokens.refresh_token),
+                expires_at: now + tokens.expires_in * 1000,
+            },
+        )
+        .await?;
+        saved = (200..300).contains(&res.status_code());
+    }
+    let body = if ok && saved {
+        format!(
+            "<h1>{} is ready</h1><p>It chats and moderates for Sylva. Each streamer makes it a moderator with /mod {} in their chat.</p>",
+            esc(&who.login),
+            esc(&who.login)
+        )
+    } else if ok {
         format!(
             "<h1>{} can chat for Sylva</h1><p>To make it the bot in every channel, set these Worker variables and deploy:</p>\
              <pre>SYLVA_BOT_USER_ID = \"{}\"\nSYLVA_BOT_LOGIN = \"{}\"</pre>",

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { api, type CustomCode, type Goal, type SceneItem, type SceneState, type WidgetKind } from './api';
 import { CodeDialog, CustomFrame, STARTER } from './customWidget';
+import { PILL_ALERTS, TWITCH_CHAT } from './widgets';
 import { useChannel } from './channel';
 import { Card, sendTest, TESTS } from './pages';
 import { errorText, Icon, num, useToast } from './ui';
@@ -19,12 +20,12 @@ const MAX_ITEMS = 24;
 interface WidgetMeta { name: string; icon: string; c: string; w: number; h: number; text: string }
 
 export const WIDGET_META: Record<WidgetKind, WidgetMeta> = {
-  alerts: { name: 'Alert box', icon: 'bell', c: 'c-sub', w: 800, h: 300, text: 'Plays your alerts one at a time.' },
+  alerts: { name: 'Alert box', icon: 'bell', c: 'c-sub', w: 800, h: 300, text: 'Pill alerts that play one at a time.' },
   feed: { name: 'Event list', icon: 'activity', c: 'c-follow', w: 420, h: 360, text: 'The latest follows, subs, cheers and raids.' },
   latest: { name: 'Latest label', icon: 'star', c: 'c-bits', w: 480, h: 60, text: 'The latest follower, sub, gifter, cheer or raid.' },
   top: { name: 'Top label', icon: 'trophy', c: 'c-reward', w: 480, h: 60, text: 'The top cheerer or gifter this stream.' },
   goal: { name: 'Goal bar', icon: 'zap', c: 'c-raid', w: 600, h: 90, text: 'Progress toward your goal.' },
-  chat: { name: 'Chat box', icon: 'message', c: 'c-gift', w: 420, h: 520, text: 'Your chat, on stream.' },
+  chat: { name: 'Chat box', icon: 'message', c: 'c-gift', w: 420, h: 520, text: 'Twitch-style chat with 7TV, BTTV and FFZ emotes.' },
   custom: { name: 'Custom code', icon: 'code', c: 'c-tip', w: 600, h: 160, text: 'Your own HTML, CSS and JavaScript.' },
 };
 const ADDABLE: WidgetKind[] = ['alerts', 'feed', 'latest', 'top', 'goal', 'chat', 'custom'];
@@ -44,39 +45,17 @@ export const TOP_KINDS = [
 
 type Template = { id: string; name: string; text: string; items: Omit<SceneItem, 'id'>[] };
 
-/** Three starting points. Each replaces the draft; Undo brings it back. */
+/** Where the built-in widgets go: alerts over the whole canvas, chat down the right. */
+const PILL_ITEM: Omit<SceneItem, 'id'> = { widget: 'custom', x: 0, y: 0, w: 1920, h: 1080, code: PILL_ALERTS };
+const CHAT_ITEM: Omit<SceneItem, 'id'> = { widget: 'custom', x: 1476, y: 120, w: 420, h: 840, code: TWITCH_CHAT };
+
+/** The starting point. It replaces the draft; Undo brings it back. */
 export const TEMPLATES: Template[] = [
   {
-    id: 'gameplay',
-    name: 'Gameplay',
-    text: 'Alerts at the top, a row of labels and the goal along the bottom, the game in between.',
-    items: [
-      { widget: 'alerts', x: 560, y: 40, w: 800, h: 260 },
-      { widget: 'latest', kind: 'follow', x: 24, y: 1000, w: 440, h: 60 },
-      { widget: 'latest', kind: 'subscriber', x: 480, y: 1000, w: 440, h: 60 },
-      { widget: 'top', kind: 'cheer', x: 936, y: 1000, w: 440, h: 60 },
-      { widget: 'goal', x: 1392, y: 984, w: 504, h: 76 },
-    ],
-  },
-  {
-    id: 'chatting',
-    name: 'Just chatting',
-    text: 'Chat down the right, recent events on the left, alerts and the goal in the middle.',
-    items: [
-      { widget: 'chat', limit: 14, x: 1476, y: 120, w: 420, h: 840 },
-      { widget: 'feed', limit: 6, x: 24, y: 120, w: 420, h: 420 },
-      { widget: 'alerts', x: 560, y: 60, w: 800, h: 280 },
-      { widget: 'goal', x: 660, y: 980, w: 600, h: 80 },
-    ],
-  },
-  {
-    id: 'minimal',
-    name: 'Minimal',
-    text: 'Just alerts in the middle and a small goal in the corner.',
-    items: [
-      { widget: 'alerts', x: 560, y: 390, w: 800, h: 300 },
-      { widget: 'goal', x: 1296, y: 24, w: 600, h: 80 },
-    ],
+    id: 'default',
+    name: 'Sylva default',
+    text: 'Pill alerts in the bottom left corner and a Twitch-style chat down the right.',
+    items: [PILL_ITEM, CHAT_ITEM],
   },
 ];
 
@@ -247,13 +226,21 @@ export function SceneEditor({ url }: { url: string | null }) {
 
   const add = (widget: WidgetKind) => {
     if (!items) return;
+    // The alert box and chat box are the built-in custom widgets now.
+    if (widget === 'alerts' || widget === 'chat') {
+      const it = fit({ ...(widget === 'alerts' ? PILL_ITEM : CHAT_ITEM), id: newId('custom') });
+      commit([...items, it]);
+      setSelected(it.id);
+      setMenu(null);
+      return;
+    }
     const m = WIDGET_META[widget];
     const n = items.length;
     const it = fit({
       id: newId(widget), widget, w: m.w, h: m.h,
       x: (W - m.w) / 2 + (n % 5) * 24, y: (H - m.h) / 2 + (n % 5) * 24,
       kind: widget === 'latest' ? 'follow' : widget === 'top' ? 'cheer' : undefined,
-      limit: widget === 'feed' ? 5 : widget === 'chat' ? 12 : undefined,
+      limit: widget === 'feed' ? 5 : undefined,
       code: widget === 'custom' ? { ...STARTER } : undefined,
     });
     commit([...items, it]);
@@ -673,7 +660,7 @@ function TemplateThumb({ t }: { t: Template }) {
       {t.items.map((i, n) => (
         <span
           key={n}
-          className={WIDGET_META[i.widget].c}
+          className={i.widget === 'custom' && i.code?.alerts ? WIDGET_META.alerts.c : i.widget === 'custom' ? WIDGET_META.chat.c : WIDGET_META[i.widget].c}
           style={{ left: `${(i.x / W) * 100}%`, top: `${(i.y / H) * 100}%`, width: `${(i.w / W) * 100}%`, height: `${(i.h / H) * 100}%` }}
         />
       ))}

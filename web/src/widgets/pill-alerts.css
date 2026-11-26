@@ -1,0 +1,247 @@
+:root {
+  --font: 'Inter', sans-serif;
+  --accent: #FFFFFF;
+  --accent-soft: rgba(255, 255, 255, 0.10);
+  --accent-ring: rgba(255, 255, 255, 0.28);
+  --card: #000000;
+  --text: #FFFFFF;
+  --muted: #A3A3A3;
+  --badge-text: #000000;
+  --size: 26.4px;
+  --offset-x: 60px;
+  --offset-y: 60px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+#stage {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: var(--offset-y) var(--offset-x);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  font-family: var(--font);
+  font-size: var(--size);
+  line-height: 1.2;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Position on the canvas */
+#stage.v-middle { justify-content: center; }
+#stage.v-bottom { justify-content: flex-end; }
+#stage.h-center { align-items: center; }
+#stage.h-right { align-items: flex-end; }
+
+.alert {
+  position: relative;
+  max-width: 100%;
+}
+
+/* The pill clips the row while it opens and closes */
+.pill {
+  display: flex;
+  justify-content: flex-start;
+  background: var(--card);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  box-shadow: 0 0.6em 1.4em rgba(0, 0, 0, 0.4), 0 0.1em 0.3em rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+
+  /* Hidden state: small circle */
+  opacity: 0;
+  transform: scale(0.5);
+  transform-origin: calc(1.45em + 1px) 50%;
+  transition:
+    width 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s ease;
+}
+
+.pill.pop {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.pill.closing {
+  transition:
+    width 0.45s cubic-bezier(0.65, 0, 0.35, 1),
+    transform 0.3s cubic-bezier(0.55, 0, 0.75, 0),
+    opacity 0.25s ease 0.05s;
+}
+
+/* The row keeps a fixed width so nothing reflows during the animation */
+.row {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  height: 2.9em;
+  padding: 0 1.3em 0 0.4em;
+  white-space: nowrap;
+}
+
+.pill.has-badge .row {
+  padding-right: 0.4em;
+}
+
+/* Right side: icon on the right, pill opens to the left */
+#stage.h-right .pill {
+  justify-content: flex-end;
+  transform-origin: calc(100% - 1.45em - 1px) 50%;
+}
+#stage.h-right .row {
+  flex-direction: row-reverse;
+  padding: 0 0.4em 0 1.3em;
+}
+#stage.h-right .pill.has-badge .row { padding-left: 0.4em; }
+
+/* Icon circle */
+.icon {
+  flex: 0 0 auto;
+  width: 2.1em;
+  height: 2.1em;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-ring);
+  color: var(--accent);
+}
+
+.icon svg {
+  display: block;
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.pill.has-badge .icon {
+  background: var(--accent);
+  box-shadow: none;
+  color: var(--badge-text);
+}
+
+/* Text */
+.text {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  opacity: 0;
+  transform: translateX(-0.5em);
+  transition: opacity 0.2s ease, transform 0.3s ease;
+}
+
+#stage.h-right .text { transform: translateX(0.5em); }
+
+.name,
+.target {
+  flex: 0 1 auto;
+  min-width: 1.5em;
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.target:empty { display: none; }
+
+.action {
+  flex: 0 0 auto;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* Amount badge */
+.badge {
+  display: none;
+  flex: 0 0 auto;
+  margin-left: 0.1em;
+  padding: 0.38em 0.85em;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--badge-text);
+  font-weight: 700;
+  font-size: 0.95em;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.2s ease, transform 0.3s ease;
+}
+
+#stage.h-right .badge { margin-left: 0; margin-right: 0.1em; }
+
+.pill.has-badge .badge { display: block; }
+
+/* Open state */
+.pill.open .text {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.35s ease 0.15s, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.15s;
+}
+
+.pill.open .badge {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 0.3s ease 0.3s, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s;
+}
+
+/* Viewer message: floats under the pill (above it at the bottom of the screen)
+   so the pill never moves */
+.msg {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: max-content;
+  max-width: 24em;
+  margin-top: 0.45em;
+  padding: 0.5em 0.85em;
+  box-sizing: border-box;
+  background: var(--card);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.9em;
+  font-size: 0.72em;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-0.4em);
+  transition: opacity 0.3s ease, transform 0.35s ease;
+  pointer-events: none;
+}
+
+.msg:empty { visibility: hidden; }
+
+#stage.v-bottom .msg {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 0.45em;
+  transform: translateY(0.4em);
+}
+
+#stage.h-right .msg { left: auto; right: 0; }
+#stage.h-center .msg { right: 0; margin-left: auto; margin-right: auto; }
+
+.msg.show {
+  opacity: 1;
+  transform: translateY(0);
+}

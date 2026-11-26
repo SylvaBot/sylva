@@ -294,6 +294,7 @@ export function startFakeTwitch(port = FAKE_PORT) {
       ]);
       if (p === '/bot/timers/se123') return json(res, 200, [{ name: 'Socials', messages: ['Follow!'], onlineInterval: 15, chatLines: 5, enabled: true }]);
       if (p === '/points/se123/top') return json(res, 200, { _total: 2, users: [{ username: FAKE_USER.login, points: 500 }, { username: 'nobody_here', points: 9 }] });
+      if (p === '/points/se123/watchtime') return json(res, 200, { _total: 1, users: [{ username: FAKE_USER.login, minutes: 125 }] });
     }
 
     // Stand-ins for the public services the bot's built-in commands read.

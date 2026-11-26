@@ -1160,6 +1160,9 @@ fieldset.gate { border: 0; margin: 0; padding: 0; min-width: 0; }
 .code-alerts.off { opacity: .6; }
 .code-fields { display: flex; flex-direction: column; gap: 10px; }
 .code-fields h4 { margin: 0; font-size: 13px; }
+.code-field { display: flex; flex-direction: column; gap: 8px; }
+.code-field h5 { margin: 6px 0 0; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.code-field > .btn { align-self: flex-start; }
 .code-color { display: flex; gap: 6px; align-items: center; }
 .code-color input[type="color"] { width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-2); border-radius: var(--r-sm); background: none; }
 @media (max-width: 860px) {

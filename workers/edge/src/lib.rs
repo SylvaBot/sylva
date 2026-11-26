@@ -39,6 +39,7 @@ mod bot;
 mod builtins;
 mod channel;
 mod chat_alerts;
+mod chat_assets;
 mod community;
 mod delete;
 mod games;
@@ -140,6 +141,12 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
         (Method::Get, ["v1", "public", login]) => public_store(&req, &env, login).await,
         (Method::Get, ["v1", "public", login, "commands"]) => public_commands(&env, login).await,
+        (Method::Get, ["v1", "chat-assets", key]) => {
+            if !valid_key(key) {
+                return Response::error("Unknown channel", 404);
+            }
+            chat_assets::chat_assets(&env, key).await
+        }
         (Method::Get, ["overlay-frame"]) => {
             // A custom widget's frame. The sandbox keeps its code in an
             // origin of its own even when the page is opened directly.

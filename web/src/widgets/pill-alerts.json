@@ -1,0 +1,223 @@
+{
+  "testAlerts": {
+    "type": "button",
+    "label": "Test all alert types",
+    "value": "test",
+    "group": "Testing"
+  },
+  "position": {
+    "type": "dropdown",
+    "label": "Position on screen",
+    "value": "bottom-left",
+    "options": {
+      "top-left": "Top left",
+      "top-center": "Top center",
+      "top-right": "Top right",
+      "middle-left": "Middle left",
+      "middle-center": "Center",
+      "middle-right": "Middle right",
+      "bottom-left": "Bottom left",
+      "bottom-center": "Bottom center",
+      "bottom-right": "Bottom right"
+    },
+    "group": "Position"
+  },
+  "offsetX": {
+    "type": "number",
+    "label": "Distance from left/right edge (px)",
+    "value": 60,
+    "min": 0,
+    "max": 1900,
+    "step": 1,
+    "group": "Position"
+  },
+  "offsetY": {
+    "type": "number",
+    "label": "Distance from top/bottom edge (px)",
+    "value": 60,
+    "min": 0,
+    "max": 1060,
+    "step": 1,
+    "group": "Position"
+  },
+  "fontFamily": {
+    "type": "googleFont",
+    "label": "Font",
+    "value": "Inter",
+    "group": "Style"
+  },
+  "size": {
+    "type": "slider",
+    "label": "Size (%)",
+    "value": 120,
+    "min": 50,
+    "max": 250,
+    "step": 5,
+    "group": "Style"
+  },
+  "accentColor": {
+    "type": "colorpicker",
+    "label": "Accent color (icons and badge)",
+    "value": "#FFFFFF",
+    "group": "Style"
+  },
+  "cardColor": {
+    "type": "colorpicker",
+    "label": "Pill background",
+    "value": "#000000",
+    "group": "Style"
+  },
+  "textColor": {
+    "type": "colorpicker",
+    "label": "Name color",
+    "value": "#FFFFFF",
+    "group": "Style"
+  },
+  "mutedColor": {
+    "type": "colorpicker",
+    "label": "Action text color",
+    "value": "#A3A3A3",
+    "group": "Style"
+  },
+  "badgeTextColor": {
+    "type": "colorpicker",
+    "label": "Badge text color",
+    "value": "#000000",
+    "group": "Style"
+  },
+  "duration": {
+    "type": "number",
+    "label": "Time fully open (seconds)",
+    "value": 5,
+    "min": 1,
+    "max": 30,
+    "step": 1,
+    "group": "Behavior"
+  },
+  "showMessages": {
+    "type": "checkbox",
+    "label": "Show viewer messages",
+    "value": false,
+    "group": "Behavior"
+  },
+  "minTip": {
+    "type": "number",
+    "label": "Minimum tip / Super Chat to show",
+    "value": 0,
+    "min": 0,
+    "step": 1,
+    "group": "Behavior"
+  },
+  "minCheer": {
+    "type": "number",
+    "label": "Minimum bits / KICKs to show",
+    "value": 1,
+    "min": 1,
+    "step": 1,
+    "group": "Behavior"
+  },
+  "minRaid": {
+    "type": "number",
+    "label": "Minimum raid viewers to show",
+    "value": 0,
+    "min": 0,
+    "step": 1,
+    "group": "Behavior"
+  },
+  "maxQueue": {
+    "type": "number",
+    "label": "Max alerts waiting in line",
+    "value": 50,
+    "min": 1,
+    "max": 500,
+    "step": 1,
+    "group": "Behavior"
+  },
+  "enableFollow": {
+    "type": "checkbox",
+    "label": "Follows",
+    "value": true,
+    "group": "Events"
+  },
+  "enableSub": {
+    "type": "checkbox",
+    "label": "Subs, resubs and YouTube memberships",
+    "value": true,
+    "group": "Events"
+  },
+  "enableGift": {
+    "type": "checkbox",
+    "label": "Gift subs and gift bombs",
+    "value": true,
+    "group": "Events"
+  },
+  "enableTip": {
+    "type": "checkbox",
+    "label": "Tips and Super Chats",
+    "value": true,
+    "group": "Events"
+  },
+  "enableCheer": {
+    "type": "checkbox",
+    "label": "Bits and Kick KICKs",
+    "value": true,
+    "group": "Events"
+  },
+  "enableRaid": {
+    "type": "checkbox",
+    "label": "Raids",
+    "value": true,
+    "group": "Events"
+  },
+  "enableHost": {
+    "type": "checkbox",
+    "label": "Hosts",
+    "value": true,
+    "group": "Events"
+  },
+  "enableChannelPoints": {
+    "type": "checkbox",
+    "label": "Twitch channel point redemptions",
+    "value": true,
+    "group": "Events"
+  },
+  "enableStore": {
+    "type": "checkbox",
+    "label": "StreamElements store redemptions",
+    "value": true,
+    "group": "Events"
+  },
+  "enableMerch": {
+    "type": "checkbox",
+    "label": "Merch purchases",
+    "value": true,
+    "group": "Events"
+  },
+  "enableCharity": {
+    "type": "checkbox",
+    "label": "Charity donations",
+    "value": true,
+    "group": "Events"
+  },
+  "enableOther": {
+    "type": "checkbox",
+    "label": "Any other event type",
+    "value": true,
+    "group": "Events"
+  },
+  "alertSound": {
+    "type": "sound-input",
+    "label": "Alert sound (optional)",
+    "value": "",
+    "group": "Sound"
+  },
+  "volume": {
+    "type": "slider",
+    "label": "Volume",
+    "value": 50,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "group": "Sound"
+  }
+}

@@ -17,7 +17,7 @@ use worker::*;
 use crate::bot::{badges, sender};
 use crate::channel::ChannelDo;
 use crate::community::Ask;
-use crate::grants::{Permission, Token};
+use crate::grants::Token;
 use crate::twitch_api::App;
 
 const PURPOSE: &str = "moderation";
@@ -79,12 +79,13 @@ impl ChannelDo {
         now: i64,
     ) -> Result<u16> {
         let reason = format!("Nuked: {}", n.what.label());
+        let moderator = self.moderator_id();
         let (status, v) = match n.action {
             NukeAction::Delete => {
                 app.helix(
                     Method::Delete,
                     &format!(
-                        "/moderation/chat?broadcaster_id={broadcaster}&moderator_id={broadcaster}&message_id={}",
+                        "/moderation/chat?broadcaster_id={broadcaster}&moderator_id={moderator}&message_id={}",
                         sylva_core::auth::encode(&t.message_id)
                     ),
                     None,
@@ -94,7 +95,7 @@ impl ChannelDo {
             NukeAction::Timeout { seconds } => {
                 app.helix(
                     Method::Post,
-                    &format!("/moderation/bans?broadcaster_id={broadcaster}&moderator_id={broadcaster}"),
+                    &format!("/moderation/bans?broadcaster_id={broadcaster}&moderator_id={moderator}"),
                     Some(json!({ "data": { "user_id": t.user_id, "duration": seconds, "reason": reason } })),
                 )
                 .await?
@@ -102,7 +103,7 @@ impl ChannelDo {
             NukeAction::Ban => {
                 app.helix(
                     Method::Post,
-                    &format!("/moderation/bans?broadcaster_id={broadcaster}&moderator_id={broadcaster}"),
+                    &format!("/moderation/bans?broadcaster_id={broadcaster}&moderator_id={moderator}"),
                     Some(json!({ "data": { "user_id": t.user_id, "reason": reason } })),
                 )
                 .await?
@@ -117,12 +118,7 @@ impl ChannelDo {
             NukeAction::Timeout { seconds } => ("timeout", seconds),
             NukeAction::Ban => ("ban", 0),
         };
-        let detail = (!ok).then(|| {
-            format!(
-                "Twitch said no ({status}): {}",
-                v["message"].as_str().unwrap_or("no reason given")
-            )
-        });
+        let detail = (!ok).then(|| crate::grants::mod_refusal(status, &v));
         let message: String = t.text.chars().take(500).collect();
         self.sql.exec(
             "INSERT INTO mod_log (at, user_id, user, rule, message, action, seconds, result, detail)
@@ -154,16 +150,9 @@ impl ChannelDo {
     }
 
     async fn mod_app(&self) -> Result<std::result::Result<App, String>> {
-        Ok(match self.user_token(PURPOSE).await? {
+        Ok(match self.mod_token().await? {
             Token::Ok(t) => Ok(App::user(&self.env, &t)?),
-            Token::No(Permission::Expired) => Err(
-                "Twitch no longer accepts Sylva's permission to moderate. Allow it again on the Moderation page."
-                    .into(),
-            ),
-            Token::No(_) => Err(
-                "Sylva is not allowed to moderate yet. Allow moderation on the Moderation page."
-                    .into(),
-            ),
+            Token::No(p) => Err(crate::grants::mod_words(p)),
         })
     }
 

@@ -132,9 +132,16 @@ Song request and media queue commands are left out on purpose. Settings saved be
 
 ### Moving from StreamElements
 
-Settings has **Move from StreamElements** for the owner: paste the StreamElements JWT token (Account, Channels, Show secrets) and pick commands, timers and loyalty points. Sylva calls StreamElements' API once with it and never stores it. Commands come over one at a time, so one Sylva cannot keep (an unknown variable, a name already used) is listed with the reason instead of stopping the rest; common variables such as `${user.name}` are renamed. A timer that rotates several messages becomes one timer per message. Points come over for the top 1000 viewers, each keeping whichever balance is higher, so running the import twice changes nothing. Code: `sylva_core::import` and the Worker's `import`.
+Settings has **Move from StreamElements** for the owner: paste the StreamElements JWT token (Account, Channels, Show secrets) and pick commands, timers and loyalty points. Sylva calls StreamElements' API once with it and never stores it. Commands come over one at a time, so one Sylva cannot keep (an unknown variable, a name already used) is listed with the reason instead of stopping the rest; common variables such as `${user.name}` are renamed. A timer that rotates several messages becomes one timer per message. Points and watch time come over for the top 1000 viewers, each keeping whichever is higher, so running the import twice changes nothing. `!watchtime` answers from the watch time Sylva counts each time it pays watch points. Code: `sylva_core::import` and the Worker's `import`.
 
 ## Moderation
+
+Every delete, timeout and ban is done by Sylva_Bot, never by the streamer's
+account. The bot gives Sylva its moderator scopes once at `/auth/twitch/bot`
+(its sealed token is kept like a streamer's grant), and each streamer makes it
+a moderator with `/mod sylva_bot`. The Moderation page checks that and says
+so when the bot is not a moderator yet. Only a Sylva with no shared bot falls
+back to the streamer's own permission.
 
 Off until the streamer picks a preset. Each chat line is checked in the channel's Durable Object before the bot sees it; a line that breaks a rule gets no bot answer.
 
@@ -233,6 +240,16 @@ Every widget is the overlay page with `&widget=` added to the same private link,
 Widgets connect with the `widget` role: on connect they get a `widgets` frame (recent events, the latest of each kind, recent chat and the goal with its progress) and then follow live `event` frames, plus `top` frames when the top cheerer or gifter may have changed. A `?scene` overlay also gets the published layout in the `widgets` frame, and a new one whenever it is published. They never receive `play` frames and do not count as connected alert boxes, so they cannot hold up the alert queue. Saving the goal sends a fresh `widgets` frame to every widget on screen. The goal lives in `GET` and `POST /v1/channels/{key}/widget-settings`.
 
 ![Widgets on the Overlay page](site/widgets.png)
+
+### Built-in widgets
+
+The editor's starting template is two built-in custom code widgets: pill
+alerts over the whole canvas (they play the alert queue) and a Twitch-style
+chat. Add widget, Alert box and Chat box insert them too. The chat shows
+Twitch badges and Twitch, 7TV, BetterTTV and FrankerFaceZ emotes, which the
+overlay reads from `GET /v1/chat-assets/{channel}` (public, cached an hour)
+and hands to every custom widget the way StreamElements does. Older scenes
+with the stock alert box and chat box keep working.
 
 ### Custom code widgets
 

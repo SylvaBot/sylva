@@ -87,6 +87,20 @@ const fn b(
 use Group::*;
 use UserLevel::{Broadcaster, Everyone, Moderator};
 
+/// "3 days 4 hours", "2 hours 5 minutes", "12 minutes": watch time, in minutes.
+pub fn watch_words(minutes: i64) -> String {
+    let m = minutes.max(0);
+    let (d, h, m) = (m / 1440, (m % 1440) / 60, m % 60);
+    let unit = |n: i64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    match (d, h, m) {
+        (0, 0, m) => unit(m, "minute"),
+        (0, h, 0) => unit(h, "hour"),
+        (0, h, m) => format!("{} {}", unit(h, "hour"), unit(m, "minute")),
+        (d, 0, _) => unit(d, "day"),
+        (d, h, _) => format!("{} {}", unit(d, "day"), unit(h, "hour")),
+    }
+}
+
 /// Every built-in command, in the order the dashboard lists them.
 pub const BUILTINS: &[Builtin] = &[
     b(
@@ -151,6 +165,14 @@ pub const BUILTINS: &[Builtin] = &[
             5,
         )
     },
+    b(
+        "watchtime",
+        Info,
+        "How long someone has watched the channel while points were on",
+        "!watchtime or !watchtime @name",
+        Everyone,
+        5,
+    ),
     b(
         "accountage",
         Info,
@@ -894,6 +916,16 @@ pub fn meaning_line(prefix: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn watch_time_words() {
+        assert_eq!(watch_words(0), "0 minutes");
+        assert_eq!(watch_words(1), "1 minute");
+        assert_eq!(watch_words(125), "2 hours 5 minutes");
+        assert_eq!(watch_words(60), "1 hour");
+        assert_eq!(watch_words(1440 * 3 + 245), "3 days 4 hours");
+        assert_eq!(watch_words(1440 + 5), "1 day");
+    }
+
     use super::*;
 
     fn s(v: &[&str]) -> Vec<String> {

@@ -184,10 +184,7 @@ impl ChannelDo {
         };
         Ok(ModView {
             settings: self.mod_settings()?,
-            permission: match self.user_token(PURPOSE).await? {
-                Token::Ok(_) => Permission::Ok,
-                Token::No(p) => p,
-            },
+            permission: self.mod_permission().await?,
             presets: [
                 info(Preset::Relaxed),
                 info(Preset::Standard),
@@ -267,20 +264,16 @@ impl ChannelDo {
         let seconds = penalty(&settings.steps, strikes);
         let message_id = e.raw["message_id"].as_str().unwrap_or_default();
 
-        let outcome = match self.user_token(PURPOSE).await? {
-            Token::No(Permission::Expired) => Err(
-                "Twitch no longer accepts Sylva's permission. Allow moderation again.".to_string(),
-            ),
-            Token::No(_) => Err(
-                "Sylva is not allowed to moderate yet. Allow moderation on this page.".to_string(),
-            ),
+        let moderator = self.moderator_id();
+        let outcome = match self.mod_token().await? {
+            Token::No(p) => Err(crate::grants::mod_words(p)),
             Token::Ok(token) => {
                 let user = App::user(&self.env, &token)?;
                 let (status, v) = if seconds == 0 {
                     user.helix(
                         Method::Delete,
                         &format!(
-                            "/moderation/chat?broadcaster_id={broadcaster}&moderator_id={broadcaster}&message_id={}",
+                            "/moderation/chat?broadcaster_id={broadcaster}&moderator_id={moderator}&message_id={}",
                             sylva_core::auth::encode(message_id)
                         ),
                         None,
@@ -289,7 +282,7 @@ impl ChannelDo {
                 } else {
                     user.helix(
                         Method::Post,
-                        &format!("/moderation/bans?broadcaster_id={broadcaster}&moderator_id={broadcaster}"),
+                        &format!("/moderation/bans?broadcaster_id={broadcaster}&moderator_id={moderator}"),
                         Some(json!({ "data": {
                             "user_id": actor.id,
                             "duration": seconds,
@@ -304,10 +297,7 @@ impl ChannelDo {
                 if (200..300).contains(&status) {
                     Ok(())
                 } else {
-                    Err(format!(
-                        "Twitch said no ({status}): {}",
-                        v["message"].as_str().unwrap_or("no reason given")
-                    ))
+                    Err(crate::grants::mod_refusal(status, &v))
                 }
             }
         };
@@ -421,17 +411,16 @@ impl ChannelDo {
                 "Sylva has not heard from this channel yet".into(),
             )));
         };
-        let token = match self.user_token(PURPOSE).await? {
+        let moderator = self.moderator_id();
+        let token = match self.mod_token().await? {
             Token::Ok(t) => t,
-            Token::No(_) => {
-                return Ok(Err((409, "Allow moderation first".into())));
-            }
+            Token::No(p) => return Ok(Err((409, crate::grants::mod_words(p)))),
         };
         let (status, v) = App::user(&self.env, &token)?
             .helix(
                 Method::Delete,
                 &format!(
-                    "/moderation/bans?broadcaster_id={broadcaster}&moderator_id={broadcaster}&user_id={}",
+                    "/moderation/bans?broadcaster_id={broadcaster}&moderator_id={moderator}&user_id={}",
                     sylva_core::auth::encode(&entry.user_id)
                 ),
                 None,
@@ -444,13 +433,7 @@ impl ChannelDo {
                 .as_str()
                 .is_some_and(|m| m.to_lowercase().contains("not banned"));
         if !(200..300).contains(&status) && !gone {
-            return Ok(Err((
-                502,
-                format!(
-                    "Twitch said no ({status}): {}",
-                    v["message"].as_str().unwrap_or("no reason given")
-                ),
-            )));
+            return Ok(Err((502, crate::grants::mod_refusal(status, &v))));
         }
         self.sql.exec(
             "UPDATE mod_log SET undone_at = ? WHERE id = ?",

@@ -63,6 +63,15 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             messages and time out chatters, encrypted the same way and used only for the moderation rules you turn on.
           </li>
           <li>
+            <b>Command permission, if you allow it:</b> a Twitch token that may make clips, change your
+            stream title and category, and read your followers, encrypted the same way and used only when
+            someone with the level you set runs !clip, !settitle, !setgame or !followage.
+          </li>
+          <li>
+            <b>Your StreamElements token, if you import:</b> used once to read your StreamElements commands,
+            timers and points, then thrown away. Sylva never stores it.
+          </li>
+          <li>
             <b>Chat list permission, if you allow it:</b> a Twitch token that may read who is in your chat,
             encrypted the same way and used only to pay loyalty points to viewers who watch without chatting.
           </li>
@@ -103,7 +112,7 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
 
         <h2>What Sylva does not do</h2>
         <ul>
-          <li>It posts in your chat only when you turn on the chat bot (to answer your commands, counters and quotes, and to post your timers) or moderation notices, and it removes messages or times out chatters only under moderation rules you turn on. It does not change anything else on your channel.</li>
+          <li>It posts in your chat only when you turn on the chat bot (to answer your commands, counters and quotes, and to post your timers) or moderation notices, and it removes messages or times out chatters only under moderation rules you turn on. It changes your title or category, or makes a clip, only when an allowed chatter runs a built-in command for it. It does not change anything else on your channel.</li>
           <li>It does not sell your data, show ads, or share data with anyone for advertising.</li>
           <li>It has no analytics or tracking scripts, and loads nothing from other sites except Twitch profile pictures.</li>
         </ul>

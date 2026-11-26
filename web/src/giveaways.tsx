@@ -66,10 +66,10 @@ export function GiveawaysPage() {
 function Start({ view, onView }: { view: GiveawaysView; onView(v: GiveawaysView): void }) {
   const ch = useChannel();
   const toast = useToast();
-  const [draft, setDraft] = useState<GiveawaySettings>({ prize: '', keyword: 'join', level: 'everyone', cost: 0, subLuck: 1 });
+  const [draft, setDraft] = useState<GiveawaySettings>({ prize: '', keyword: 'enter', level: 'everyone', cost: 0, subLuck: 1 });
   const [busy, setBusy] = useState(false);
   const set = (p: Partial<GiveawaySettings>) => setDraft((d) => ({ ...d, ...p }));
-  const word = draft.keyword.trim().replace(/^!/, '').toLowerCase() || 'join';
+  const word = draft.keyword.trim().replace(/^!/, '').toLowerCase() || 'enter';
 
   const start = async () => {
     setBusy(true);

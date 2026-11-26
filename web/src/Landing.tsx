@@ -17,11 +17,20 @@ const PREVIEW = [
 
 const FEATURES = [
   { icon: 'bell', c: 'c-sub', title: 'Alerts that just work', text: 'Follows, subs, gifts, cheers and raids play on stream one at a time, in order, and never twice. Pause, mute, skip or replay from the dashboard.' },
-  { icon: 'activity', c: 'c-follow', title: 'Every event in one feed', text: 'One color per kind of event, a 24 hour summary, filters and search, with history going back as far as you streamed with Sylva.' },
-  { icon: 'monitor', c: 'c-bits', title: 'One link for OBS', text: 'Add a single Browser Source. If a link leaks, make a new one and the old one stops working at once.' },
-  { icon: 'message', c: 'c-raid', title: 'Chat beside it', text: 'Read chat live next to your alerts and activity, without another window open.' },
-  { icon: 'zap', c: 'c-reward', title: 'Live, not polled', text: 'Events arrive from Twitch in about a second and reach every open dashboard and overlay at the same time.' },
-  { icon: 'shield', c: 'c-gift', title: 'Private by default', text: 'Your overlay link only shows alerts, your activity and chat are only visible to you, and Twitch tokens are stored encrypted.' },
+  { icon: 'layers', c: 'c-bits', title: 'An overlay editor', text: 'Place alerts, event lists, labels, a goal bar and chat on one 1920 by 1080 canvas, publish it to one OBS link, and roll back any time.' },
+  { icon: 'code', c: 'c-raid', title: 'Your own widgets', text: 'Write plain HTML, CSS and JavaScript with a live preview. Each widget runs in a sandbox, and StreamElements custom widgets paste straight in.' },
+  { icon: 'bot', c: 'c-follow', title: 'A chat bot with the usual commands', text: 'Custom commands, timers, counters, quotes, !followage, !uptime, !clip, !settitle and the rest, with levels and cooldowns you set.' },
+  { icon: 'shield', c: 'c-gift', title: 'Moderation that keeps up', text: 'Rules for links, caps, symbols, emotes and banned words with steps that escalate, a !nuke for raids of spam, and a log where you can undo.' },
+  { icon: 'gem', c: 'c-reward', title: 'Points, games and rewards', text: 'Viewers earn points for watching and supporting, play !gamble, !slots, !blackjack and !duel, enter raffles, and spend points in your store.' },
+  { icon: 'trophy', c: 'c-tip', title: 'Giveaways anyone can check', text: 'Keyword entry, subscriber luck and a winner drawn from a seed committed before the draw, so viewers can see it was fair.' },
+  { icon: 'activity', c: 'c-follow', title: 'Every event in one feed', text: 'One color per kind of event, a 24 hour summary, filters and search, and your chat beside it, live in about a second.' },
+  { icon: 'users', c: 'c-sub', title: 'Your team, your keys', text: 'Give editors and moderators their own access, replace a leaked overlay link at once, and know your Twitch tokens are stored encrypted.' },
+];
+
+const MOVING = [
+  'Your commands and their levels and cooldowns',
+  'Your timers, one per message',
+  'Your top 1,000 viewers\u2019 points',
 ];
 
 export function Landing({ signedIn, error, notice, notFound }: {
@@ -42,6 +51,7 @@ export function Landing({ signedIn, error, notice, notFound }: {
           <nav className="site-links" aria-label="Sections">
             <a href="#features">Features</a>
             <a href="#how">How it works</a>
+            <a href="#moving">Switching</a>
           </nav>
         )}
         <span className="spacer" />
@@ -62,23 +72,23 @@ export function Landing({ signedIn, error, notice, notFound }: {
             <section className="hero wrap">
               <div>
                 <span className="eyebrow"><span className="dot" />For Twitch streamers</span>
-                <h1>Your alerts and activity, <em>in one calm place.</em></h1>
+                <h1>Your whole stream, <em>in one calm place.</em></h1>
                 <p className="lede">
-                  Sylva puts your follows, subs, cheers and raids on stream as alerts, keeps every one in a live
-                  feed, and shows your chat beside it. Sign in with Twitch and it is ready in under a minute.
+                  Alerts and an overlay editor, a chat bot, moderation, loyalty points with games and a store, and
+                  giveaways, all in one dashboard that updates live. Sign in with Twitch and it is ready in a minute.
                 </p>
                 <div className="hero-cta">{cta}</div>
                 {error && <p className="signin-error" role="alert">{error}</p>}
                 {notice && <p className="site-notice" role="status">{notice}</p>}
-                <p className="hero-note">Sylva does not post in your chat or change anything on your channel.</p>
+                <p className="hero-note">Free while in beta. Every feature is off until you turn it on.</p>
               </div>
               <Preview />
             </section>
 
             <section className="section wrap" id="features" aria-labelledby="features-title">
               <div className="section-head">
-                <h2 id="features-title">Everything your stream needs to react to its viewers</h2>
-                <p>Built around one idea: you should see what happened, and your viewers should see you notice it.</p>
+                <h2 id="features-title">Everything a stream needs, without five different tools</h2>
+                <p>One sign in, one overlay link and one dashboard, built to be fast on stream and calm to use.</p>
               </div>
               <div className="features">
                 {FEATURES.map((f) => (
@@ -97,15 +107,25 @@ export function Landing({ signedIn, error, notice, notFound }: {
                 <p>No downloads and nothing to install.</p>
               </div>
               <ol className="how">
-                <Step title="Sign in with Twitch">Sylva asks Twitch for the least it needs: to see followers, subs, cheers and chat.</Step>
-                <Step title="Add your overlay to OBS">Copy your overlay link and add it as a Browser Source at 1920 by 1080.</Step>
-                <Step title="Go live">Alerts play on stream, and the dashboard shows everything as it happens.</Step>
+                <Step title="Sign in with Twitch">Sylva asks Twitch for the least it needs, and asks again only for the extras you turn on.</Step>
+                <Step title="Add your overlay to OBS">Copy your overlay link and add it as one Browser Source at 1920 by 1080.</Step>
+                <Step title="Go live">Alerts play on stream, the bot answers in chat, and the dashboard shows everything as it happens.</Step>
               </ol>
+            </section>
+
+            <section className="section wrap" id="moving" aria-labelledby="moving-title">
+              <div className="section-head">
+                <h2 id="moving-title">Coming from StreamElements?</h2>
+                <p>Bring your setup with you in one step from Settings. Your StreamElements token is used once and never kept.</p>
+              </div>
+              <ul className="moving">
+                {MOVING.map((m) => <li key={m}><Icon id="check" />{m}</li>)}
+              </ul>
             </section>
 
             <section className="cta-band" aria-labelledby="cta-title">
               <h2 id="cta-title">Ready when you are</h2>
-              <p>Set up your alerts and overlay in a minute, and keep your whole stream in view.</p>
+              <p>Set up your alerts, overlay and bot in a few minutes, and keep your whole stream in view.</p>
               {cta}
             </section>
           </>

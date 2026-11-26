@@ -46,6 +46,7 @@ mod grants;
 mod import;
 mod loyalty;
 mod moderation;
+mod nuke;
 mod store;
 mod team;
 mod twitch_admin;

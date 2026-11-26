@@ -792,6 +792,21 @@ if (!fake || !usesFake) {
       { reply: 'Most leaves: 1. Giver 200, 2. Hazel 105, 3. Newbie 40', command: 'top' });
     assert.deepEqual(await tryIt({ message: '!addpoints rowan 5', level: 'everyone' }), { skip: 'level', command: 'addpoints' });
 
+    // Games: on by default, bets checked against the limits.
+    const giver = { id: '8003', name: 'Giver' };
+    await say('!gamble 5', giver);
+    assert.equal(sent().at(-1), 'Giver, the smallest bet is 10 leaves.');
+    await say('!slots 20', giver);
+    assert.match(sent().at(-1), /^\| .+ \| Giver (won|lost) [\d,]+ leaves/);
+    await say('!blackjack 10', giver);
+    assert.match(sent().at(-1), /Giver/);
+    await say('!stand', giver);
+    // Raffle: a moderator starts it, a second start is refused.
+    await say('!raffle 50', mod);
+    assert.equal(sent().at(-1), 'A raffle has begun for 50 leaves! It ends in 30 seconds. Type !join to enter');
+    await say('!raffle', mod);
+    assert.match(sent().at(-1), /a raffle is already running/);
+
     await post(path, { ...saved.settings, enabled: false });
     const off = sent().length;
     await say('!points', { id: '8007', name: 'Late' });

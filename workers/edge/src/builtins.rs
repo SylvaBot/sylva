@@ -13,9 +13,9 @@ use serde_json::{json, Value};
 use sylva_core::bot::{BotSettings, Skip, UserLevel};
 use sylva_core::builtins::{
     self as core, age_words, command_edit, date_words, emote_line, filesay_lines, filesay_url,
-    meaning_line, name_and_reply, nuke, parse_time, target_login, CommandEdit, Nuke, DAD_JOKES,
-    EIGHT_BALL, FACTS, FILESAY_GAP_MS, FILESAY_MAX_BYTES, NUKE_MAX, NUKE_WINDOW_MS, PERMIT_S,
-    VOTEKICK_TIMEOUT_S, VOTEKICK_VOTES, VOTEKICK_WINDOW_MS,
+    meaning_line, name_and_reply, nuke, parse_time, target_login, CommandEdit, DAD_JOKES,
+    EIGHT_BALL, FACTS, FILESAY_GAP_MS, FILESAY_MAX_BYTES, NUKE_USAGE, PERMIT_S, VOTEKICK_TIMEOUT_S,
+    VOTEKICK_VOTES, VOTEKICK_WINDOW_MS,
 };
 use sylva_core::community::{counter_action, CounterAction};
 use sylva_core::event::Actor;
@@ -63,12 +63,12 @@ pub(crate) struct Filesay {
 }
 
 #[derive(Deserialize)]
-struct ChatRow {
-    message_id: Option<String>,
-    user_id: Option<String>,
-    login: Option<String>,
-    text: Option<String>,
-    badges: Option<String>,
+pub(crate) struct ChatRow {
+    pub message_id: Option<String>,
+    pub user_id: Option<String>,
+    pub login: Option<String>,
+    pub text: Option<String>,
+    pub badges: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -378,10 +378,10 @@ impl ChannelDo {
                 format!("{login} may skip the chat rules for {PERMIT_S} seconds.")
             }
             "nuke" => {
-                let Some(what) = nuke(args) else {
-                    return Ok("Use !nuke with the words to remove, or !nuke @name.".into());
+                let Some(order) = nuke(args) else {
+                    return Ok(NUKE_USAGE.into());
                 };
-                self.nuke(what, ask).await?
+                self.run_nuke(order, ask, who.actor).await?
             }
             "vanish" => match who.actor {
                 None => "Your messages would be removed. The test chat sends nothing to Twitch."
@@ -1007,7 +1007,7 @@ impl ChannelDo {
     }
 
     /// Recent chat lines, newest first.
-    fn recent_chat(&self, since: i64) -> Result<Vec<ChatRow>> {
+    pub(crate) fn recent_chat(&self, since: i64) -> Result<Vec<ChatRow>> {
         self.sql
             .exec(
                 "SELECT json_extract(body, '$.raw.message_id') AS message_id,
@@ -1016,14 +1016,14 @@ impl ChannelDo {
                         json_extract(body, '$.message') AS text,
                         json_extract(body, '$.raw.badges') AS badges
                  FROM events WHERE kind = 'chat' AND received_at > ?
-                 ORDER BY seq DESC LIMIT 500",
+                 ORDER BY seq DESC LIMIT 1000",
                 vec![since.into()],
             )?
             .to_array::<ChatRow>()
     }
 
     /// Whether a chatter's latest line shows them as a moderator or above.
-    fn row_level(&self, row: &ChatRow) -> UserLevel {
+    pub(crate) fn row_level(&self, row: &ChatRow) -> UserLevel {
         let raw: Value = row
             .badges
             .as_deref()
@@ -1034,64 +1034,6 @@ impl ChannelDo {
             list.iter().map(String::as_str),
             row.user_id.as_deref() == self.broadcaster_id().as_deref(),
         )
-    }
-
-    async fn nuke(&self, what: Nuke, ask: &Ask<'_>) -> Result<String> {
-        let bot_id = sender(&self.env, &self.broadcaster_id().unwrap_or_default()).id;
-        let rows = self.recent_chat(ask.now - NUKE_WINDOW_MS)?;
-        let hits: Vec<&ChatRow> = rows
-            .iter()
-            .filter(|r| r.user_id.as_deref() != Some(bot_id.as_str()))
-            .filter(|r| self.row_level(r) < UserLevel::Moderator)
-            .filter(|r| match &what {
-                Nuke::User(login) => r.login.as_deref() == Some(login.as_str()),
-                Nuke::Words(w) => r
-                    .text
-                    .as_deref()
-                    .is_some_and(|t| t.to_lowercase().contains(w.as_str())),
-            })
-            .filter(|r| r.message_id.is_some())
-            .take(NUKE_MAX)
-            .collect();
-        if hits.is_empty() {
-            return Ok("Nothing in the last 5 minutes matches.".into());
-        }
-        if ask.dry {
-            return Ok(format!(
-                "{} would be removed.",
-                plural(hits.len(), "message")
-            ));
-        }
-        let Some(broadcaster) = self.broadcaster_id() else {
-            return Ok("Sylva has not heard from this channel yet.".into());
-        };
-        let token = match self.user_token("moderation").await? {
-            Token::Ok(t) => t,
-            Token::No(p) => return Ok(Self::mod_token_words(p)),
-        };
-        let user = App::user(&self.env, &token)?;
-        let mut removed = 0;
-        for r in hits {
-            let id = r.message_id.as_deref().unwrap_or_default();
-            let (status, _) = user
-                .helix(
-                    Method::Delete,
-                    &format!(
-                        "/moderation/chat?broadcaster_id={broadcaster}&moderator_id={broadcaster}&message_id={}",
-                        sylva_core::auth::encode(id)
-                    ),
-                    None,
-                )
-                .await?;
-            if status == 401 {
-                self.forget_token("moderation");
-                break;
-            }
-            if (200..300).contains(&status) {
-                removed += 1;
-            }
-        }
-        Ok(format!("Removed {}.", plural(removed, "message")))
     }
 
     async fn votekick(&self, args: &[String], ask: &Ask<'_>, who: &Chatter<'_>) -> Result<String> {

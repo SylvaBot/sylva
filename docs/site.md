@@ -125,7 +125,7 @@ Every channel has these without writing a reply (the list is `sylva_core::builti
 * **Commands and counters** (moderators): `!addcmd`, `!editcmd`, `!setcmd`, `!delcmd`, `!command add|edit|set|delete|on|off|show`, and `!count` for counters. Built-in names cannot be added or deleted from chat.
 * **Quotes:** `!quote`, `!addquote`, `!editquote`, `!deletequote` (also `!delquote`). The Quotes switch on the Bot page still turns them all off.
 * **Your stream:** `!clip`, `!settitle`, `!setgame`. These and the follow commands need the streamer's **Allow** on the Bot page (Twitch scopes `clips:edit`, `channel:manage:broadcast` and `moderator:read:followers`, kept as the `commands` grant).
-* **Moderation:** `!permit` (skip the chat rules for 60 seconds), `!nuke` (removes matching messages from the last 5 minutes, or one chatter's with `@name`), `!vanish`, `!votekick` (off at first; 5 votes in a minute time someone out for 5 minutes), `!filesay` (the streamer only by default; up to 25 lines, one every 2 seconds) and `!filesaystop`. All but the last two need Allow moderation.
+* **Moderation:** `!permit` (skip the chat rules for 60 seconds), `!nuke` (works like Fossabot's: `!nuke <phrase or /regex/> [-r=5m] <scrollback> <timeout, delete or ban>`, such as `!nuke bad phrase 3m 10m`; scrollback up to 10 minutes, `-r=` radiation up to an hour catches new matching messages too; moderators are left alone; nothing is said in chat, and every action lands in the Moderation log, where timeouts can be lifted and bans undone), `!vanish`, `!votekick` (off at first; 5 votes in a minute time someone out for 5 minutes), `!filesay` (the streamer only by default; up to 25 lines, one every 2 seconds) and `!filesaystop`. All but the last two need Allow moderation.
 
 Song request and media queue commands are left out on purpose. Settings saved before built-ins existed are upgraded on first read: the old default `!commands` and `!uptime` replies make way for the built-in ones, and the quote commands take the old "who can add quotes" level.
 
@@ -170,6 +170,8 @@ Once points are on, viewers can bet them in chat. Every game starts on, and each
 - `!slots 100`: three reels of six symbols. Three of a kind pays 10 times (20 for 💎), two of a kind gives back 1.5 times.
 - `!blackjack 100` (or `!bj`), then `!hit` or `!stand`. The bet is taken at the deal. Blackjack pays 3 to 2 and the dealer stands on 17. A hand left for 2 minutes stands on the viewer's next blackjack command.
 - `!duel @name 100`: the other viewer has 2 minutes to `!accept` or `!deny`. Both need the bet; the winner takes it.
+
+`!raffle` works like StreamElements': a moderator types `!raffle` (for the maximum amount) or `!raffle 1000`, viewers type `!join`, and when the time is up one of them wins points that Sylva creates. The Raffle card on the Loyalty page has its switch (on by default) and, under Edit, the duration (30 seconds), the maximum amount (3,000) and the start, running and end messages with `{points}`, `{pointsname}`, `{time}` and `{winner}`. The running message goes out halfway through raffles of 20 seconds or more. Its changes save by themselves. A giveaway open with the keyword `join` takes `!join` first.
 
 The game words count as Sylva's own, so a giveaway cannot use them. A custom command with the same name still wins.
 

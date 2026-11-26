@@ -69,6 +69,11 @@ CREATE TABLE IF NOT EXISTS scene_versions (
     published_at INTEGER NOT NULL,
     body         TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS raffle_entries (
+    user_id TEXT PRIMARY KEY,
+    login   TEXT NOT NULL,
+    name    TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS bot_cooldowns (
     key TEXT PRIMARY KEY,
     at  INTEGER NOT NULL
@@ -844,6 +849,9 @@ impl DurableObject for ChannelDo {
         if let Err(e) = self.run_filesay(now).await {
             console_error!("A !filesay line could not post: {e}");
         }
+        if let Err(e) = self.run_raffle(now).await {
+            console_error!("The raffle could not post: {e}");
+        }
         self.schedule().await?;
         Response::ok("ok")
     }
@@ -1615,12 +1623,14 @@ impl ChannelDo {
         let timer = self.next_timer_at(now)?;
         let points = self.next_loyalty_at()?;
         let filesay = self.next_filesay_at()?;
+        let raffle = self.next_raffle_at()?;
         let storage = self.state.storage();
         match alert
             .into_iter()
             .chain(timer)
             .chain(points)
             .chain(filesay)
+            .chain(raffle)
             .min()
         {
             // Careful: a Duration here is an offset from now, not a timestamp.

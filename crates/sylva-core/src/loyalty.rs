@@ -47,6 +47,9 @@ pub struct LoyaltySettings {
     /// The points games in chat, all on by default.
     #[serde(default)]
     pub games: crate::games::GameSettings,
+    /// `!raffle`, on by default.
+    #[serde(default)]
+    pub raffle: crate::games::RaffleSettings,
 }
 
 impl Default for LoyaltySettings {
@@ -62,6 +65,7 @@ impl Default for LoyaltySettings {
             cheer: 50,
             give: false,
             games: Default::default(),
+            raffle: Default::default(),
         }
     }
 }
@@ -81,6 +85,7 @@ impl LoyaltySettings {
         }
         self.name = name;
         self.games = self.games.validated();
+        self.raffle = self.raffle.validated()?;
         for v in [
             &mut self.watch,
             &mut self.active,

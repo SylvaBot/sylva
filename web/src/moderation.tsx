@@ -28,6 +28,7 @@ export const RULE_NAMES: Record<ModRule, string> = {
   caps: 'Capital letters',
   symbols: 'Symbols',
   emotes: 'Emotes',
+  nuke: 'Nuke',
 };
 
 const STEP_CHOICES = [0, 10, 60, 300, 600, 1800, 3600, 86400];
@@ -422,7 +423,7 @@ function ActionLog({ permission }: { permission: ModView['permission'] }) {
       {!!entries?.length && (
         <ul className="types mod-log">
           {entries.map((e) => {
-            const active = e.action === 'timeout' && e.result === 'done' && !e.undoneAt && e.at + e.seconds * 1000 > now;
+            const active = e.result === 'done' && !e.undoneAt && (e.action === 'ban' || (e.action === 'timeout' && e.at + e.seconds * 1000 > now));
             return (
               <li key={e.id} className="type">
                 <div className="type-row">
@@ -432,13 +433,13 @@ function ActionLog({ permission }: { permission: ModView['permission'] }) {
                     <span className={'mod-what' + (e.result === 'failed' ? ' bad-text' : '')}>
                       {e.result === 'failed'
                         ? `Not done: ${e.detail ?? 'Twitch said no'}`
-                        : e.action === 'delete' ? 'Message removed' : `Timed out for ${lasting(e.seconds)}`}
-                      {e.undoneAt ? ' · lifted' : ''}
+                        : e.action === 'delete' ? 'Message removed' : e.action === 'ban' ? 'Banned' : `Timed out for ${lasting(e.seconds)}`}
+                      {e.undoneAt ? (e.action === 'ban' ? ' · unbanned' : ' · lifted') : ''}
                       {' · '}
                       <time dateTime={new Date(e.at).toISOString()}>{when(e.at)}</time>
                     </span>
                   </div>
-                  {active && ch.can.moderate && <button className="btn sm" type="button" onClick={() => void lift(e)}><Icon id="undo" />Lift timeout</button>}
+                  {active && ch.can.moderate && <button className="btn sm" type="button" onClick={() => void lift(e)}><Icon id="undo" />{e.action === 'ban' ? 'Unban' : 'Lift timeout'}</button>}
                 </div>
               </li>
             );

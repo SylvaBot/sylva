@@ -3,14 +3,17 @@
 //! lines live in `sylva_core::games`; this file keeps the balances, the open
 //! blackjack hands and the waiting duels.
 
+use serde::Deserialize;
+use sylva_core::bot::UserLevel;
 use sylva_core::games::{
-    bet, deal, gamble, hit, roulette, slots, stand, Challenge, Game, Hand, Pick, Play, ANSWER_MS,
-    SYMBOLS,
+    bet, deal, gamble, hit, raffle_line, roulette, slots, stand, Challenge, Game, Hand, Pick, Play,
+    Raffle, ANSWER_MS, SYMBOLS,
 };
 use sylva_core::loyalty::{grouped, LoyaltySettings};
 use sylva_core::Actor;
 use worker::*;
 
+use crate::bot::sender;
 use crate::channel::ChannelDo;
 use crate::community::Ask;
 use crate::util::random_bytes;
@@ -33,6 +36,13 @@ fn drawer(cards: Vec<u8>) -> impl FnMut() -> u8 {
         i += 1;
         c
     }
+}
+
+#[derive(Deserialize)]
+struct EntryRow {
+    user_id: String,
+    login: String,
+    name: String,
 }
 
 const STARTS: [&str; 6] = ["gamble", "roulette", "slots", "blackjack", "bj", "duel"];
@@ -61,6 +71,9 @@ impl ChannelDo {
         user: &str,
     ) -> Result<Option<String>> {
         let s = self.loyalty_settings()?;
+        if trigger == "raffle" || trigger == "join" {
+            return self.raffle_reply(trigger, args, &s, ask, who, user).await;
+        }
         let Some(game) = Game::of(trigger) else {
             return Ok(None);
         };
@@ -320,5 +333,132 @@ impl ChannelDo {
             loser.display_name,
             grouped(c.bet)
         )))
+    }
+
+    /// `!raffle [amount]` (moderators) and `!join` (viewers, answered with
+    /// nothing so chat stays quiet).
+    async fn raffle_reply(
+        &self,
+        trigger: &str,
+        args: &[String],
+        s: &LoyaltySettings,
+        ask: &Ask<'_>,
+        who: Option<&Actor>,
+        user: &str,
+    ) -> Result<Option<String>> {
+        let r = &s.raffle;
+        if !s.enabled || !r.enabled {
+            return Ok(None);
+        }
+        let Ask {
+            level, now, dry, ..
+        } = *ask;
+        let open = self.stored::<Raffle>("raffle")?.filter(|x| x.ends_at > now);
+        let name = s.name.as_str();
+        if trigger == "join" {
+            let (false, Some(w), Some(_)) = (dry, who, open) else {
+                return Ok(None);
+            };
+            if self.earns(&w.id) {
+                self.sql.exec(
+                    "INSERT OR IGNORE INTO raffle_entries (user_id, login, name) VALUES (?, ?, ?)",
+                    vec![
+                        w.id.as_str().into(),
+                        w.login.as_str().into(),
+                        w.display_name.as_str().into(),
+                    ],
+                )?;
+            }
+            return Ok(None);
+        }
+        if level < UserLevel::Moderator {
+            return Ok(None);
+        }
+        if open.is_some() {
+            return Ok(Some(format!("{user}, a raffle is already running.")));
+        }
+        let max = i64::from(r.max_amount);
+        let amount = match args.first() {
+            None => max,
+            Some(a) => match a.replace(',', "").parse::<i64>() {
+                Ok(n) if n > 0 => n,
+                _ => return Ok(Some(format!("{user}, try !raffle 1000."))),
+            },
+        };
+        if amount > max {
+            return Ok(Some(format!(
+                "{user}, a raffle can give up to {} {name}.",
+                grouped(max)
+            )));
+        }
+        let secs = i64::from(r.duration);
+        if !dry {
+            self.sql.exec("DELETE FROM raffle_entries", None)?;
+            let raffle = Raffle {
+                amount,
+                started_at: now,
+                ends_at: now + secs * 1000,
+                reminded: false,
+            };
+            self.set_config("raffle", &serde_json::to_string(&raffle)?)?;
+            self.schedule().await?;
+        }
+        Ok(Some(raffle_line(&r.start, amount, name, secs, "")))
+    }
+
+    pub(crate) fn next_raffle_at(&self) -> Result<Option<i64>> {
+        Ok(self.stored::<Raffle>("raffle")?.map(|r| r.next_at()))
+    }
+
+    /// Post the running message halfway, then draw the winner at the end.
+    pub(crate) async fn run_raffle(&self, now: i64) -> Result<()> {
+        let Some(mut r) = self.stored::<Raffle>("raffle")? else {
+            return Ok(());
+        };
+        if r.next_at() > now {
+            return Ok(());
+        }
+        let s = self.loyalty_settings()?;
+        let name = s.name.as_str();
+        let line = if now < r.ends_at {
+            r.reminded = true;
+            self.set_config("raffle", &serde_json::to_string(&r)?)?;
+            let secs = (r.ends_at - now + 999) / 1000;
+            raffle_line(&s.raffle.running, r.amount, name, secs, "")
+        } else {
+            self.clear_config("raffle")?;
+            let entries = self.count("SELECT COUNT(*) AS n FROM raffle_entries", vec![])?;
+            let line = if entries == 0 {
+                "The raffle has ended, and nobody joined.".to_string()
+            } else {
+                let pick = i64::from(below(entries.min(u32::MAX as i64) as u32)?);
+                let rows = self
+                    .sql
+                    .exec(
+                        "SELECT user_id, login, name FROM raffle_entries LIMIT 1 OFFSET ?",
+                        vec![pick.into()],
+                    )?
+                    .to_array::<EntryRow>()?;
+                match rows.into_iter().next() {
+                    Some(e) => {
+                        let winner = Actor {
+                            id: e.user_id,
+                            login: e.login,
+                            display_name: e.name,
+                        };
+                        self.credit(&winner, r.amount, "Won the raffle", now)?;
+                        raffle_line(&s.raffle.end, r.amount, name, 0, &winner.display_name)
+                    }
+                    None => "The raffle has ended, and nobody joined.".to_string(),
+                }
+            };
+            self.sql.exec("DELETE FROM raffle_entries", None)?;
+            line
+        };
+        if let Some(broadcaster) = self.broadcaster_id() {
+            let from = sender(&self.env, &broadcaster);
+            self.say(&broadcaster, &from, &line, now).await?;
+        }
+        Ok(())
     }
 }

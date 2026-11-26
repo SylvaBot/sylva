@@ -384,8 +384,8 @@ pub const BUILTINS: &[Builtin] = &[
         ..b(
             "nuke",
             Moderation,
-            "Removes every message from the last 5 minutes that has the words, or all of one chatter's with @name",
-            "!nuke spam words or !nuke @name",
+            "Like Fossabot: acts on every message in the scrollback that has the phrase or matches /regex/, by deleting it or timing out or banning its sender. -r= keeps catching new ones for a while",
+            "!nuke bad phrase 3m 10m, !nuke /regex/ 2m ban or !nuke phrase -r=5m 3m delete",
             Moderator,
             0,
         )
@@ -530,27 +530,148 @@ pub fn target_login(word: Option<&String>) -> Option<String> {
     ok.then_some(w)
 }
 
-/// What `!nuke` removes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Nuke {
-    /// Every recent message from this chatter (a login).
-    User(String),
-    /// Every recent message containing these words, in lower case.
-    Words(String),
+/// What `!nuke` looks for: a phrase (any case) or `/a regex/flags`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum NukeMatch {
+    /// In lower case.
+    Phrase {
+        text: String,
+    },
+    Regex {
+        pattern: String,
+        flags: String,
+    },
 }
 
-/// How far back `!nuke` looks.
-pub const NUKE_WINDOW_MS: i64 = 5 * 60_000;
-/// The most messages one `!nuke` removes.
-pub const NUKE_MAX: usize = 100;
+impl NukeMatch {
+    pub fn label(&self) -> String {
+        match self {
+            NukeMatch::Phrase { text } => text.clone(),
+            NukeMatch::Regex { pattern, flags } => format!("/{pattern}/{flags}"),
+        }
+    }
+}
+
+/// What `!nuke` does to each match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum NukeAction {
+    Delete,
+    Timeout { seconds: u32 },
+    Ban,
+}
+
+/// `!nuke <phrase|/regex/> [-r=<radiation>] <scrollback> <timeout|delete|ban>`,
+/// as Fossabot has it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Nuke {
+    pub what: NukeMatch,
+    /// Seconds of chat before the nuke that it covers.
+    pub scrollback: u32,
+    pub action: NukeAction,
+    /// Seconds after the nuke that new messages are caught too.
+    pub radiation: u32,
+}
+
+pub const NUKE_USAGE: &str =
+    "Use !nuke <phrase or /regex/> [-r=5m] <scrollback> <timeout, delete or ban>, such as !nuke bad phrase 3m 10m";
+/// The most scrollback one `!nuke` covers.
+pub const NUKE_MAX_SCROLLBACK_S: u32 = 600;
+/// The longest radiation.
+pub const NUKE_MAX_RADIATION_S: u32 = 3600;
+/// The longest timeout Twitch gives: two weeks.
+pub const MAX_TIMEOUT_S: u32 = 1_209_600;
+/// The most messages one `!nuke` looks through.
+pub const NUKE_MAX: usize = 500;
+
+/// A length such as `30s`, `10m`, `1h`, `2d`, `1h30m` or a bare number of
+/// seconds.
+pub fn duration_s(word: &str) -> Option<u32> {
+    let w = word.trim().to_lowercase();
+    if w.is_empty() {
+        return None;
+    }
+    if let Ok(n) = w.parse::<u64>() {
+        return u32::try_from(n).ok();
+    }
+    let mut total: u64 = 0;
+    let mut num = String::new();
+    for c in w.chars() {
+        if c.is_ascii_digit() {
+            num.push(c);
+            continue;
+        }
+        let unit = match c {
+            's' => 1,
+            'm' => 60,
+            'h' => 3600,
+            'd' => 86_400,
+            'w' => 604_800,
+            _ => return None,
+        };
+        let n: u64 = num.parse().ok()?;
+        num.clear();
+        total = total.checked_add(n.checked_mul(unit)?)?;
+    }
+    if !num.is_empty() {
+        return None;
+    }
+    u32::try_from(total).ok()
+}
 
 pub fn nuke(args: &[String]) -> Option<Nuke> {
-    if args.len() == 1 && args[0].starts_with('@') {
-        return target_login(args.first()).map(Nuke::User);
+    let mut radiation = 0;
+    let mut rest: Vec<&str> = Vec::new();
+    for a in args {
+        match a.strip_prefix("-r=") {
+            Some(r) => radiation = duration_s(r)?.min(NUKE_MAX_RADIATION_S),
+            None => rest.push(a),
+        }
     }
-    let words = args.join(" ").trim().to_lowercase();
-    // Two letters at least, so a slip cannot wipe the whole chat.
-    (words.chars().count() >= 2).then_some(Nuke::Words(words))
+    if rest.len() < 3 {
+        return None;
+    }
+    let action = match rest.pop()?.to_lowercase().as_str() {
+        "delete" => NukeAction::Delete,
+        "ban" => NukeAction::Ban,
+        t => NukeAction::Timeout {
+            seconds: duration_s(t).filter(|s| *s > 0)?.min(MAX_TIMEOUT_S),
+        },
+    };
+    let scrollback = duration_s(rest.pop()?)?.min(NUKE_MAX_SCROLLBACK_S);
+    let text = rest.join(" ");
+    let text = text.trim();
+    let what = match text
+        .strip_prefix('/')
+        .and_then(|t| t.rfind('/').map(|i| (t, i)))
+    {
+        Some((t, i)) if i > 0 => {
+            let flags: String = t[i + 1..]
+                .chars()
+                .filter(|c| matches!(c, 'i' | 'm' | 's' | 'u'))
+                .collect();
+            NukeMatch::Regex {
+                pattern: t[..i].to_string(),
+                flags,
+            }
+        }
+        _ => {
+            let text = text.to_lowercase();
+            // Two letters at least, so a slip cannot wipe the whole chat.
+            if text.chars().count() < 2 {
+                return None;
+            }
+            NukeMatch::Phrase { text }
+        }
+    };
+    Some(Nuke {
+        what,
+        scrollback,
+        action,
+        radiation,
+    })
 }
 
 /// Votes `!votekick` needs, inside [`VOTEKICK_WINDOW_MS`].
@@ -854,13 +975,40 @@ mod tests {
             Some("maple_1".into())
         );
         assert_eq!(target_login(Some(&"no way".into())), None);
-        assert_eq!(nuke(&s(&["@Spammer"])), Some(Nuke::User("spammer".into())));
         assert_eq!(
-            nuke(&s(&["Buy", "Followers"])),
-            Some(Nuke::Words("buy followers".into()))
+            nuke(&s(&["my", "Bad", "phrase", "3m", "10m"])),
+            Some(Nuke {
+                what: NukeMatch::Phrase {
+                    text: "my bad phrase".into()
+                },
+                scrollback: 180,
+                action: NukeAction::Timeout { seconds: 600 },
+                radiation: 0,
+            })
         );
-        assert_eq!(nuke(&s(&["x"])), None);
+        assert_eq!(
+            nuke(&s(&["/some.+bad(regex)?here/", "2m", "ban"])).map(|n| (n.what, n.action)),
+            Some((
+                NukeMatch::Regex {
+                    pattern: "some.+bad(regex)?here".into(),
+                    flags: String::new()
+                },
+                NukeAction::Ban
+            ))
+        );
+        let r = nuke(&s(&["my", "bad", "phrase", "-r=5m", "3m", "delete"])).unwrap();
+        assert_eq!((r.radiation, r.action), (300, NukeAction::Delete));
+        assert_eq!(
+            nuke(&s(&["spam", "words"])),
+            None,
+            "needs scrollback and action"
+        );
+        assert_eq!(nuke(&s(&["x", "1m", "1m"])), None);
+        assert_eq!(nuke(&s(&["spam", "1m", "nope"])), None);
         assert_eq!(nuke(&[]), None);
+        assert_eq!(duration_s("1h30m"), Some(5400));
+        assert_eq!(duration_s("45"), Some(45));
+        assert_eq!(duration_s("5x"), None);
     }
 
     #[test]

@@ -299,14 +299,15 @@ pub fn history_span(page: &Value) -> Option<(i64, i64, bool)> {
 }
 
 /// Ways to ask for activities, tried in order until StreamElements takes
-/// one: (page size, `types` as a JSON list, dates as ISO text). Their docs
-/// allow both forms, but the API has been strict about some of them.
+/// one and sends something: (page size, `types` as a JSON list, dates as
+/// ISO text). StreamElements turns down millisecond dates (seen
+/// 2026-11-26), and a JSON `types` list came back empty.
 pub const HISTORY_ASKS: [(usize, bool, bool); 5] = [
-    (HISTORY_PAGE, false, false),
-    (HISTORY_PAGE, true, false),
-    (100, true, true),
+    (HISTORY_PAGE, false, true),
     (100, false, true),
-    (25, true, true),
+    (HISTORY_PAGE, true, true),
+    (100, true, true),
+    (HISTORY_PAGE, false, false),
 ];
 
 /// The query for `GET /activities/{channel}`, from `after` to `before`
@@ -478,11 +479,11 @@ mod tests {
     #[test]
     fn activity_queries() {
         assert_eq!(
-            activities_query(1, 2, HISTORY_ASKS[0]),
+            activities_query(1, 2, HISTORY_ASKS[4]),
             "after=1&before=2&limit=500&types=follow&types=subscriber&types=cheer&types=raid&types=tip"
         );
         assert_eq!(
-            activities_query(1733873727941, 1733873727942, HISTORY_ASKS[2]),
+            activities_query(1733873727941, 1733873727942, HISTORY_ASKS[3]),
             "after=2024-12-10T23:35:27.941Z&before=2024-12-10T23:35:27.942Z&limit=100&types=%5B%22follow%22%2C%22subscriber%22%2C%22cheer%22%2C%22raid%22%2C%22tip%22%5D"
         );
         assert_eq!(created_ms("68c25f6fc41e0d0d7c530984"), Some(1757568879000));

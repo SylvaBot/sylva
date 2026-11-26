@@ -32,6 +32,19 @@ use sylva_core::widgets::{
 use sylva_core::{Event, StoredEvent};
 use worker::*;
 
+/// Test events from the "Try it" buttons leave activity lists after this
+/// long. They stay in the log, so a queued test alert still plays.
+pub const TEST_EVENT_TTL_MS: i64 = 30_000;
+
+/// Leaves out test events older than [`TEST_EVENT_TTL_MS`]. Takes one
+/// argument: the cutoff time.
+const NOT_OLD_TEST: &str =
+    "AND NOT (event_id LIKE 'sylva:test:%' AND received_at < ?)";
+
+fn test_cutoff() -> i64 {
+    Date::now().as_millis() as i64 - TEST_EVENT_TTL_MS
+}
+
 /// How long an overlay may take to acknowledge an alert before the queue moves on.
 /// Overlays answer when an alert has fully left the screen, and the pill alerts
 /// can stay open for 30 seconds plus their animation, so leave room for that.
@@ -1256,7 +1269,7 @@ impl ChannelDo {
             "alerts" => "AND kind != 'chat'",
             _ => "",
         };
-        let mut args: Vec<SqlStorageValue> = vec![(before as i64).into()];
+        let mut args: Vec<SqlStorageValue> = vec![(before as i64).into(), test_cutoff().into()];
         let search_clause = match search {
             Some(text) => {
                 // Treat the text literally: escape LIKE's wildcards.
@@ -1279,7 +1292,7 @@ impl ChannelDo {
             .sql
             .exec(
                 &format!(
-                    "SELECT seq, received_at, body FROM events WHERE seq < ? {kind_clause} {search_clause}
+                    "SELECT seq, received_at, body FROM events WHERE seq < ? {NOT_OLD_TEST} {kind_clause} {search_clause}
                      ORDER BY seq DESC LIMIT ?"
                 ),
                 args,
@@ -1404,11 +1417,11 @@ impl ChannelDo {
             .sql
             .exec(
                 &format!(
-                    "SELECT seq, received_at, body FROM events WHERE kind IN ({})
+                    "SELECT seq, received_at, body FROM events WHERE kind IN ({}) {NOT_OLD_TEST}
                      ORDER BY seq DESC LIMIT ?",
                     Self::kind_list(&LIST_KINDS)?
                 ),
-                vec![(RECENT_LIMIT as i64).into()],
+                vec![test_cutoff().into(), (RECENT_LIMIT as i64).into()],
             )?
             .to_array::<EventRow>()?;
         let mut latest = Vec::new();
@@ -1417,9 +1430,11 @@ impl ChannelDo {
             let rows = self
                 .sql
                 .exec(
-                    "SELECT seq, received_at, body FROM events WHERE kind = ?
-                     ORDER BY seq DESC LIMIT 1",
-                    vec![name.as_str().unwrap_or("other").into()],
+                    &format!(
+                        "SELECT seq, received_at, body FROM events WHERE kind = ? {NOT_OLD_TEST}
+                         ORDER BY seq DESC LIMIT 1"
+                    ),
+                    vec![name.as_str().unwrap_or("other").into(), test_cutoff().into()],
                 )?
                 .to_array::<EventRow>()?;
             latest.extend(Self::rows_to_events(rows)?);

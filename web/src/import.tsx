@@ -1,4 +1,4 @@
-// Settings > Move from StreamElements: bring commands, timers and points over
+// Settings > Move from StreamElements: bring commands, timers, points and past streams over
 // with the streamer's StreamElements JWT, which is used once and not kept.
 
 import { useState } from 'react';
@@ -11,7 +11,7 @@ export function ImportCard() {
   const ch = useChannel();
   const toast = useToast();
   const [token, setToken] = useState('');
-  const [pick, setPick] = useState({ commands: true, timers: true, points: true, watchtime: true });
+  const [pick, setPick] = useState({ commands: true, timers: true, points: true, watchtime: true, history: true });
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<ImportResult | null>(null);
 
@@ -34,7 +34,7 @@ export function ImportCard() {
     <Card
       id="import"
       title="Move from StreamElements"
-      desc={<>Bring over your StreamElements bot commands, timers, loyalty points and watch time. Copy your JWT token from StreamElements under Account, Channels, Show secrets. Sylva uses it for this import only and does not keep it.</>}
+      desc={<>Bring over your StreamElements bot commands, timers, loyalty points, watch time and stream history (past streams with their follows, subs, bits, raids and tips, shown on Stats). Copy your JWT token from StreamElements under Account, Channels, Show secrets. Sylva uses it for this import only and does not keep it.</>}
     >
       <form className="card-body import-form" onSubmit={(e) => { e.preventDefault(); void run(); }}>
         <label className="field" htmlFor="import-token">
@@ -43,22 +43,22 @@ export function ImportCard() {
         </label>
         <fieldset className="import-pick">
           <legend className="sr-only">What to bring over</legend>
-          {(['commands', 'timers', 'points', 'watchtime'] as const).map((k) => (
+          {(['commands', 'timers', 'points', 'watchtime', 'history'] as const).map((k) => (
             <label key={k} className="check">
               <input type="checkbox" checked={pick[k]} onChange={(e) => setPick({ ...pick, [k]: e.target.checked })} />
-              {k === 'points' ? 'Loyalty points' : k === 'watchtime' ? 'Watch time' : k[0].toUpperCase() + k.slice(1)}
+              {k === 'points' ? 'Loyalty points' : k === 'watchtime' ? 'Watch time' : k === 'history' ? 'Stream history' : k[0].toUpperCase() + k.slice(1)}
             </label>
           ))}
         </fieldset>
-        <button className="btn primary" type="submit" disabled={busy || !token.trim() || !(pick.commands || pick.timers || pick.points || pick.watchtime)}>
+        <button className="btn primary" type="submit" disabled={busy || !token.trim() || !(pick.commands || pick.timers || pick.points || pick.watchtime || pick.history)}>
           {busy ? 'Bringing it over' : 'Import'}
         </button>
       </form>
       {done && (
         <div className="card-body import-done" aria-live="polite">
           <p>
-            Brought over {plural(done.commands, 'command')}, {plural(done.timers, 'timer')}, points for {plural(done.points, 'viewer')} and watch time for {plural(done.watchtime, 'viewer')}.
-            Commands with a name Sylva already uses were left alone, and viewers keep whichever balance is higher.
+            Brought over {plural(done.commands, 'command')}, {plural(done.timers, 'timer')}, points for {plural(done.points, 'viewer')}, watch time for {plural(done.watchtime, 'viewer')}, {plural(done.streams, 'past stream')} and {plural(done.activities, 'past alert')}.
+            Commands with a name Sylva already uses were left alone, and viewers keep whichever balance is higher. StreamElements does not keep viewer counts or chat messages per stream, so past streams show those as a dash.
           </p>
           {done.skipped.length > 0 && (
             <ul className="import-skipped">

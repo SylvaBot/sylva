@@ -6,11 +6,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sylva_core::event::Actor;
 use sylva_core::import::{
-    add_commands, add_timers, point_rows, watch_rows, Skipped, MAX_POINT_USERS, SE_API,
+    add_commands, add_timers, history_len, history_rows, history_span, past_streams, point_rows,
+    watch_rows, Skipped, HISTORY_PAGE, HISTORY_TYPES, MAX_POINT_USERS, SE_API,
 };
 use worker::*;
 
 use crate::channel::ChannelDo;
+use crate::streams::{Leader, Recap};
 use crate::twitch_api::App;
 
 #[derive(Deserialize)]
@@ -24,6 +26,33 @@ pub(crate) struct ImportRequest {
     points: bool,
     #[serde(default)]
     watchtime: bool,
+    /// Past streams and their follows, subs, bits, raids and tips.
+    #[serde(default)]
+    history: bool,
+}
+
+/// Activity older than this is not asked for (StreamElements began in 2015).
+const EARLIEST: i64 = 1_420_070_400_000;
+/// Pages of activity one import reads, so a request stays well inside the
+/// Worker's limit on outgoing requests.
+const MAX_HISTORY_PAGES: usize = 40;
+
+#[derive(Deserialize)]
+struct MaybeRow {
+    v: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct KindRow {
+    kind: String,
+    n: f64,
+    amount: f64,
+}
+
+#[derive(Deserialize)]
+struct LeaderRow {
+    name: Option<String>,
+    amount: f64,
 }
 
 #[derive(Serialize, Default)]
@@ -32,6 +61,8 @@ pub(crate) struct ImportResult {
     timers: usize,
     points: usize,
     watchtime: usize,
+    streams: usize,
+    activities: usize,
     skipped: Vec<Skipped>,
 }
 
@@ -65,7 +96,7 @@ impl ChannelDo {
         if token.is_empty() || token.len() > 4000 || token.contains(char::is_whitespace) {
             return Ok(Err("Paste your StreamElements JWT token".into()));
         }
-        if !(r.commands || r.timers || r.points || r.watchtime) {
+        if !(r.commands || r.timers || r.points || r.watchtime || r.history) {
             return Ok(Err("Choose what to bring over".into()));
         }
         let (status, me) = self.se_get(&token, "/channels/me").await?;
@@ -156,7 +187,193 @@ impl ChannelDo {
                 });
             }
         }
+        if r.history {
+            match self.import_history(&token, &se).await? {
+                Ok((activities, streams)) => {
+                    out.activities = activities;
+                    out.streams = streams;
+                }
+                Err(e) => return Ok(Err(e)),
+            }
+        }
         Ok(Ok(out))
+    }
+
+    /// Bring over StreamElements' activity history and past streams, up to
+    /// the first thing Sylva itself recorded, so nothing counts twice.
+    /// Returns how many activities and streams were added or refreshed.
+    async fn import_history(
+        &self,
+        token: &str,
+        se: &str,
+    ) -> Result<std::result::Result<(usize, usize), String>> {
+        let now = Date::now().as_millis() as i64;
+        let cutoff = self
+            .sql
+            .exec("SELECT MIN(received_at) AS v FROM events", None)?
+            .to_array::<MaybeRow>()?
+            .first()
+            .and_then(|r| r.v)
+            .map_or(now, |v| v as i64);
+        let before_count = self.history_count()?;
+        let types: String = HISTORY_TYPES
+            .iter()
+            .map(|t| format!("&types={t}"))
+            .collect();
+        let (mut after, mut before) = (EARLIEST, cutoff);
+        for _ in 0..MAX_HISTORY_PAGES {
+            let (status, page) = self
+                .se_get(
+                    token,
+                    &format!("/activities/{se}?after={after}&before={before}&limit={HISTORY_PAGE}{types}"),
+                )
+                .await?;
+            if status != 200 {
+                return Ok(Err(format!(
+                    "StreamElements did not send your activity history ({status})."
+                )));
+            }
+            for row in history_rows(&page).into_iter().filter(|r| r.at < cutoff) {
+                self.sql.exec(
+                    "INSERT OR IGNORE INTO history_events (id, kind, at, amount, name) VALUES (?, ?, ?, ?, ?)",
+                    vec![
+                        row.id.as_str().into(),
+                        row.kind.into(),
+                        (row.at as f64).into(),
+                        row.amount.into(),
+                        row.name.as_deref().into(),
+                    ],
+                )?;
+            }
+            if history_len(&page) < HISTORY_PAGE {
+                break;
+            }
+            let Some((lo, hi, newest_first)) = history_span(&page) else {
+                break;
+            };
+            // Step past this page. One millisecond of overlap keeps
+            // activities that share the edge; the id drops the repeats.
+            if newest_first {
+                if lo + 1 >= before {
+                    break;
+                }
+                before = lo + 1;
+            } else {
+                if hi - 1 <= after {
+                    break;
+                }
+                after = hi - 1;
+            }
+        }
+        let activities = self.history_count()? - before_count;
+
+        let (status, page) = self.se_get(token, &format!("/streams/{se}")).await?;
+        if status != 200 {
+            return Ok(Err(format!(
+                "StreamElements did not send your past streams ({status})."
+            )));
+        }
+        let mut streams = 0;
+        for (start, end, chatters) in past_streams(&page) {
+            if start >= cutoff || self.recorded_overlap(start, end)? {
+                continue;
+            }
+            let recap = self.history_recap(start, end, chatters)?;
+            self.sql.exec(
+                "INSERT INTO stream_recaps (started_at, body) VALUES (?, ?)
+                 ON CONFLICT(started_at) DO UPDATE SET body = excluded.body",
+                vec![(start as f64).into(), serde_json::to_string(&recap)?.into()],
+            )?;
+            streams += 1;
+        }
+        Ok(Ok((activities, streams)))
+    }
+
+    fn history_count(&self) -> Result<usize> {
+        Ok(self
+            .sql
+            .exec("SELECT COUNT(*) AS v FROM history_events", None)?
+            .to_array::<MaybeRow>()?
+            .first()
+            .and_then(|r| r.v)
+            .unwrap_or(0.0) as usize)
+    }
+
+    /// Whether Sylva recorded a stream of its own over this time.
+    fn recorded_overlap(&self, start: i64, end: i64) -> Result<bool> {
+        Ok(self
+            .sql
+            .exec(
+                "SELECT COUNT(*) AS v FROM stream_recaps
+                 WHERE started_at <= ? AND COALESCE(json_extract(body, '$.endedAt'), started_at) >= ?
+                   AND json_extract(body, '$.source') IS NULL",
+                vec![(end as f64).into(), (start as f64).into()],
+            )?
+            .to_array::<MaybeRow>()?
+            .first()
+            .and_then(|r| r.v)
+            .unwrap_or(0.0)
+            > 0.0)
+    }
+
+    /// One StreamElements stream's summary, from the history brought over.
+    fn history_recap(&self, start: i64, end: i64, chatters: u64) -> Result<Recap> {
+        let range = || vec![(start as f64).into(), (end as f64).into()];
+        let rows: Vec<KindRow> = self
+            .sql
+            .exec(
+                "SELECT kind, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount
+                 FROM history_events WHERE at >= ? AND at <= ? GROUP BY kind",
+                range(),
+            )?
+            .to_array()?;
+        let mut r = Recap {
+            started_at: start,
+            ended_at: Some(end),
+            chatters,
+            source: Some("streamelements".into()),
+            ..Recap::default()
+        };
+        for k in rows {
+            let (n, amount) = (k.n as u64, k.amount);
+            match k.kind.as_str() {
+                "follow" => r.follows = n,
+                "subscriber" => r.subs = n,
+                "communityGift" => r.gifted = amount.max(n as f64) as u64,
+                "cheer" => r.bits = amount as u64,
+                "raid" => {
+                    r.raids = n;
+                    r.raiders = amount as u64;
+                }
+                "tip" => r.tips = amount,
+                _ => {}
+            }
+        }
+        let leader = |kind: &str| -> Result<Option<Leader>> {
+            let mut v = vec![kind.into()];
+            v.extend(range());
+            Ok(self
+                .sql
+                .exec(
+                    "SELECT name, SUM(amount) AS amount FROM history_events
+                     WHERE kind = ? AND at >= ? AND at <= ? AND name IS NOT NULL
+                     GROUP BY lower(name) ORDER BY amount DESC LIMIT 1",
+                    v,
+                )?
+                .to_array::<LeaderRow>()?
+                .into_iter()
+                .next()
+                .and_then(|l| {
+                    Some(Leader {
+                        name: l.name?,
+                        amount: l.amount,
+                    })
+                })
+                .filter(|l| l.amount > 0.0))
+        };
+        r.top_cheerer = leader("cheer")?;
+        r.top_gifter = leader("communityGift")?;
+        Ok(r)
     }
 
     /// The Twitch viewer behind each StreamElements login, with its number.

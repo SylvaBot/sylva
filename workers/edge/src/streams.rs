@@ -8,7 +8,7 @@ use worker::*;
 use crate::channel::ChannelDo;
 
 /// Summaries kept, newest first.
-const KEEP: i64 = 60;
+const KEEP: i64 = 1000;
 
 /// The person who did the most of something in one stream.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -43,6 +43,10 @@ pub(crate) struct Recap {
     pub peak_viewers: Option<u64>,
     #[serde(default)]
     pub avg_viewers: Option<u64>,
+    /// `streamelements` for a stream brought over from there, whose chat
+    /// lines and viewer counts are not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Deserialize)]

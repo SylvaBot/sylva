@@ -160,6 +160,14 @@ CREATE TABLE IF NOT EXISTS stream_recaps (
     started_at INTEGER PRIMARY KEY,
     body       TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS history_events (
+    id     TEXT PRIMARY KEY,
+    kind   TEXT NOT NULL,
+    at     INTEGER NOT NULL,
+    amount REAL NOT NULL DEFAULT 0,
+    name   TEXT
+);
+CREATE INDEX IF NOT EXISTS history_events_at ON history_events(at);
 CREATE TABLE IF NOT EXISTS media (
     id   TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -863,6 +871,7 @@ impl DurableObject for ChannelDo {
                     "media",
                     "media_pieces",
                     "stream_recaps",
+                    "history_events",
                     "redemptions",
                     "giveaways",
                     "giveaway_entries",

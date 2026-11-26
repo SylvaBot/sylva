@@ -196,6 +196,128 @@ fn rows(page: &Value, field: &str) -> Vec<(String, i64)> {
         .collect()
 }
 
+/// One follow, sub, gift, cheer, raid or tip from StreamElements' activity
+/// history, kept so the Stats page can show streams from before Sylva.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HistoryRow {
+    /// `se:<activity id>`, so importing twice keeps one copy.
+    pub id: String,
+    /// Sylva's event kind: `follow`, `subscriber`, `communityGift`,
+    /// `cheer`, `raid` or `tip`.
+    pub kind: &'static str,
+    /// Unix milliseconds.
+    pub at: i64,
+    pub amount: f64,
+    pub name: Option<String>,
+}
+
+/// The activity types asked for, as StreamElements names them.
+pub const HISTORY_TYPES: [&str; 5] = ["follow", "subscriber", "cheer", "raid", "tip"];
+/// Activities per page; StreamElements allows up to 500.
+pub const HISTORY_PAGE: usize = 500;
+
+fn list(page: &Value) -> &[Value] {
+    page.as_array()
+        .or_else(|| page["docs"].as_array())
+        .map_or(&[], |v| v.as_slice())
+}
+
+fn ms(v: &Value) -> Option<i64> {
+    crate::twitch::timestamp_ms(v.as_str()?)
+}
+
+fn amount(v: &Value) -> f64 {
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        .filter(|n| n.is_finite() && *n > 0.0)
+        .unwrap_or(0.0)
+}
+
+/// Rows from one page of `GET /activities/{channel}`. A sub gifted to one
+/// person counts as their sub plus one gifted sub for the giver; a bundle
+/// of gifts counts once as gifted subs, since each person who got one has
+/// their own row.
+pub fn history_rows(page: &Value) -> Vec<HistoryRow> {
+    let mut out = Vec::new();
+    for a in list(page) {
+        let (Some(id), Some(at)) = (a["_id"].as_str(), ms(&a["createdAt"])) else {
+            continue;
+        };
+        let d = &a["data"];
+        let name = d["displayName"]
+            .as_str()
+            .or_else(|| d["username"].as_str())
+            .map(String::from);
+        let row = |kind, amount, name| HistoryRow {
+            id: format!("se:{id}"),
+            kind,
+            at,
+            amount,
+            name,
+        };
+        match a["type"].as_str().unwrap_or("") {
+            "follow" => out.push(row("follow", 0.0, name)),
+            "cheer" => out.push(row("cheer", amount(&d["amount"]), name)),
+            "raid" => out.push(row("raid", amount(&d["amount"]), name)),
+            "tip" => out.push(row("tip", amount(&d["amount"]), name)),
+            "subscriber" => {
+                let sender = d["sender"].as_str().map(String::from);
+                if d["bulkGifted"].as_bool() == Some(true) {
+                    out.push(row(
+                        "communityGift",
+                        amount(&d["amount"]).max(1.0),
+                        sender.or(name),
+                    ));
+                    continue;
+                }
+                out.push(row("subscriber", 0.0, name));
+                if d["gifted"].as_bool() == Some(true)
+                    && d["communityGifted"].as_bool() != Some(true)
+                {
+                    let mut gift = row("communityGift", 1.0, sender);
+                    gift.id.push_str(":gift");
+                    out.push(gift);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The time span one page of activities covers, oldest first, and whether
+/// it came newest first. `None` for an empty page.
+pub fn history_span(page: &Value) -> Option<(i64, i64, bool)> {
+    let times: Vec<i64> = list(page)
+        .iter()
+        .filter_map(|a| ms(&a["createdAt"]))
+        .collect();
+    let (first, last) = (*times.first()?, *times.last()?);
+    let lo = times.iter().copied().min()?;
+    let hi = times.iter().copied().max()?;
+    Some((lo, hi, first >= last))
+}
+
+/// How many activities a page holds, counted the way StreamElements does.
+pub fn history_len(page: &Value) -> usize {
+    list(page).len()
+}
+
+/// Finished streams from `GET /streams/{channel}`: start and end in Unix
+/// milliseconds, and how many people chatted.
+pub fn past_streams(page: &Value) -> Vec<(i64, i64, u64)> {
+    let mut out: Vec<(i64, i64, u64)> = list(page)
+        .iter()
+        .filter_map(|s| {
+            let (start, end) = (ms(&s["start"])?, ms(&s["end"])?);
+            (end > start).then_some((start, end, num(&s["totalChatters"]).max(0) as u64))
+        })
+        .collect();
+    out.sort_unstable();
+    out.dedup_by_key(|s| s.0);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,5 +388,55 @@ mod tests {
             {"points": 5}
         ]});
         assert_eq!(point_rows(&page), vec![("maple".to_string(), 1200)]);
+    }
+
+    #[test]
+    fn history_maps_activities() {
+        let page = json!([
+            {"_id": "a", "type": "follow", "createdAt": "2024-12-10T23:35:27.941Z", "data": {"username": "mrsim", "displayName": "MrSim"}},
+            {"_id": "b", "type": "cheer", "createdAt": "2024-12-09T02:12:05.009Z", "data": {"amount": 100, "username": "MrSim"}},
+            {"_id": "c", "type": "subscriber", "createdAt": "2024-12-08T00:00:00Z", "data": {"username": "x", "gifted": true, "sender": "Giver"}},
+            {"_id": "d", "type": "subscriber", "createdAt": "2024-12-07T00:00:00Z", "data": {"username": "y", "gifted": true, "communityGifted": true, "sender": "Giver"}},
+            {"_id": "e", "type": "subscriber", "createdAt": "2024-12-06T00:00:00Z", "data": {"username": "Giver", "amount": 5, "bulkGifted": true}},
+            {"_id": "f", "type": "redemption", "createdAt": "2024-12-05T00:00:00Z", "data": {}},
+            {"_id": "g", "type": "raid", "createdAt": "nope", "data": {"amount": 3}}
+        ]);
+        let rows = history_rows(&page);
+        let kinds: Vec<(&str, &str, f64)> = rows
+            .iter()
+            .map(|r| (r.id.as_str(), r.kind, r.amount))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("se:a", "follow", 0.0),
+                ("se:b", "cheer", 100.0),
+                ("se:c", "subscriber", 0.0),
+                ("se:c:gift", "communityGift", 1.0),
+                ("se:d", "subscriber", 0.0),
+                ("se:e", "communityGift", 5.0),
+            ]
+        );
+        assert_eq!(rows[0].name.as_deref(), Some("MrSim"));
+        assert_eq!(rows[3].name.as_deref(), Some("Giver"));
+        assert_eq!(rows[0].at, 1733873727941);
+        let (lo, hi, newest_first) = history_span(&page).unwrap();
+        assert!(newest_first && lo == 1733356800000 && hi == 1733873727941);
+        assert_eq!(
+            history_rows(&json!({"total": 1, "docs": [page[0].clone()]})).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn past_streams_need_an_end() {
+        let page = json!([
+            {"start": "2024-12-16T00:44:41.599Z", "end": "2024-12-16T06:56:56.719Z", "totalChatters": 1251},
+            {"start": "2024-12-13T00:58:52.088Z", "end": "2024-12-13T06:28:44.613Z", "totalChatters": 2704},
+            {"start": "2024-12-17T02:21:11.311Z", "end": null, "online": true}
+        ]);
+        let s = past_streams(&page);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0], (1734051532088, 1734071324613, 2704));
     }
 }

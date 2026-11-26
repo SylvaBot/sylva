@@ -175,7 +175,18 @@ impl ChannelDo {
                 totals: Totals::default(),
             })
             .collect();
-        for r in &rows {
+        // Activity brought over from StreamElements, from before Sylva.
+        let history: Vec<KindRow> = self
+            .sql
+            .exec(
+                "SELECT CAST((at - ?1) / 86400000 AS INTEGER) AS d,
+                        kind, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amount
+                 FROM history_events WHERE at >= ?1 AND at < ?2
+                 GROUP BY d, kind",
+                vec![(prev as f64).into(), (to as f64).into()],
+            )?
+            .to_array()?;
+        for r in rows.iter().chain(&history) {
             if let Some(d) = all.get_mut(r.d.max(0.0) as usize) {
                 add(&mut d.totals, &r.kind, r.n as u64, r.amount);
             }
@@ -333,7 +344,7 @@ impl ChannelDo {
         let mut streams: Vec<Recap> = self
             .sql
             .exec(
-                "SELECT body FROM stream_recaps WHERE started_at >= ? ORDER BY started_at DESC LIMIT 60",
+                "SELECT body FROM stream_recaps WHERE started_at >= ? ORDER BY started_at DESC LIMIT 500",
                 vec![(from as f64).into()],
             )?
             .to_array::<BodyRow>()?

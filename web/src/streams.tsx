@@ -24,7 +24,7 @@ function RecapBody({ r }: { r: Recap }) {
     ['Gifted subs', num(r.gifted)],
     ['Bits', num(r.bits)],
     ['Raids', r.raids ? `${num(r.raids)} \u00b7 ${num(r.raiders)} viewers` : '0'],
-    ['Chat messages', num(r.chatLines)],
+    ['Chat messages', r.source === 'streamelements' ? '-' : num(r.chatLines)],
     ['People who chatted', num(r.chatters)],
   );
   if (r.tips) facts.push(['Tips', num(r.tips)]);

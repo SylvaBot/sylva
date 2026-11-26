@@ -276,6 +276,19 @@ export function startFakeTwitch(port = FAKE_PORT) {
       return json(res, 404, { message: 'not faked: ' + path });
     }
 
+    // A stand-in for StreamElements' API, for the import.
+    if (url.pathname.startsWith('/se/')) {
+      if (auth !== 'Bearer se-test-jwt') return json(res, 401, { message: 'Unauthorized' });
+      const p = url.pathname.slice(3);
+      if (p === '/channels/me') return json(res, 200, { _id: 'se123', username: FAKE_USER.login });
+      if (p === '/bot/commands/se123') return json(res, 200, [
+        { command: 'discord', reply: 'Join us, ${user.name}!', accessLevel: 100, cooldown: { global: 30, user: 60 }, aliases: ['dc'], enabled: true },
+        { command: 'lurk', reply: 'already here' },
+      ]);
+      if (p === '/bot/timers/se123') return json(res, 200, [{ name: 'Socials', messages: ['Follow!'], onlineInterval: 15, chatLines: 5, enabled: true }]);
+      if (p === '/points/se123/top') return json(res, 200, { _total: 2, users: [{ username: FAKE_USER.login, points: 500 }, { username: 'nobody_here', points: 9 }] });
+    }
+
     // Stand-ins for the public services the bot's built-in commands read.
     if (url.pathname.startsWith('/lookup/')) {
       const [kind, arg] = url.pathname.slice('/lookup/'.length).split('/');

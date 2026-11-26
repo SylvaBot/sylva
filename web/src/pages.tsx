@@ -6,6 +6,7 @@ import { AlertTypes } from './alertTypes';
 import { PAGE, useChannel } from './channel';
 import { FeedList, Filters, lastDay, matchesShown, MixBar, useShown, useTick } from './feed';
 import { Link } from './router';
+import { ImportCard } from './import';
 import { TeamCard } from './team';
 import { getTheme, setTheme, type Theme } from './theme';
 import { ago, Avatar, errorText, Gate, Icon, num, useToast } from './ui';
@@ -686,6 +687,7 @@ export function SettingsPage() {
           </div>
         </Card>
         {ch.can.own && <TeamCard />}
+        {ch.can.own && <ImportCard />}
         <Card id="appearance" title="Appearance">
           <div className="setting">
             <div>

@@ -56,6 +56,8 @@ pub fn allows(role: Role, post: bool, rest: &[&str]) -> bool {
     match rest {
         // Only the owner manages the team.
         ["team", ..] => false,
+        // An import uses the owner's own StreamElements account.
+        ["import", ..] => false,
         // The overlay link is a secret that shows the channel's alerts.
         ["overlay"] => role >= Role::Editor && !post,
         ["overlay", "rotate"] => false,

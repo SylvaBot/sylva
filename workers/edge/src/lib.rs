@@ -42,6 +42,7 @@ mod community;
 mod delete;
 mod giveaway;
 mod grants;
+mod import;
 mod loyalty;
 mod moderation;
 mod store;
@@ -220,6 +221,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["loyalty", ..])
                 | (Method::Get, ["scene"])
                 | (Method::Post, ["scene", ..])
+                | (Method::Post, ["import", "streamelements"])
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,
                 _ => Response::error("Not found", 404),
             }

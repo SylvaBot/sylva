@@ -251,7 +251,7 @@
     const limit = clamp(opts.limit, 1, 20, 5);
     const box = el('div', 'list');
     host.appendChild(box);
-    const row = (e) => {
+    const row = (e, fresh) => {
       const r = el('div', 'row k');
       r.style.setProperty('--c', `var(--${kindClass(e.kind)})`);
       r.appendChild(el('span', 'dot'));
@@ -260,16 +260,21 @@
       t.appendChild(el('b', null, who));
       t.appendChild(document.createTextNode(' ' + what));
       r.appendChild(t);
+      // Test events leave after 30 seconds, like everywhere else.
+      if (e.platform === 'sylva') {
+        const ms = fresh ? 30000 : Math.min(30000, Math.max(0, e.receivedAt + 30000 - Date.now()));
+        setTimeout(() => r.remove(), ms);
+      }
       return r;
     };
     return {
       data(d) {
         box.textContent = '';
-        d.recent.slice(0, limit).forEach((e) => box.appendChild(row(e)));
+        d.recent.slice(0, limit).forEach((e) => box.appendChild(row(e, false)));
       },
       event(e) {
         if (!LIST.includes(e.kind)) return;
-        box.prepend(row(e));
+        box.prepend(row(e, true));
         while (box.children.length > limit) box.lastChild.remove();
       },
     };

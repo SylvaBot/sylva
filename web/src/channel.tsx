@@ -65,6 +65,9 @@ export interface Channel {
 
 const Ctx = createContext<Channel | null>(null);
 
+/** How long a test event stays in activity lists. Matches TEST_EVENT_TTL_MS on the server. */
+const TEST_TTL = 30_000;
+
 export function useChannel(): Channel {
   const c = useContext(Ctx);
   if (!c) throw new Error('useChannel outside ChannelProvider');
@@ -111,6 +114,7 @@ function OpenChannel({ me, open, switchTo, onSignedOut, children }: {
   const [freshFrom, setFreshFrom] = useState(Number.MAX_SAFE_INTEGER);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const arrived = useRef(new Map<number, number>());
   const eventsRef = useRef(events);
   eventsRef.current = events;
 
@@ -137,6 +141,7 @@ function OpenChannel({ me, open, switchTo, onSignedOut, children }: {
             if (e.kind === 'chat') {
               setChat((c) => (c.some((x) => x.seq === e.seq) ? c : [...c, e].slice(-CHAT_MAX)));
             } else {
+              if (e.platform === 'sylva') arrived.current.set(e.seq, Date.now());
               setEvents((list) => (list.some((x) => x.seq === e.seq) ? list : [e, ...list]));
             }
             setSummary((s) => s && {
@@ -165,6 +170,23 @@ function OpenChannel({ me, open, switchTo, onSignedOut, children }: {
       clearInterval(t);
     };
   }, [key, toast]);
+
+  // Test events leave the lists 30 seconds after they came in, the same
+  // moment the server stops listing them, so every list agrees.
+  useEffect(() => {
+    const tests = events.filter((e) => e.platform === 'sylva');
+    if (!tests.length) return;
+    // Live ones count from when they arrived here, so a clock that is off
+    // does not hide them early; loaded ones from the server's time.
+    const left = (e: SylvaEvent) => {
+      const from = arrived.current.get(e.seq) ?? e.receivedAt;
+      return Math.min(TEST_TTL, Math.max(0, from + TEST_TTL - Date.now()));
+    };
+    const t = setTimeout(() => {
+      setEvents((list) => list.filter((e) => e.platform !== 'sylva' || left(e) > 0));
+    }, Math.min(...tests.map(left)) + 50);
+    return () => clearTimeout(t);
+  }, [events]);
 
   const loadMore = useCallback(async () => {
     const list = eventsRef.current;

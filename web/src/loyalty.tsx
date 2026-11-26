@@ -188,10 +188,10 @@ export function LoyaltyPage() {
                   </li>
                 ))}
               </ul>
-              <div className="card-body points-settings">
-                <div className="field inline"><span>Smallest bet</span><NumberField label="Smallest bet" value={draft.games.minBet} min={1} max={MAX_BET} onChange={(n) => setGames({ minBet: n })} /></div>
-                <div className="field inline"><span>Largest bet (0 for no limit)</span><NumberField label="Largest bet (0 for no limit)" value={draft.games.maxBet} min={0} max={MAX_BET} onChange={(n) => setGames({ maxBet: n })} /></div>
-                <div className="field inline"><span>Seconds between games</span><NumberField label="Seconds between games" value={draft.games.cooldown} min={0} max={3600} onChange={(n) => setGames({ cooldown: n })} /></div>
+              <div className="card-body games-limits">
+                <div className="field"><span>Smallest bet</span><NumberField label="Smallest bet" value={draft.games.minBet} min={1} max={MAX_BET} onChange={(n) => setGames({ minBet: n })} /></div>
+                <div className="field"><span>Largest bet (0 for no limit)</span><NumberField label="Largest bet (0 for no limit)" value={draft.games.maxBet} min={0} max={MAX_BET} onChange={(n) => setGames({ maxBet: n })} /></div>
+                <div className="field"><span>Seconds between games</span><NumberField label="Seconds between games" value={draft.games.cooldown} min={0} max={3600} onChange={(n) => setGames({ cooldown: n })} /></div>
               </div>
             </Gate>
           </Card>

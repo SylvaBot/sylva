@@ -279,6 +279,10 @@ h1, h2, h3, p { margin: 0; }
 .feature .tile { width: 36px; height: 36px; margin-bottom: 16px; }
 .feature h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
 .feature p { margin-top: 6px; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+.moving { margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.moving li { list-style: none; display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface); font-size: 14px; }
+.moving svg { width: 16px; height: 16px; color: var(--follow, #3ecf74); flex: none; }
+@media (max-width: 760px) { .moving { grid-template-columns: minmax(0, 1fr); } }
 .how { margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; counter-reset: step; }
 .how li { list-style: none; padding: 24px; border-radius: var(--r-lg); border: 1px dashed var(--border-2); }
 .how li::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--surface-3); font-weight: 600; font-size: 13px; margin-bottom: 14px; }
@@ -359,7 +363,7 @@ h1, h2, h3, p { margin: 0; }
 .stat-note { margin-top: 8px; font-size: 12px; color: var(--faint); }
 
 /* Get started */
-.setup { padding: 20px; }
+.setup { padding: 20px; margin-bottom: 16px; }
 .setup h2 { font-size: 15px; font-weight: 600; }
 .setup-head p { margin-top: 4px; color: var(--muted); font-size: 13.5px; }
 .setup ol { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -1162,3 +1166,7 @@ fieldset.gate { border: 0; margin: 0; padding: 0; min-width: 0; }
   .code-body { grid-template-columns: minmax(0, 1fr); }
   .code-area { min-height: 260px; }
 }
+
+.games-limits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.games-limits .num-input { width: 100%; max-width: 160px; }
+@media (max-width: 760px) { .games-limits { grid-template-columns: minmax(0, 1fr); } }

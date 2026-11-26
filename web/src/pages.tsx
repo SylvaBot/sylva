@@ -462,7 +462,7 @@ export function ChatPage() {
 /* ---------------------------------------------------------------- Settings */
 
 const FEATURE_LABELS: Record<string, string> = {
-  follows: 'Follows', subs: 'Subs', cheers: 'Cheers', chat: 'Chat', raids: 'Raids', stream: 'Going live',
+  follows: 'Follows', subs: 'Subs', cheers: 'Cheers', chat: 'Chat', raids: 'Raids', stream: 'Going live', chatAlerts: 'Chat alerts',
 };
 
 function TwitchEvents() {

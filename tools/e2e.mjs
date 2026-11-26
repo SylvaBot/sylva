@@ -621,6 +621,43 @@ if (!fake || !usesFake) {
     assert.equal(sent().length, 4);
   });
 
+  await check('chat alerts post the lines that are on, and a mass gift hides its single gifts', async () => {
+    const cid = randomChannelId();
+    const path = `/v1/channels/twitch:${cid}/chat-alerts`;
+    const post = (body) => fetch(`${BASE}${path}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const sent = () => fake.state.chatSent.filter((m) => m.broadcaster_id === cid).map((m) => m.message);
+    const view = await getJson(path);
+    assert.equal(Object.keys(view.settings.alerts).length, 32);
+    assert.ok(Object.values(view.settings.alerts).every((a) => !a.enabled), 'everything starts off');
+    const on = (ids) => ({ ...view.settings, alerts: Object.fromEntries(Object.entries(view.settings.alerts)
+      .map(([id, a]) => [id, { ...a, enabled: ids.includes(id) }])) });
+    const bad = await post({ ...on([]), alerts: { ...view.settings.alerts, raid: { enabled: true, message: '${nope}' } } });
+    assert.equal(bad.status, 400);
+    assert.equal((await post(on(['follow', 'mass_1', 'gift_1', 'raid']))).status, 200);
+
+    const note = (notice_type, extra) => sendEventSub({
+      subType: 'channel.chat.notification',
+      condition: { broadcaster_user_id: cid, user_id: cid },
+      event: { broadcaster_user_id: cid, chatter_user_id: '55', chatter_user_login: 'gus', chatter_user_name: 'Gus',
+               chatter_is_anonymous: false, notice_type, message_id: randomUUID(), message: { text: '', fragments: [] },
+               ...extra },
+    });
+    await note('community_sub_gift', { community_sub_gift: { id: 'c1', total: 5, sub_tier: '1000' } });
+    await note('sub_gift', { sub_gift: { sub_tier: '1000', recipient_user_name: 'Rae', community_gift_id: 'c1' } });
+    await note('sub_gift', { sub_gift: { sub_tier: '1000', recipient_user_name: 'Lou', community_gift_id: null } });
+    const f = follow(cid, 3, `dup-follow-${cid}`);
+    await sendEventSub(f);
+    await sendEventSub(f);
+    await sendEventSub({ subType: 'channel.raid', condition: { to_broadcaster_user_id: cid },
+      event: { from_broadcaster_user_id: '9', from_broadcaster_user_login: 'r', from_broadcaster_user_name: 'R',
+               to_broadcaster_user_id: cid, to_broadcaster_user_login: 'me', to_broadcaster_user_name: 'Me', viewers: 4 } });
+    assert.deepEqual(sent(), ['Gus just gifted 5 subs!', 'Gus just gifted a sub to Lou!',
+      'Viewer3 just followed the stream!'], 'a retried follow and a raid under 5 viewers say nothing');
+  });
+
   await check('counters and quotes answer in chat, and only moderators change them', async () => {
     const cid = randomChannelId();
     const path = `/v1/channels/twitch:${cid}/bot`;
@@ -938,9 +975,9 @@ if (!fake || !usesFake) {
     assert.equal(exchange.redirect_uri, `${BASE}/auth/twitch/callback`);
 
     const types = fake.state.subscriptions.map((s) => s.type).sort();
-    assert.deepEqual(types, ['channel.chat.message', 'channel.cheer', 'channel.follow', 'channel.raid',
-      'channel.subscribe', 'channel.subscription.gift', 'channel.subscription.message', 'channel.update',
-      'stream.offline', 'stream.online']);
+    assert.deepEqual(types, ['channel.chat.message', 'channel.chat.notification', 'channel.cheer', 'channel.follow',
+      'channel.raid', 'channel.subscribe', 'channel.subscription.gift', 'channel.subscription.message',
+      'channel.update', 'stream.offline', 'stream.online'], 'chat alert events that need Allow alerts are skipped');
     assert.ok(fake.state.subscriptions.every((s) => s.transport.method === 'conduit'
       && s.transport.conduit_id === 'fake-conduit'));
     const chatSub = fake.state.subscriptions.find((s) => s.type === 'channel.chat.message');
@@ -1097,7 +1134,7 @@ if (!fake || !usesFake) {
     const again = cookieOf(res, 'sylva_session');
     assert.equal(again.split('.')[0], accountId);
     assert.notEqual(again, session);
-    assert.equal(fake.state.subscriptions.length, 10, 'subscriptions are made again');
+    assert.equal(fake.state.subscriptions.length, 11, 'subscriptions are made again');
   });
 
   await check('a sign in without every permission is refused', async () => {

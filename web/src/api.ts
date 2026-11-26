@@ -152,6 +152,17 @@ export interface LoyaltyView {
   settings: LoyaltySettings; permission: 'ok' | 'missing' | 'expired'; live: boolean; botOn: boolean;
   viewers: number; everyMinutes: number;
 }
+export interface ChatAlert { enabled: boolean; message: string }
+export interface ChatAlertSettings {
+  alerts: Record<string, ChatAlert>; raidMin: number; bitsMin: number; charityMin: number;
+  watchStreakMin: number; adAutomatic: boolean;
+}
+export interface ChatAlertInfo { id: string; label: string; default: string; variables: string[] }
+export interface ChatAlertGroup { id: string; title: string; desc: string; alerts: ChatAlertInfo[] }
+export interface ChatAlertsView {
+  settings: ChatAlertSettings; groups: ChatAlertGroup[]; needsGrant: string[];
+  permission: 'ok' | 'missing' | 'expired'; sender: { kind: 'sylva' | 'streamer'; id: string; login?: string };
+}
 export interface PointsViewer { id: string; login: string; name: string; balance: number; earned: number }
 export interface PointsEntry { id: number; delta: number; reason: string; at: number }
 
@@ -274,6 +285,8 @@ export const api = {
   deleteQuote: (key: string, id: number) => request<Quote>('POST', `${ch(key)}/bot/quotes/${id}/delete`),
   tryBot: (key: string, message: string, level: UserLevel, extra: { settings?: BotSettings; user?: string; channel?: string } = {}) =>
     request<BotTry>('POST', `${ch(key)}/bot/try`, { message, level, ...extra }),
+  chatAlerts: (key: string) => request<ChatAlertsView>('GET', `${ch(key)}/chat-alerts`),
+  saveChatAlerts: (key: string, s: ChatAlertSettings) => request<ChatAlertsView>('POST', `${ch(key)}/chat-alerts`, s),
   loyalty: (key: string) => request<LoyaltyView>('GET', `${ch(key)}/loyalty`),
   saveLoyalty: (key: string, s: LoyaltySettings) => request<LoyaltyView>('POST', `${ch(key)}/loyalty`, s),
   pointsViewers: (key: string, q: string, offset: number, limit = 50) => {

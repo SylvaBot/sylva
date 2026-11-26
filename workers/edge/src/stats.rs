@@ -269,7 +269,11 @@ impl ChannelDo {
                         CAST((received_at - ?1) / 3600000 AS INTEGER) % 24 AS h, COUNT(*) AS n
                  FROM events WHERE kind = 'chat' AND received_at >= ?2 AND received_at < ?3
                  GROUP BY w, h",
-                vec![(tz_ms as f64).into(), (from as f64).into(), (to as f64).into()],
+                vec![
+                    (tz_ms as f64).into(),
+                    (from as f64).into(),
+                    (to as f64).into(),
+                ],
             )?
             .to_array()?;
         let mut heat = vec![vec![0u64; 24]; 7];
@@ -291,7 +295,9 @@ impl ChannelDo {
                 vec![(from as f64).into(), (prev as f64).into()],
             )?
             .to_array()?;
-        let (new_chatters, prev_new_chatters) = firsts.first().map_or((0, 0), |f| (f.now as u64, f.before as u64));
+        let (new_chatters, prev_new_chatters) = firsts
+            .first()
+            .map_or((0, 0), |f| (f.now as u64, f.before as u64));
 
         // The period before, for streams and viewers.
         let prev_viewers = self

@@ -208,7 +208,16 @@ export interface RaffleSettings {
 }
 export interface GameSettings {
   gamble: boolean; roulette: boolean; slots: boolean; blackjack: boolean; duel: boolean;
+  /** Shared limits, used where a game has none of its own. */
   minBet: number; maxBet: number; cooldown: number;
+  rules: Record<'gamble' | 'roulette' | 'slots' | 'blackjack' | 'duel', GameRule>;
+  odds: GameOdds;
+}
+export interface GameRule { level: UserLevel; cooldown: number | null; globalCooldown: number; minBet: number | null; maxBet: number | null }
+/** Payouts as the percent of a bet that comes back (200 doubles it). */
+export interface GameOdds {
+  gambleWinAt: number; gambleWin: number; gambleJackpot: number; rouletteColor: number; rouletteNumber: number;
+  slotsPair: number; slotsTriple: number; slotsJackpot: number; blackjackNatural: number; duelWait: number;
 }
 export interface LoyaltyView {
   settings: LoyaltySettings; permission: 'ok' | 'missing' | 'expired'; live: boolean; botOn: boolean;

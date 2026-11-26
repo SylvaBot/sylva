@@ -7,6 +7,7 @@ pub mod alerts;
 pub mod apps;
 pub mod auth;
 pub mod bot;
+pub mod chat_alerts;
 pub mod builtins;
 pub mod community;
 pub mod event;

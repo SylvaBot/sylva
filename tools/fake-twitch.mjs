@@ -22,6 +22,9 @@ const SCOPES = ['moderator:read:followers', 'channel:read:subscriptions', 'bits:
                 'user:read:chat', 'user:bot', 'channel:bot'];
 export const MOD_SCOPES = ['moderator:manage:chat_messages', 'moderator:manage:banned_users'];
 export const LOYALTY_SCOPES = ['moderator:read:chatters'];
+const ALERT_TYPES = new Set(['channel.charity_campaign.donate', 'channel.ad_break.begin', 'channel.hype_train.begin',
+  'channel.hype_train.progress', 'channel.hype_train.end', 'channel.prediction.begin', 'channel.prediction.lock',
+  'channel.prediction.end', 'channel.poll.begin', 'channel.poll.end']);
 export const COMMAND_SCOPES = ['clips:edit', 'channel:manage:broadcast', 'moderator:read:followers'];
 
 export function startFakeTwitch(port = FAKE_PORT) {
@@ -190,6 +193,10 @@ export function startFakeTwitch(port = FAKE_PORT) {
         if (!isApp) return json(res, 400, { message: 'conduits need an app token' });
         if (state.failSubscriptions) return json(res, state.failSubscriptions, { message: 'subscription missing proper authorization' });
         const s = JSON.parse(body);
+        // These need scopes from Allow alerts, which a plain sign in does not give.
+        if (ALERT_TYPES.has(s.type) && ![...state.userTokens.values()].some((sc) => sc.includes('channel:read:polls'))) {
+          return json(res, 403, { message: 'subscription missing proper authorization' });
+        }
         const same = state.subscriptions.find((x) => x.type === s.type
           && JSON.stringify(x.condition) === JSON.stringify(s.condition));
         if (same) return json(res, 409, { status: 409, message: 'subscription already exists' });

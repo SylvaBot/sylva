@@ -274,7 +274,10 @@ pub async fn subscribe_channel(
                 })),
             )
             .await?;
-        let ok = status < 300 || status == 409;
+        // 403 on a spec that needs an extra grant only means the streamer has
+        // not allowed it (yet). That is not a failure to fix by signing in.
+        let not_allowed = status == 403 && spec.grant.is_some();
+        let ok = status < 300 || status == 409 || not_allowed;
         if !ok {
             console_warn!(
                 "Subscribing {} for {broadcaster_user_id} failed: {status} {v}",
@@ -334,7 +337,18 @@ pub async fn channel_status(app: &App, broadcaster_user_id: &str) -> Result<Vec<
     let subs = user_subscriptions(app, broadcaster_user_id).await?;
 
     let mut out: Vec<FeatureStatus> = Vec::new();
-    for spec in channel_subscriptions(broadcaster_user_id) {
+    let specs = channel_subscriptions(broadcaster_user_id);
+    let found_any = |feature: Feature| {
+        specs.iter().any(|spec| {
+            spec.feature == feature && subs.iter().any(|s| s["type"] == spec.kind)
+        })
+    };
+    for spec in specs.iter().cloned() {
+        // A feature behind an extra grant the streamer never gave is not
+        // "off", just not chosen: leave it out.
+        if spec.grant.is_some() && !found_any(spec.feature) {
+            continue;
+        }
         let found = subs.iter().find(|s| {
             s["type"] == spec.kind
                 && spec

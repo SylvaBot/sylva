@@ -235,6 +235,9 @@ pub enum Feature {
     Chat,
     Raids,
     Stream,
+    /// Charity, ad breaks, hype trains, predictions and polls, which only
+    /// chat alerts use. They need the `alerts` grant.
+    ChatAlerts,
 }
 
 /// One EventSub subscription Sylva makes for a channel.
@@ -246,6 +249,9 @@ pub struct SubscriptionSpec {
     pub feature: Feature,
     /// True when Twitch needs the broadcaster's permission (granted at sign in).
     pub needs_sign_in: bool,
+    /// The extra permission (`auth::GRANTS`) it needs, when the scopes asked
+    /// at sign in are not enough. Without it Twitch refuses with 403.
+    pub grant: Option<&'static str>,
 }
 
 /// Every subscription a signed in channel gets. Chat is read as the
@@ -259,6 +265,19 @@ pub fn channel_subscriptions(broadcaster_user_id: &str) -> Vec<SubscriptionSpec>
         condition,
         feature,
         needs_sign_in,
+        grant: None,
+    };
+    let alerts = |kind| SubscriptionSpec {
+        kind,
+        version: if kind.starts_with("channel.hype_train") {
+            "2"
+        } else {
+            "1"
+        },
+        condition: json!({ "broadcaster_user_id": b }),
+        feature: Feature::ChatAlerts,
+        needs_sign_in: true,
+        grant: Some("alerts"),
     };
     let own = json!({ "broadcaster_user_id": b });
     vec![
@@ -302,6 +321,24 @@ pub fn channel_subscriptions(broadcaster_user_id: &str) -> Vec<SubscriptionSpec>
         spec("stream.online", "1", own.clone(), Feature::Stream, false),
         spec("stream.offline", "1", own.clone(), Feature::Stream, false),
         spec("channel.update", "2", own, Feature::Stream, false),
+        // Subs, gifts and watch streaks as chat shows them, for chat alerts.
+        spec(
+            "channel.chat.notification",
+            "1",
+            json!({ "broadcaster_user_id": b, "user_id": b }),
+            Feature::Chat,
+            true,
+        ),
+        alerts("channel.charity_campaign.donate"),
+        alerts("channel.ad_break.begin"),
+        alerts("channel.hype_train.begin"),
+        alerts("channel.hype_train.progress"),
+        alerts("channel.hype_train.end"),
+        alerts("channel.prediction.begin"),
+        alerts("channel.prediction.lock"),
+        alerts("channel.prediction.end"),
+        alerts("channel.poll.begin"),
+        alerts("channel.poll.end"),
     ]
 }
 
@@ -695,7 +732,12 @@ mod tests {
     #[test]
     fn channel_subscriptions_cover_phase_one() {
         let subs = channel_subscriptions("42");
-        assert_eq!(subs.len(), 10);
+        assert_eq!(subs.len(), 21);
+        let hype = subs
+            .iter()
+            .find(|s| s.kind == "channel.hype_train.begin")
+            .unwrap();
+        assert_eq!((hype.version, hype.grant), ("2", Some("alerts")));
         let follow = &subs[0];
         assert_eq!(follow.kind, "channel.follow");
         assert_eq!(follow.version, "2");
@@ -708,7 +750,11 @@ mod tests {
         assert!(chat.needs_sign_in);
         assert_eq!(feature_of("channel.subscription.gift"), Some(Feature::Subs));
         assert_eq!(feature_of("channel.raid"), Some(Feature::Raids));
-        assert_eq!(feature_of("channel.hype_train.begin"), None);
+        assert_eq!(
+            feature_of("channel.hype_train.begin"),
+            Some(Feature::ChatAlerts)
+        );
+        assert_eq!(feature_of("channel.shield_mode.begin"), None);
         // Each kind is subscribed once.
         let mut kinds: Vec<_> = subs.iter().map(|s| s.kind).collect();
         kinds.sort();

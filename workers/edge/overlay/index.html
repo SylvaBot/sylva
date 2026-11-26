@@ -83,6 +83,7 @@
   .fill-page { position: fixed; inset: 0; }
   #scene { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
   .item { position: absolute; }
+  iframe.custom { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: normal; }
   body.debug .item { outline: 1px dashed rgba(255, 255, 255, .35); }
   body.debug .item::before { content: attr(data-label); position: absolute; left: 6px; top: -20px; font-size: 12px; color: rgba(255, 255, 255, .6); }
 </style>
@@ -314,8 +315,62 @@
     };
   }
 
+  // The streamer's own code, in a sandboxed frame (see /overlay-frame). In
+  // alert mode it plays alerts from the queue and says when each is done.
+  function customWidget(host, it, ack) {
+    const code = it.code || {};
+    const frame = el('iframe', 'custom');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.setAttribute('scrolling', 'no');
+    frame.title = code.name || 'Custom widget';
+    frame.src = '/overlay-frame';
+    host.appendChild(frame);
+    let ready = false, current = null, timer = null;
+    const queue = [];
+    const post = (m) => {
+      const msg = Object.assign({ sylva: true }, m);
+      if (ready) frame.contentWindow.postMessage(msg, '*'); else queue.push(msg);
+    };
+    const finish = (id) => {
+      if (id !== current) return;
+      clearTimeout(timer);
+      current = null;
+      ack(id);
+    };
+    const onMessage = (m) => {
+      if (m.source !== frame.contentWindow || !m.data || m.data.sylvaFrame !== true) return;
+      if (m.data.type === 'ready' && !ready) {
+        ready = true;
+        frame.contentWindow.postMessage({
+          sylva: true, type: 'load', html: code.html, css: code.css, js: code.js,
+          fields: code.fields, values: code.values, alerts: !!code.alerts,
+          data: window.sylva.data, channel: '',
+        }, '*');
+        queue.splice(0).forEach((q) => frame.contentWindow.postMessage(q, '*'));
+      } else if (m.data.type === 'done') finish(m.data.id);
+    };
+    addEventListener('message', onMessage);
+    return {
+      data(d) { post({ type: 'data', data: d }); },
+      event(e) { post({ type: 'event', event: e }); },
+      top(list) { post({ type: 'top', top: list }); },
+      play(f) {
+        if (current !== null) finish(current);
+        current = f.alertId;
+        window.sylva.shown.push(f.alertId);
+        const view = f.view || fallbackView(f.event);
+        post({ type: 'alert', id: f.alertId, event: f.event, view });
+        // A widget that never says done must not hold up the queue.
+        const ms = (linkMs || view.durationMs || 5000) + 15000;
+        timer = setTimeout(() => finish(f.alertId), ms);
+      },
+      stop(id) { if (id === current) { clearTimeout(timer); current = null; post({ type: 'stop', id }); } },
+      remove() { removeEventListener('message', onMessage); clearTimeout(timer); frame.remove(); },
+    };
+  }
+
   const WIDGETS = { feed: eventList, latest: latestLabel, top: topLabel, goal: goalBar, chat: chatBox };
-  const NAMES = { alerts: 'Alert box', feed: 'Event list', latest: 'Latest label', top: 'Top label', goal: 'Goal bar', chat: 'Chat box' };
+  const NAMES = { alerts: 'Alert box', feed: 'Event list', latest: 'Latest label', top: 'Top label', goal: 'Goal bar', chat: 'Chat box', custom: 'Custom widget' };
 
   /* ---------------- Connection ---------------- */
   // One socket for a role. The alert box connects as `overlay` (it plays
@@ -423,32 +478,42 @@
   fit();
 
   let alertConn = null;
-  const box = alertBox((id) => { if (alertConn && alertConn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); });
+  const ackAlert = (id) => { if (alertConn && alertConn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); };
+  const box = alertBox(ackAlert);
+  // Alerts go to the alert box, or to a custom widget that plays them.
+  let player = box;
+  const alertTarget = { play: (f) => player.play(f), stop: (id) => player.stop(id) };
   let drawn = [];
   let version = null;
 
   const build = (published, data) => {
     version = published ? published.version : 0;
     window.sylva.scene = published || null;
+    drawn.forEach((w) => w.remove && w.remove());
     sceneEl.textContent = '';
     drawn = [];
+    player = box;
     const items = published ? published.scene.items : [];
     for (const it of items) {
       const node = el('div', 'item');
-      node.dataset.label = NAMES[it.widget] || it.widget;
+      node.dataset.label = (it.widget === 'custom' && it.code && it.code.name) || NAMES[it.widget] || it.widget;
       node.dataset.widget = it.widget;
       Object.assign(node.style, { left: it.x + 'px', top: it.y + 'px', width: it.w + 'px', height: it.h + 'px' });
       sceneEl.appendChild(node);
       if (it.widget === 'alerts') node.appendChild(box.node);
-      else if (WIDGETS[it.widget]) {
+      else if (it.widget === 'custom') {
+        const w = customWidget(node, it, ackAlert);
+        if (it.code && it.code.alerts) player = w;
+        drawn.push(w);
+      } else if (WIDGETS[it.widget]) {
         const w = WIDGETS[it.widget](node, it);
         if (data && w.data) w.data(data);
         drawn.push(w);
       }
     }
-    // The alert box takes alerts only while the scene has one.
-    const wantAlerts = items.some((it) => it.widget === 'alerts');
-    if (wantAlerts && !alertConn) alertConn = alertConnection(box);
+    // Alerts are taken only while the scene has something to play them.
+    const wantAlerts = items.some((it) => it.widget === 'alerts' || (it.widget === 'custom' && it.code && it.code.alerts));
+    if (wantAlerts && !alertConn) alertConn = alertConnection(alertTarget);
     if (!wantAlerts && alertConn) { alertConn.close(); alertConn = null; delete states.alerts; }
     setState('scene', published ? `version ${published.version}, ${items.length} widgets` : 'nothing published yet');
   };

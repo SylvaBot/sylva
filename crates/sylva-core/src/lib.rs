@@ -11,6 +11,7 @@ pub mod chat_alerts;
 pub mod builtins;
 pub mod community;
 pub mod event;
+pub mod games;
 pub mod giveaway;
 pub mod import;
 pub mod loyalty;

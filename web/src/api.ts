@@ -75,10 +75,14 @@ export type GoalKind = 'follows' | 'subs' | 'bits';
 export interface Goal { title: string; kind: GoalKind; target: number; since: number }
 export interface WidgetSettings { goal?: Goal | null }
 
-export type WidgetKind = 'alerts' | 'feed' | 'latest' | 'top' | 'goal' | 'chat';
+export type WidgetKind = 'alerts' | 'feed' | 'latest' | 'top' | 'goal' | 'chat' | 'custom';
+export interface CustomCode {
+  name: string; html: string; css: string; js: string; fields: string;
+  values: Record<string, unknown>; alerts: boolean;
+}
 export interface SceneItem {
   id: string; widget: WidgetKind; x: number; y: number; w: number; h: number;
-  kind?: string | null; limit?: number | null;
+  kind?: string | null; limit?: number | null; code?: CustomCode | null;
 }
 export interface Scene { items: SceneItem[] }
 export interface SceneState {
@@ -128,7 +132,7 @@ export interface ModLimit { on: boolean; max: number }
 export interface ModRules {
   links: boolean; caps: ModShare; symbols: ModShare; emotes: ModLimit; length: ModLimit; repeats: ModLimit; zalgo: boolean;
 }
-export type ModRule = 'words' | 'links' | 'zalgo' | 'length' | 'repeats' | 'caps' | 'symbols' | 'emotes';
+export type ModRule = 'words' | 'links' | 'zalgo' | 'length' | 'repeats' | 'caps' | 'symbols' | 'emotes' | 'nuke';
 export interface ModSettings {
   preset: ModPreset; rules: ModRules; exempt: UserLevel; steps: [number, number, number];
   words: string[]; allowedLinks: string[]; notice: boolean;
@@ -140,13 +144,20 @@ export interface ModView {
 }
 export interface ModEntry {
   id: number; at: number; userId: string; user: string; rule: ModRule; message: string;
-  action: 'delete' | 'timeout'; seconds: number; result: 'done' | 'failed'; detail?: string; undoneAt?: number;
+  action: 'delete' | 'timeout' | 'ban'; seconds: number; result: 'done' | 'failed'; detail?: string; undoneAt?: number;
 }
 export interface ModTry { rule?: ModRule; skipped: boolean; steps: [number, number, number] }
 
 export interface LoyaltySettings {
   enabled: boolean; name: string; watch: number; active: number; follow: number; sub: number;
-  gift: number; cheer: number; give: boolean;
+  gift: number; cheer: number; give: boolean; games: GameSettings; raffle: RaffleSettings;
+}
+export interface RaffleSettings {
+  enabled: boolean; duration: number; maxAmount: number; start: string; running: string; end: string;
+}
+export interface GameSettings {
+  gamble: boolean; roulette: boolean; slots: boolean; blackjack: boolean; duel: boolean;
+  minBet: number; maxBet: number; cooldown: number;
 }
 export interface LoyaltyView {
   settings: LoyaltySettings; permission: 'ok' | 'missing' | 'expired'; live: boolean; botOn: boolean;

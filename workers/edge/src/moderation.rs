@@ -199,6 +199,11 @@ impl ChannelDo {
     /// Check a chat line and act on it. True when the line broke a rule, so
     /// the bot leaves it alone. Problems are logged, never raised.
     pub(crate) async fn run_moderation(&self, line: &StoredEvent) -> bool {
+        match self.run_radiation(line).await {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(e) => console_error!("A nuke's radiation failed: {e}"),
+        }
         match self.moderate(line).await {
             Ok(acted) => acted,
             Err(e) => {
@@ -392,7 +397,7 @@ impl ChannelDo {
             return Ok(Err((404, "That entry is no longer in the log".into())));
         };
         let now = Date::now().as_millis() as i64;
-        if entry.action != "timeout" {
+        if entry.action != "timeout" && entry.action != "ban" {
             return Ok(Err((
                 409,
                 "Twitch cannot bring back a deleted message".into(),
@@ -407,7 +412,7 @@ impl ChannelDo {
         if entry.undone_at.is_some() {
             return Ok(Err((409, "That timeout was already lifted".into())));
         }
-        if entry.at + i64::from(entry.seconds) * 1000 <= now {
+        if entry.action == "timeout" && entry.at + i64::from(entry.seconds) * 1000 <= now {
             return Ok(Err((409, "That timeout has already ended".into())));
         }
         let Some(broadcaster) = self.broadcaster_id() else {

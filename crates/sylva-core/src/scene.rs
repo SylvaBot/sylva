@@ -28,6 +28,8 @@ pub enum WidgetKind {
     Top,
     Goal,
     Chat,
+    /// The streamer's own HTML, CSS and JavaScript, run in a sandbox.
+    Custom,
 }
 
 /// Kinds a latest label may follow.
@@ -52,6 +54,42 @@ pub struct SceneItem {
     /// For `feed` and `chat`: how many rows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// For `custom`: its code and settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<CustomCode>,
+}
+
+/// A custom widget's code. `fields` is the settings form as JSON text, in
+/// StreamElements' format so their widgets can be pasted in; `values` holds
+/// what the streamer set in it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CustomCode {
+    pub name: String,
+    pub html: String,
+    pub css: String,
+    pub js: String,
+    pub fields: String,
+    pub values: serde_json::Map<String, serde_json::Value>,
+    /// Plays alerts from the queue in place of the alert box, calling
+    /// `Sylva.done()` when each one is over.
+    pub alerts: bool,
+}
+
+/// The most code one custom widget may hold, in bytes.
+pub const MAX_CUSTOM_BYTES: usize = 100_000;
+/// The most custom code one scene may hold, so it fits a WebSocket frame.
+pub const MAX_SCENE_CODE_BYTES: usize = 400_000;
+pub const MAX_CUSTOM_NAME: usize = 40;
+
+impl CustomCode {
+    fn bytes(&self) -> usize {
+        self.html.len()
+            + self.css.len()
+            + self.js.len()
+            + self.fields.len()
+            + serde_json::to_string(&self.values).map_or(0, |v| v.len())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -151,22 +189,65 @@ impl Scene {
                     item.kind = None;
                     item.limit = None;
                 }
+                WidgetKind::Custom => {
+                    item.kind = None;
+                    item.limit = None;
+                    let code = item.code.get_or_insert_with(CustomCode::default);
+                    code.name = code.name.trim().chars().take(MAX_CUSTOM_NAME).collect();
+                    if code.bytes() > MAX_CUSTOM_BYTES {
+                        return Err(Invalid(format!(
+                            "A custom widget can hold up to {} KB of code",
+                            MAX_CUSTOM_BYTES / 1000
+                        )));
+                    }
+                    if !code.fields.trim().is_empty()
+                        && serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                            &code.fields,
+                        )
+                        .is_err()
+                    {
+                        return Err(Invalid(
+                            "A custom widget's fields must be a JSON object, as StreamElements uses"
+                                .into(),
+                        ));
+                    }
+                }
+            }
+            if item.widget != WidgetKind::Custom {
+                item.code = None;
             }
         }
-        if self
+        if self.items.iter().filter(|i| i.plays_alerts()).count() > 1 {
+            return Err(Invalid(
+                "A scene can have one alert box (a custom widget that plays alerts counts as one)"
+                    .into(),
+            ));
+        }
+        let code: usize = self
             .items
             .iter()
-            .filter(|i| i.widget == WidgetKind::Alerts)
-            .count()
-            > 1
-        {
-            return Err(Invalid("A scene can have one alert box".into()));
+            .filter_map(|i| i.code.as_ref())
+            .map(CustomCode::bytes)
+            .sum();
+        if code > MAX_SCENE_CODE_BYTES {
+            return Err(Invalid(format!(
+                "Custom widgets in one scene can hold up to {} KB of code together",
+                MAX_SCENE_CODE_BYTES / 1000
+            )));
         }
         Ok(self)
     }
 
     pub fn has_alerts(&self) -> bool {
-        self.items.iter().any(|i| i.widget == WidgetKind::Alerts)
+        self.items.iter().any(SceneItem::plays_alerts)
+    }
+}
+
+impl SceneItem {
+    /// The alert box, or a custom widget that plays alerts.
+    pub fn plays_alerts(&self) -> bool {
+        self.widget == WidgetKind::Alerts
+            || (self.widget == WidgetKind::Custom && self.code.as_ref().is_some_and(|c| c.alerts))
     }
 }
 
@@ -194,6 +275,7 @@ mod tests {
             h: 100.0,
             kind: None,
             limit: None,
+            code: None,
         }
     }
 
@@ -249,6 +331,50 @@ mod tests {
                 .collect(),
         };
         assert!(many.validated().is_err());
+    }
+
+    #[test]
+    fn custom_widgets() {
+        let mut c = item("c", WidgetKind::Custom);
+        let s = Scene {
+            items: vec![c.clone()],
+        }
+        .validated()
+        .unwrap();
+        assert!(s.items[0].code.is_some(), "a custom widget always has code");
+        c.code = Some(CustomCode {
+            fields: "not json".into(),
+            ..CustomCode::default()
+        });
+        assert!(Scene {
+            items: vec![c.clone()]
+        }
+        .validated()
+        .is_err());
+        c.code = Some(CustomCode {
+            alerts: true,
+            fields: r##"{"color":{"type":"colorpicker","value":"#fff"}}"##.into(),
+            ..CustomCode::default()
+        });
+        let s = Scene {
+            items: vec![c.clone()],
+        }
+        .validated()
+        .unwrap();
+        assert!(s.has_alerts());
+        let both = Scene {
+            items: vec![c.clone(), item("a", WidgetKind::Alerts)],
+        };
+        assert!(both.validated().is_err(), "one alert player per scene");
+        c.code = Some(CustomCode {
+            js: "x".repeat(MAX_CUSTOM_BYTES + 1),
+            ..CustomCode::default()
+        });
+        assert!(Scene { items: vec![c] }.validated().is_err());
+        let mut g = item("g", WidgetKind::Goal);
+        g.code = Some(CustomCode::default());
+        let s = Scene { items: vec![g] }.validated().unwrap();
+        assert!(s.items[0].code.is_none(), "code only on custom widgets");
     }
 
     #[test]

@@ -410,6 +410,17 @@ await check('the overlay editor saves drafts, publishes versions and pushes the 
   assert.equal((await post('', { items: [item('a b', 'goal')] })).status, 400);
   assert.equal((await post('', { items: [item('a', 'sparkles')] })).status, 400);
   assert.equal((await post('', { items: Array.from({ length: 25 }, (_, i) => item(`i${i}`, 'goal')) })).status, 400);
+  // Custom code: fields must be JSON, and only one thing on a scene plays alerts.
+  const custom = (id, code) => item(id, 'custom', { code: { name: 'Mine', html: '<b>hi</b>', css: '', js: '', fields: '', values: {}, alerts: false, ...code } });
+  assert.equal((await post('', { items: [custom('c', { fields: 'nope' })] })).status, 400);
+  assert.equal((await post('', { items: [custom('c', { alerts: true }), item('a', 'alerts')] })).status, 400);
+  const withCode = await (await post('', { items: [custom('c', { alerts: true, fields: '{"x":{"type":"text","value":"1"}}' })] })).json();
+  assert.equal(withCode.draft.items[0].code.alerts, true);
+  const frame = await fetch(`${BASE}/overlay-frame`);
+  assert.equal(frame.status, 200);
+  assert.match(frame.headers.get('content-security-policy'), /sandbox allow-scripts/);
+  assert.match(await frame.text(), /window\.Sylva = /);
+  await post('', { items: [] });
 
   // A draft is tidied and kept, but overlays do not see it yet.
   const widget = new Client(key, 'widget', 0, { token: overlayToken });
@@ -828,6 +839,21 @@ if (!fake || !usesFake) {
     assert.deepEqual(await tryIt({ message: '!top', level: 'everyone' }),
       { reply: 'Most leaves: 1. Giver 200, 2. Hazel 105, 3. Newbie 40', command: 'top' });
     assert.deepEqual(await tryIt({ message: '!addpoints rowan 5', level: 'everyone' }), { skip: 'level', command: 'addpoints' });
+
+    // Games: on by default, bets checked against the limits.
+    const giver = { id: '8003', name: 'Giver' };
+    await say('!gamble 5', giver);
+    assert.equal(sent().at(-1), 'Giver, the smallest bet is 10 leaves.');
+    await say('!slots 20', giver);
+    assert.match(sent().at(-1), /^\| .+ \| Giver (won|lost) [\d,]+ leaves/);
+    await say('!blackjack 10', giver);
+    assert.match(sent().at(-1), /Giver/);
+    await say('!stand', giver);
+    // Raffle: a moderator starts it, a second start is refused.
+    await say('!raffle 50', mod);
+    assert.equal(sent().at(-1), 'A raffle has begun for 50 leaves! It ends in 30 seconds. Type !join to enter');
+    await say('!raffle', mod);
+    assert.match(sent().at(-1), /a raffle is already running/);
 
     await post(path, { ...saved.settings, enabled: false });
     const off = sent().length;

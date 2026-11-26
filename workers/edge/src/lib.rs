@@ -41,11 +41,13 @@ mod channel;
 mod chat_alerts;
 mod community;
 mod delete;
+mod games;
 mod giveaway;
 mod grants;
 mod import;
 mod loyalty;
 mod moderation;
+mod nuke;
 mod store;
 mod team;
 mod twitch_admin;
@@ -64,6 +66,7 @@ use worker::js_sys;
 use worker::*;
 
 const OVERLAY_HTML: &str = include_str!("../overlay/index.html");
+const OVERLAY_FRAME_HTML: &str = include_str!("../overlay/frame.html");
 
 /// Who is calling the channel API.
 #[derive(PartialEq)]
@@ -137,6 +140,19 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
         (Method::Get, ["v1", "public", login]) => public_store(&req, &env, login).await,
         (Method::Get, ["v1", "public", login, "commands"]) => public_commands(&env, login).await,
+        (Method::Get, ["overlay-frame"]) => {
+            // A custom widget's frame. The sandbox keeps its code in an
+            // origin of its own even when the page is opened directly.
+            let mut res = Response::from_html(OVERLAY_FRAME_HTML)?;
+            let h = res.headers_mut();
+            h.set(
+                "Content-Security-Policy",
+                "sandbox allow-scripts; frame-ancestors 'self'",
+            )?;
+            h.set("Cache-Control", "public, max-age=300")?;
+            h.set("Referrer-Policy", "no-referrer")?;
+            Ok(res)
+        }
         (Method::Get, ["overlay", key]) => {
             if !valid_key(key) {
                 return Response::error("Not found", 404);

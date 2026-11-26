@@ -7,8 +7,8 @@
   },
   "position": {
     "type": "dropdown",
-    "label": "Position on screen",
-    "value": "bottom-left",
+    "label": "Position in the canvas (when there is room left over)",
+    "value": "middle-center",
     "options": {
       "top-left": "Top left",
       "top-center": "Top center",
@@ -22,37 +22,10 @@
     },
     "group": "Position"
   },
-  "offsetX": {
-    "type": "number",
-    "label": "Distance from left/right edge (px)",
-    "value": 60,
-    "min": 0,
-    "max": 1900,
-    "step": 1,
-    "group": "Position"
-  },
-  "offsetY": {
-    "type": "number",
-    "label": "Distance from top/bottom edge (px)",
-    "value": 60,
-    "min": 0,
-    "max": 1060,
-    "step": 1,
-    "group": "Position"
-  },
   "fontFamily": {
     "type": "googleFont",
     "label": "Font",
     "value": "Inter",
-    "group": "Style"
-  },
-  "size": {
-    "type": "slider",
-    "label": "Size (%)",
-    "value": 120,
-    "min": 50,
-    "max": 250,
-    "step": 5,
     "group": "Style"
   },
   "accentColor": {

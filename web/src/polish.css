@@ -13,3 +13,6 @@
   .kpi-foot { align-items: flex-end; }
   .kpi-foot > span { white-space: normal; overflow: visible; }
 }
+
+/* Landing steps: filled cards like the rest of the site, not dashed outlines. */
+.how li { border: 0; background: var(--card); box-shadow: var(--shadow); }

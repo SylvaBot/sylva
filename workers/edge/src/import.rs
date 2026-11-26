@@ -7,8 +7,8 @@ use serde_json::Value;
 use sylva_core::event::Actor;
 use sylva_core::import::{
     activities_query, add_commands, add_timers, created_ms, history_len, history_rows,
-    history_span, past_streams, point_rows, watch_rows, Skipped, HISTORY_ASKS, MAX_POINT_USERS,
-    SE_API,
+    history_span, past_streams, point_rows, stream_detail, watch_rows, Skipped, HISTORY_ASKS,
+    MAX_POINT_USERS, SE_API,
 };
 use worker::*;
 
@@ -321,12 +321,44 @@ impl ChannelDo {
                 "StreamElements did not send your past streams ({status})."
             )));
         }
+        if let Some(first) = page.as_array().and_then(|l| l.first()) {
+            let keys: Vec<&String> = first
+                .as_object()
+                .map(|o| o.keys().collect())
+                .unwrap_or_default();
+            console_log!(
+                "StreamElements streams: {} listed, fields {keys:?}",
+                page.as_array().map_or(0, |l| l.len())
+            );
+        }
         let mut streams = 0;
-        for (start, end, chatters) in past_streams(&page) {
-            if start >= cutoff || self.recorded_overlap(start, end)? {
+        let mut logged = false;
+        for s in past_streams(&page) {
+            if s.start >= cutoff || self.recorded_overlap(s.start, s.end)? {
                 continue;
             }
-            let recap = self.history_recap(start, end, chatters)?;
+            // The stream's own page may hold viewer and chat numbers the
+            // list leaves out.
+            let mut detail = s.detail;
+            if let Some(id) = &s.id {
+                let (status, one) = self.se_get(token, &format!("/streams/{se}/{id}")).await?;
+                if !logged {
+                    logged = true;
+                    let text = one.to_string();
+                    let cut: String = text.chars().take(1500).collect();
+                    console_log!("StreamElements stream detail {status}: {cut}");
+                }
+                if status == 200 {
+                    detail = detail.or(stream_detail(&one));
+                }
+            }
+            let mut recap = self.history_recap(s.start, s.end, s.chatters)?;
+            recap.peak_viewers = detail.peak_viewers;
+            recap.avg_viewers = detail.avg_viewers;
+            if let Some(m) = detail.messages {
+                recap.chat_lines = m;
+            }
+            let start = s.start;
             self.sql.exec(
                 "INSERT INTO stream_recaps (started_at, body) VALUES (?, ?)
                  ON CONFLICT(started_at) DO UPDATE SET body = excluded.body",

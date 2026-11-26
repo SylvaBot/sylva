@@ -1,5 +1,5 @@
-// The dashboard frame: a sidebar with the pages, the channel and the live
-// connection, and on phones a top bar that opens the sidebar as a drawer.
+// The dashboard frame: a sidebar with the pages, the channel and a red ring
+// on your avatar while you are live, and on phones a top bar that opens the sidebar as a drawer.
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { BotPage } from './bot';
@@ -10,11 +10,12 @@ import { LoyaltyPage } from './loyalty';
 import { StorePage } from './store';
 import { ModerationPage } from './moderation';
 import { OverlayPage } from './overlay';
-import { ActivityPage, AlertsPage, ChatPage, NotFoundPage, OverviewPage, SettingsPage } from './pages';
+import { ActivityPage, AlertsPage, NotFoundPage, OverviewPage, SettingsPage } from './pages';
 import { Command } from 'cmdk';
 import { Link, navigate } from './router';
 import { StatsPage } from './stats';
 import { Avatar, Icon } from './ui';
+import { api } from './api';
 
 const PAGES = [
   { path: '/app', label: 'Overview', icon: 'home', view: OverviewPage, group: 'Home' },
@@ -22,7 +23,6 @@ const PAGES = [
   { path: '/app/activity', label: 'Activity', icon: 'activity', view: ActivityPage, group: 'Home' },
   { path: '/app/alerts', label: 'Alerts', icon: 'bell', view: AlertsPage, group: 'Stream' },
   { path: '/app/overlay', label: 'Overlays', icon: 'monitor', view: OverlayPage, group: 'Stream' },
-  { path: '/app/chat', label: 'Chat', icon: 'message', view: ChatPage, group: 'Stream' },
   { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage, group: 'Bot' },
   { path: '/app/chat-alerts', label: 'Chat alerts', icon: 'zap', view: ChatAlertsPage, group: 'Bot' },
   { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage, group: 'Bot' },
@@ -77,11 +77,26 @@ export function Shell({ path }: { path: string }) {
   }, [open]);
 
   const queued = ch.alerts?.queued ?? 0;
-  const conn = (
-    <span className={'conn ' + (ch.connected ? 'up' : 'down')} role="status" title={ch.connected ? 'Receiving events live' : 'Reconnecting. Nothing is lost.'}>
-      <span className="dot" />{ch.connected ? 'Connected' : 'Reconnecting'}
-    </span>
-  );
+  // No connection badge while things work; only a lost connection that lasts
+  // a few seconds gets a quiet note.
+  const [lost, setLost] = useState(false);
+  useEffect(() => {
+    if (ch.connected) { setLost(false); return; }
+    const t = setTimeout(() => setLost(true), 6000);
+    return () => clearTimeout(t);
+  }, [ch.connected]);
+
+  // Live or not, for the red ring around the avatar: asked every minute, and
+  // right away when a going live or offline event comes in.
+  const [live, setLive] = useState(false);
+  const lastStreamEvent = ch.events.find((e) => e.rawType === 'stream.online' || e.rawType === 'stream.offline')?.seq;
+  useEffect(() => {
+    let gone = false;
+    const check = () => api.streams(ch.key).then((d) => !gone && setLive(!!d.live)).catch(() => {});
+    check();
+    const t = setInterval(check, 60_000);
+    return () => { gone = true; clearInterval(t); };
+  }, [ch.key, lastStreamEvent]);
   const navLink = (p: typeof SETTINGS) => (
     <Link key={p.path} href={p.path} current={p === page} data-tip={p.label} aria-label={p.label}>
       <Icon id={p.icon} /><span className="rail-label">{p.label}</span>
@@ -118,7 +133,7 @@ export function Shell({ path }: { path: string }) {
             <button className="search-pill" type="button" onClick={() => setPalette(true)} aria-keyshortcuts="Control+K Meta+K">
               <Icon id="search" /><span>Search</span><kbd>Ctrl K</kbd>
             </button>
-            {conn}
+            {lost && <span className="conn down" role="status" title="Nothing is lost. Events catch up when it reconnects."><span className="dot" />Reconnecting</span>}
             {ch.channels.length > 1 && (
               <label className="channel-pick">
                 <span className="sr-only">Channel</span>
@@ -135,7 +150,7 @@ export function Shell({ path }: { path: string }) {
               <button className="pill-btn" type="button" aria-label="Back" onClick={() => history.back()}><Icon id="chevron-left" /></button>
               <button className="pill-btn" type="button" aria-label="Forward" onClick={() => history.forward()}><Icon id="chevron" /></button>
             </div>
-            <Link className="me-chip" href="/app/settings" title={ch.role === 'owner' ? `${ch.name}, settings` : `${ch.name} (${ROLE_NAMES[ch.role]}), settings`}>
+            <Link className={'me-chip' + (live ? ' live' : '')} href="/app/settings" title={(live ? 'Live now. ' : '') + (ch.role === 'owner' ? `${ch.name}, settings` : `${ch.name} (${ROLE_NAMES[ch.role]}), settings`)}>
               <Avatar name={ch.name} url={ch.avatar} />
             </Link>
           </div>

@@ -71,14 +71,16 @@ export interface Series { key: string; label: string; c: string; values: number[
  * midnights. One y axis, gridlines at round steps, a 2px gap between stacked
  * pieces, and a tooltip listing every series for the day under the pointer.
  */
-export function DayBars({ starts, series, height = 220, unit }: {
+export function DayBars({ starts, series, height = 220, unit, ghost }: {
   starts: number[]; series: Series[]; height?: number; unit?: string;
+  /** The same day in the period before, drawn as an outline behind each bar. */
+  ghost?: number[];
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const n = starts.length;
   const totals = starts.map((_, i) => series.reduce((a, s) => a + (s.values[i] || 0), 0));
-  const { top, step } = niceMax(Math.max(0, ...totals));
+  const { top, step } = niceMax(Math.max(0, ...totals, ...(ghost ?? [])));
   const padL = 36, padB = 24, padT = 8;
   const plotW = Math.max(0, width - padL - 4);
   const plotH = height - padB - padT;
@@ -90,7 +92,7 @@ export function DayBars({ starts, series, height = 220, unit }: {
   const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 64))));
   const tip: Tip | null = hover === null ? null : {
     x: padL + slot * hover + slot / 2,
-    y: y(totals[hover]) - 8,
+    y: y(Math.max(totals[hover], ghost?.[hover] ?? 0)) - 8,
     body: (
       <>
         <b>{longDay.format(starts[hover])}</b>
@@ -98,6 +100,7 @@ export function DayBars({ starts, series, height = 220, unit }: {
           <span key={s.key} className={'tip-row ' + s.c}><i />{s.label}<em>{num(s.values[hover] || 0)}</em></span>
         ))}
         {series.length > 1 && <span className="tip-row total">Total<em>{num(totals[hover])}{unit ? ' ' + unit : ''}</em></span>}
+        {ghost && <span className="tip-row ghost-row"><i />Period before<em>{num(ghost[hover] || 0)}</em></span>}
       </>
     ),
   };
@@ -116,6 +119,9 @@ export function DayBars({ starts, series, height = 220, unit }: {
             let acc = 0;
             return (
               <g key={d} className={hover !== null && hover !== i ? 'dim' : undefined}>
+                {ghost && (ghost[i] || 0) > 0 && (
+                  <rect className="ghost" x={cx - barW / 2 - 0.5} y={y(ghost[i])} width={barW + 1} height={Math.max(1, y(0) - y(ghost[i]))} rx={Math.min(3, barW / 2)} />
+                )}
                 {series.map((s, si) => {
                   const v = s.values[i] || 0;
                   if (!v) return null;

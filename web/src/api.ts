@@ -90,12 +90,18 @@ export interface Stats {
   days: number; from: number;
   series: (StatTotals & { start: number })[];
   totals: StatTotals; previous: StatTotals;
+  /** The period before, day for day, lined up with `series`. */
+  previousSeries: (StatTotals & { start: number })[];
   topChatters: Ranked[]; topCheerers: Ranked[]; topGifters: Ranked[]; topRaiders: Ranked[];
   commands: Ranked[];
   /** Chat lines by weekday (0 is Sunday) then hour, in the browser's time. */
   heatmap: number[][];
   viewers: { at: number; viewers: number }[];
   streams: Recap[];
+  /** People whose first message ever came in this range. */
+  newChatters: number;
+  /** The period before, for what `previous` does not cover. */
+  before: { newChatters: number; streams: number; liveMs: number; peakViewers: number | null; avgViewers: number | null };
 }
 export interface MediaFile { id: string; name: string; size: number; at: number }
 /** Where an uploaded file is served. */

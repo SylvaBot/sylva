@@ -715,7 +715,7 @@ h1, h2, h3, p { margin: 0; }
 .test-line b { color: var(--text); font-weight: 600; margin-right: 6px; }
 .test-line .bot-name { display: inline-flex; align-items: center; gap: 4px; color: color-mix(in srgb, var(--follow) 60%, var(--text)); }
 .test-line .bot-name svg { width: 14px; height: 14px; }
-.test-line.note { color: var(--faint); font-size: 12.5px; padding-left: 10px; border-left: 2px solid var(--border-2); }
+.test-line.note { color: var(--faint); font-size: 12.5px; }
 .test-form { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid var(--border); }
 .toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; }
 .toast-action { background: none; border: 0; padding: 0; color: var(--focus); font-weight: 600; cursor: pointer; }
@@ -1025,11 +1025,6 @@ fieldset.gate { border: 0; margin: 0; padding: 0; min-width: 0; }
 .media-pick { display: flex; gap: 8px; align-items: center; }
 .media-pick .select { flex: 1; min-width: 0; }
 .alert-card .art { display: block; max-width: 100%; max-height: 120px; margin: 0 auto 10px; object-fit: contain; }
-.recap { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 0; }
-.recap > div { padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(127,127,127,.08)); border-left: 3px solid var(--c, var(--border)); }
-.recap dt { font-size: 12px; color: var(--muted); }
-.recap dd { margin: 2px 0 0; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.recap-leaders { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
 
 /* ================================================================
  * Refresh (2026-11-26): calmer depth, grouped navigation, breadcrumbs,
@@ -1489,3 +1484,28 @@ div.overlay-thumb { border-radius: var(--r-xl) var(--r-xl) 0 0; }
   .overlay-edit { grid-template-columns: minmax(0, 1fr); }
   .overlay-edit > .stack:first-child { position: static; }
 }
+
+/* Stats round 3: metric grid, compare ghost, last stream card */
+.section-label { margin: 22px 2px 10px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.section-label:first-of-type { margin-top: 4px; }
+.cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); margin: 0 0 16px; padding: 0; overflow: hidden; transition: opacity .2s; }
+.cells.loading { opacity: .55; }
+.cells .cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; padding: 14px 16px; box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
+.cells.flat { border: 1px solid var(--border); border-radius: 12px; margin: 0; }
+.cell-label { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell-num { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cells .delta { align-self: flex-start; }
+.standouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px 24px; margin: 18px 2px 2px; }
+.standouts dt { font-size: 12px; color: var(--muted); }
+.standouts dd { margin: 4px 0 0; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.standouts b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.standouts span { font-size: 12.5px; color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.trend-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.check-pill { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+.check-pill input { accent-color: var(--primary); margin: 0; }
+.check-pill:has(input:checked) { color: var(--text); border-color: var(--border-2); }
+.chart .ghost { fill: none; stroke: rgba(255,255,255,.22); stroke-width: 1; stroke-dasharray: 2 2; }
+.ghost-row i { background: none !important; border: 1px dashed rgba(255,255,255,.4); }
+.me-chip.live .avatar { box-shadow: 0 0 0 2px #ff3b3b, 0 0 14px 3px rgba(255, 59, 59, .55); animation: live-glow 2.4s ease-in-out infinite; }
+@keyframes live-glow { 50% { box-shadow: 0 0 0 2px #ff3b3b, 0 0 22px 6px rgba(255, 59, 59, .35); } }
+@media (prefers-reduced-motion: reduce) { .me-chip.live .avatar { animation: none; } }

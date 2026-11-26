@@ -17,9 +17,11 @@
     "test:burst": "node tools/burst.mjs"
   },
   "devDependencies": {
+    "@number-flow/react": "0.6.2",
     "@types/react": "19.3.2",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.3.0",
+    "cmdk": "1.1.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "typescript": "7.0.2",

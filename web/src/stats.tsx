@@ -2,11 +2,12 @@
 // with the period before. Worked out by the channel from its event log
 // (workers/edge/src/stats.rs); viewer counts are sampled while live.
 
+import NumberFlow from '@number-flow/react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, type Recap, type StatTotals, type Stats } from './api';
 import { useChannel } from './channel';
 import { DayBars, Heatmap, RankList, Sparkline, TimeLine, type Series } from './charts';
-import { Card, PageHead } from './pages';
+import { PageHead } from './pages';
 import { num } from './ui';
 
 const RANGES = [7, 30, 90] as const;
@@ -54,7 +55,7 @@ export function Kpi({ c, label, value, pct, spark, note, unit }: {
     <div className={'card kpi ' + c}>
       <span className="kpi-label"><span className="bar" />{label}</span>
       <div className="kpi-num">
-        {num(value)}{unit && value !== null && <small>{unit}</small>}
+        {value === null ? '-' : <NumberFlow value={value} />}{unit && value !== null && <small>{unit}</small>}
         {pct !== undefined && value !== null && <Delta pct={pct} label={note} />}
       </div>
       <div className="kpi-foot">
@@ -71,7 +72,6 @@ const METRICS: { key: MetricKey; label: string; c: string; unit: string }[] = [
   { key: 'subs', label: 'Subs', c: 'c-sub', unit: 'subs' },
   { key: 'bits', label: 'Bits', c: 'c-bits', unit: 'bits' },
   { key: 'chat', label: 'Chat messages', c: 'c-chat', unit: 'messages' },
-  { key: 'chatters', label: 'Chatters', c: 'c-raid', unit: 'people' },
   { key: 'raiders', label: 'Raid viewers', c: 'c-raid', unit: 'viewers' },
 ];
 
@@ -82,10 +82,30 @@ const hours = (ms: number) => {
 };
 const streamDay = (at: number) => new Date(at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
+type Tab = 'growth' | 'viewers' | 'streams' | 'people' | 'chat';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'growth', label: 'Growth' },
+  { id: 'viewers', label: 'Viewers' },
+  { id: 'streams', label: 'Streams' },
+  { id: 'people', label: 'Top supporters' },
+  { id: 'chat', label: 'Chat' },
+];
+
+/** "363 new followers, up 12% on the 30 days before." */
+function sentence(n: number, before: number, what: string, days: number) {
+  const pct = change(n, before);
+  if (!n && !before) return `No ${what} yet.`;
+  if (pct === null) return `${num(n)} ${what}, the first in a while.`;
+  const r = Math.round(pct);
+  if (r === 0) return `${num(n)} ${what}, about the same as the ${days} days before.`;
+  return `${num(n)} ${what}, ${r > 0 ? 'up' : 'down'} ${num(Math.abs(r))}% on the ${days} days before.`;
+}
+
 export function StatsPage() {
   const [days, setDays] = useState(savedRange);
   const { data, stale, failed } = useStats(days);
   const s = data ?? stale;
+  const [tab, setTab] = useState<Tab>('growth');
   const [metric, setMetric] = useState<MetricKey>('follows');
   const [board, setBoard] = useState<'chat' | 'cheer' | 'gift' | 'raid'>('chat');
 
@@ -96,9 +116,8 @@ export function StatsPage() {
 
   const starts = s ? s.series.map((d) => d.start) : [];
   const col = (k: keyof StatTotals) => (s ? s.series.map((d) => d[k]) : []);
-  const subsAll = s ? s.series.map((d) => d.subs + d.gifted) : [];
   const t = s?.totals, p = s?.previous;
-  const vs = `vs prior ${days}d`;
+  const vs = `vs ${days} days before`;
 
   const streams = s?.streams ?? [];
   const viewerStats = useMemo(() => {
@@ -120,13 +139,6 @@ export function StatsPage() {
   const mainTotal = metric === 'subs' ? (t ? t.subs + t.gifted : 0) : t ? t[metric] : 0;
   const mainPrev = metric === 'subs' ? (p ? p.subs + p.gifted : 0) : p ? p[metric] : 0;
 
-  const mix: Series[] = [
-    { key: 'f', label: 'Follows', c: 'c-follow', values: col('follows') },
-    { key: 's', label: 'Subs', c: 'c-sub', values: col('subs') },
-    { key: 'g', label: 'Gifted subs', c: 'c-gift', values: col('gifted') },
-    { key: 'r', label: 'Raids', c: 'c-raid', values: col('raids') },
-  ];
-
   const boards = {
     chat: { label: 'Chatters', rows: s?.topChatters ?? [], unit: 'messages', c: 'c-chat', empty: 'Nobody has chatted in this range yet.' },
     cheer: { label: 'Cheerers', rows: s?.topCheerers ?? [], unit: 'bits', c: 'c-bits', empty: 'No cheers in this range yet.' },
@@ -135,9 +147,15 @@ export function StatsPage() {
   };
   const b = boards[board];
 
+  const summary = t && p ? [
+    sentence(t.follows, p.follows, 'new followers', days),
+    sentence(t.subs + t.gifted, p.subs + p.gifted, 'subs and gifted subs', days),
+    streams.length ? `${num(streams.length)} stream${streams.length === 1 ? '' : 's'}, ${hours(hoursLive)} live${viewerStats ? `, ${num(viewerStats.avg)} viewers on average` : ''}.` : 'No streams in this range yet.',
+  ] : [];
+
   return (
-    <div className="page page-wide">
-      <PageHead title="Stats" desc="How your channel is growing, when chat is busiest and how each stream compares.">
+    <div className="page">
+      <PageHead title="Stats" desc={summary.length ? undefined : 'How your channel is doing.'}>
         <div className="segmented" role="group" aria-label="Range">
           {RANGES.map((r) => (
             <button key={r} type="button" aria-pressed={days === r} onClick={() => pick(r)}>{r} days</button>
@@ -147,76 +165,95 @@ export function StatsPage() {
 
       {failed && !s && <div className="notice">Could not load your stats. Refresh to try again.</div>}
 
-      <div className={'kpis' + (s && !data ? ' loading' : '')} role="group" aria-label={`Last ${days} days`}>
+      {summary.length > 0 && (
+        <ul className="stats-summary" aria-label={`The last ${days} days`}>
+          {summary.map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      )}
+
+      <div className={'kpis four' + (s && !data ? ' loading' : '')} role="group" aria-label={`Last ${days} days`}>
         <Kpi c="c-follow" label="New followers" value={t ? t.follows : null} pct={t && p ? change(t.follows, p.follows) : undefined} spark={col('follows')} note={vs} />
-        <Kpi c="c-sub" label="Subs and gifts" value={t ? t.subs + t.gifted : null} pct={t && p ? change(t.subs + t.gifted, p.subs + p.gifted) : undefined} spark={subsAll} note={vs} />
-        <Kpi c="c-bits" label="Bits" value={t ? t.bits : null} pct={t && p ? change(t.bits, p.bits) : undefined} spark={col('bits')} note={vs} />
-        <Kpi c="c-chat" label="Chat messages" value={t ? t.chat : null} pct={t && p ? change(t.chat, p.chat) : undefined} spark={col('chat')} note={vs} />
-        <Kpi c="c-raid" label="Unique chatters" value={t ? t.chatters : null} pct={t && p ? change(t.chatters, p.chatters) : undefined} spark={col('chatters')} note={vs} />
-        <Kpi
-          c="c-viewers" label="Average viewers" value={s ? viewerStats?.avg ?? 0 : null}
-          note={viewerStats ? `Peak ${num(viewerStats.peak)} · ${hours(hoursLive)} live` : streams.length ? `${hours(hoursLive)} live` : 'Counted while live'}
-        />
+        <Kpi c="c-sub" label="Subs and gifts" value={t ? t.subs + t.gifted : null} pct={t && p ? change(t.subs + t.gifted, p.subs + p.gifted) : undefined} note={vs}
+          spark={s ? s.series.map((d) => d.subs + d.gifted) : []} />
+        <Kpi c="c-viewers" label="Average viewers" value={s ? viewerStats?.avg ?? null : null}
+          note={viewerStats ? `Peak ${num(viewerStats.peak)}` : 'Counted while you are live'} />
+        <Kpi c="c-chat" label="People who chatted" value={t ? t.chatters : null} pct={t && p ? change(t.chatters, p.chatters) : undefined} spark={col('chatters')} note={vs} />
       </div>
 
-      <Card
-        id="trend"
-        className="chart-card"
-        title={m.label}
-        desc={s ? <><b className="big-num">{num(mainTotal)}</b> in the last {days} days <DeltaInline now={mainTotal} before={mainPrev} /></> : 'Loading'}
-        action={
-          <div className="segmented sm metric-tabs" role="group" aria-label="Metric">
-            {METRICS.map((x) => (
-              <button key={x.key} type="button" aria-pressed={metric === x.key} onClick={() => setMetric(x.key)}>{x.label}</button>
-            ))}
-          </div>
-        }
-      >
-        <div className="card-body">
-          {mainSeries.length > 1 && <Legend series={mainSeries} />}
-          {s ? <DayBars starts={starts} series={mainSeries} height={260} /> : <div className="chart-skeleton" style={{ height: 260 }} />}
-        </div>
-      </Card>
-
-      <div className="grid-2 stats-grid">
-        <Card id="viewers" className="chart-card" title="Viewers" desc={viewerStats ? `Peak ${num(viewerStats.peak)}, average ${num(viewerStats.avg)}` : 'Sampled every 5 minutes while you are live'}>
-          <div className="card-body">
-            {s && s.viewers.length > 0
-              ? <TimeLine points={viewerPoints(s)} gap={s.days > 7 ? 5 * 86_400_000 : 20 * 60_000} from={s.from} to={s.from + s.days * 86_400_000} label={s.days > 7 ? 'Peak viewers each day' : 'Viewers over time'} />
-              : <Empty text="Viewer counts start with your next stream. Sylva asks Twitch every 5 minutes while you are live." />}
-          </div>
-        </Card>
-        <Card id="mix" className="chart-card" title="Community growth" desc="Follows, subs, gifts and raids each day">
-          <div className="card-body">
-            <Legend series={mix} />
-            {s ? <DayBars starts={starts} series={mix} height={220} unit="events" /> : <div className="chart-skeleton" style={{ height: 220 }} />}
-          </div>
-        </Card>
+      <div className="tabs" role="tablist" aria-label="Details">
+        {TABS.map((x) => (
+          <button key={x.id} role="tab" id={'tab-' + x.id} aria-selected={tab === x.id} aria-controls="stats-panel" type="button" onClick={() => setTab(x.id)}>{x.label}</button>
+        ))}
       </div>
 
-      <Card id="streams-table" title="Streams" desc={streams.length ? `${num(streams.length)} streams, ${hours(hoursLive)} live in the last ${days} days` : undefined}>
-        {streams.length ? <StreamTable streams={streams} /> : <div className="card-body"><Empty text="After your next stream ends it shows here, side by side with the others: length, viewers, followers, subs, bits and chat." /></div>}
-      </Card>
-
-      <div className="grid-3 stats-grid">
-        <Card
-          id="leaders"
-          title="Top supporters"
-          action={
-            <select className="select sm fit" aria-label="Leaderboard" value={board} onChange={(e) => setBoard(e.target.value as typeof board)}>
-              {Object.entries(boards).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-          }
-        >
-          <div className="card-body"><RankList rows={b.rows} unit={b.unit} c={b.c} empty={b.empty} /></div>
-        </Card>
-        <Card id="commands" title="Commands used" desc="Chat lines that start with !">
-          <div className="card-body"><RankList rows={s?.commands ?? []} unit="uses" c="c-reward" empty="No commands used in this range yet." /></div>
-        </Card>
-        <Card id="heat" title="When chat is busiest" desc="Messages by weekday and hour, your time">
-          <div className="card-body">{s ? <Heatmap cells={s.heatmap} /> : <div className="chart-skeleton" style={{ height: 180 }} />}</div>
-        </Card>
-      </div>
+      <section className="card" id="stats-panel" role="tabpanel" aria-labelledby={'tab-' + tab}>
+        {tab === 'growth' && (
+          <>
+            <div className="card-head">
+              <div>
+                <h2>{m.label} each day</h2>
+                {s && <p><b className="big-num">{num(mainTotal)}</b> in the last {days} days <DeltaInline now={mainTotal} before={mainPrev} /></p>}
+              </div>
+              <div className="segmented sm metric-tabs" role="group" aria-label="Show">
+                {METRICS.map((x) => (
+                  <button key={x.key} type="button" aria-pressed={metric === x.key} onClick={() => setMetric(x.key)}>{x.label}</button>
+                ))}
+              </div>
+            </div>
+            <div className="card-body">
+              {mainSeries.length > 1 && <Legend series={mainSeries} />}
+              {s ? <DayBars starts={starts} series={mainSeries} height={280} /> : <div className="chart-skeleton" style={{ height: 280 }} />}
+            </div>
+          </>
+        )}
+        {tab === 'viewers' && (
+          <>
+            <div className="card-head"><div>
+              <h2>{s && s.days > 7 ? 'Peak viewers each day' : 'Viewers while live'}</h2>
+              <p>{viewerStats ? `Peak ${num(viewerStats.peak)}, average ${num(viewerStats.avg)}` : 'Sylva asks Twitch every 5 minutes while you are live'}</p>
+            </div></div>
+            <div className="card-body">
+              {s && s.viewers.length > 0
+                ? <TimeLine points={viewerPoints(s)} gap={s.days > 7 ? 5 * 86_400_000 : 20 * 60_000} from={s.from} to={s.from + s.days * 86_400_000} height={280} label={s.days > 7 ? 'Peak viewers each day' : 'Viewers over time'} />
+                : <Empty text="Viewer counts start with your next stream." />}
+            </div>
+          </>
+        )}
+        {tab === 'streams' && (
+          <>
+            <div className="card-head"><div>
+              <h2>Each stream</h2>
+              <p>{streams.length ? `${num(streams.length)} streams, ${hours(hoursLive)} live. Pick a column to sort.` : 'Streams show here once they end.'}</p>
+            </div></div>
+            {streams.length ? <StreamTable streams={streams} /> : <div className="card-body"><Empty text="After your next stream ends it shows here next to the others." /></div>}
+          </>
+        )}
+        {tab === 'people' && (
+          <>
+            <div className="card-head">
+              <div><h2>Top {b.label.toLowerCase()}</h2><p>The last {days} days</p></div>
+              <div className="segmented sm" role="group" aria-label="Who">
+                {Object.entries(boards).map(([k, v]) => (
+                  <button key={k} type="button" aria-pressed={board === k} onClick={() => setBoard(k as typeof board)}>{v.label}</button>
+                ))}
+              </div>
+            </div>
+            <div className="card-body narrow"><RankList rows={b.rows} unit={b.unit} c={b.c} empty={b.empty} /></div>
+          </>
+        )}
+        {tab === 'chat' && (
+          <div className="chat-tab">
+            <div>
+              <div className="card-head"><div><h2>When chat is busiest</h2><p>Messages by weekday and hour, in your time</p></div></div>
+              <div className="card-body">{s ? <Heatmap cells={s.heatmap} /> : <div className="chart-skeleton" style={{ height: 180 }} />}</div>
+            </div>
+            <div>
+              <div className="card-head"><div><h2>Commands used most</h2><p>{t ? `${num(t.chat)} messages in total` : ''}</p></div></div>
+              <div className="card-body"><RankList rows={s?.commands ?? []} unit="uses" c="c-reward" empty="No commands used in this range yet." /></div>
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

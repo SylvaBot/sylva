@@ -116,6 +116,19 @@ Messages the bot posts on a schedule, such as a follow reminder or a Discord lin
 
 ![The chat bot](site/bot.png)
 
+### Built-in commands
+
+Every channel has these without writing a reply (the list is `sylva_core::builtins::BUILTINS`). Each has its own switch, who may use it and a cooldown on the Bot page, and a command or counter of the streamer's with the same name replaces it.
+
+* **Stream info:** `!commands` (links to the public page `/c/{login}`), `!uptime`, `!game`, `!title`, `!gamesplayed`, `!followage`, `!followsince`, `!accountage`, `!accountsince`, `!ping`.
+* **Fun:** `!8ball`, `!dadjoke`, `!fact`, `!dictionary`, `!urbandictionary` (off at first, its answers can be rude), `!emotes` (Twitch, 7TV, BetterTTV and FrankerFaceZ; moderators type `!emotes reload`).
+* **Commands and counters** (moderators): `!addcmd`, `!editcmd`, `!setcmd`, `!delcmd`, `!command add|edit|set|delete|on|off|show`, and `!count` for counters. Built-in names cannot be added or deleted from chat.
+* **Quotes:** `!quote`, `!addquote`, `!editquote`, `!deletequote` (also `!delquote`). The Quotes switch on the Bot page still turns them all off.
+* **Your stream:** `!clip`, `!settitle`, `!setgame`. These and the follow commands need the streamer's **Allow** on the Bot page (Twitch scopes `clips:edit`, `channel:manage:broadcast` and `moderator:read:followers`, kept as the `commands` grant).
+* **Moderation:** `!permit` (skip the chat rules for 60 seconds), `!nuke` (removes matching messages from the last 5 minutes, or one chatter's with `@name`), `!vanish`, `!votekick` (off at first; 5 votes in a minute time someone out for 5 minutes), `!filesay` (the streamer only by default; up to 25 lines, one every 2 seconds) and `!filesaystop`. All but the last two need Allow moderation.
+
+Song request and media queue commands are left out on purpose. Settings saved before built-ins existed are upgraded on first read: the old default `!commands` and `!uptime` replies make way for the built-in ones, and the quote commands take the old "who can add quotes" level.
+
 ## Moderation
 
 Off until the streamer picks a preset. Each chat line is checked in the channel's Durable Object before the bot sees it; a line that breaks a rule gets no bot answer.

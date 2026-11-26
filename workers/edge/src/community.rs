@@ -93,7 +93,7 @@ impl ChannelDo {
             .collect())
     }
 
-    fn quote(&self, id: i64) -> Result<Option<Quote>> {
+    pub(crate) fn quote(&self, id: i64) -> Result<Option<Quote>> {
         Ok(self
             .sql
             .exec(
@@ -132,7 +132,7 @@ impl ChannelDo {
     }
 
     /// What is being played, from the newest channel update Twitch sent.
-    fn current_game(&self) -> Result<String> {
+    pub(crate) fn current_game(&self) -> Result<String> {
         Ok(self
             .sql
             .exec(
@@ -258,7 +258,7 @@ impl ChannelDo {
         Ok(true)
     }
 
-    /// The answer to a counter or quote command, if `trigger` is one. With
+    /// The answer to a counter, if `trigger` is one. With
     /// `dry`, nothing is saved (the test chat).
     pub(crate) fn community_reply(
         &self,
@@ -268,10 +268,7 @@ impl ChannelDo {
         ask: &Ask,
     ) -> Result<Option<String>> {
         let Ask {
-            level,
-            channel,
-            now,
-            dry,
+            level, now, dry, ..
         } = *ask;
         if let Some(i) = settings.counter(trigger) {
             let mut action = counter_action(args);
@@ -290,26 +287,27 @@ impl ChannelDo {
             }
             return Ok(Some(settings.counters[i].reply()));
         }
-        if !settings.quotes.enabled {
-            return Ok(None);
-        }
-        match trigger {
+        Ok(None)
+    }
+
+    /// The quote commands, `name` being the built-in's own name (see
+    /// `builtins`). Who may use them and cooldowns are checked before.
+    pub(crate) fn quote_command(&self, name: &str, args: &[String], ask: &Ask) -> Result<String> {
+        let Ask {
+            channel, now, dry, ..
+        } = *ask;
+        match name {
             "quote" => {
-                if !self.cooled("q:quote", level, now, dry)? {
-                    return Ok(None);
-                }
                 let all = self.quotes()?;
                 if all.is_empty() {
-                    return Ok(Some(
-                        "No quotes yet. Moderators can add one with !addquote.".into(),
-                    ));
+                    return Ok("No quotes yet. Moderators can add one with !addquote.".into());
                 }
                 let pick = |list: Vec<&Quote>| {
                     let i = (js_sys::Math::random() * list.len() as f64) as usize;
                     list.get(i.min(list.len().saturating_sub(1)))
                         .map(|q| quote_line(q, channel))
                 };
-                Ok(Some(match quote_lookup(args) {
+                Ok(match quote_lookup(args) {
                     QuoteLookup::Random => pick(all.iter().collect()).unwrap_or_default(),
                     QuoteLookup::Number(n) => all
                         .iter()
@@ -326,26 +324,21 @@ impl ChannelDo {
                             .collect(),
                     )
                     .unwrap_or_else(|| "No quote mentions that.".into()),
-                }))
+                })
             }
             "addquote" => {
-                if level < settings.quotes.add_level {
-                    return Ok(None);
-                }
                 let text = args.join(" ");
                 if text.trim().is_empty() {
-                    return Ok(Some(
-                        "Add a quote with !addquote followed by the words.".into(),
-                    ));
+                    return Ok("Add a quote with !addquote followed by the words.".into());
                 }
                 if dry {
-                    return Ok(Some(match clean_quote(&text, "", "") {
+                    return Ok(match clean_quote(&text, "", "") {
                         Ok(_) => format!("Added quote #{}.", self.next_quote_id()?),
                         Err(Invalid(m)) => format!("{m}."),
-                    }));
+                    });
                 }
                 let game = self.current_game()?;
-                Ok(Some(
+                Ok(
                     match self.add_quote(QuoteInput {
                         text,
                         by: String::new(),
@@ -356,27 +349,59 @@ impl ChannelDo {
                         Ok(q) => format!("Added quote #{}.", q.id),
                         Err(m) => format!("{}.", m.trim_end_matches('.')),
                     },
-                ))
+                )
             }
-            "delquote" => {
-                if level < settings.quotes.add_level {
-                    return Ok(None);
+            "editquote" => {
+                let n = args
+                    .first()
+                    .and_then(|a| a.trim_start_matches('#').parse::<i64>().ok());
+                let text = args.get(1..).map(|a| a.join(" ")).unwrap_or_default();
+                let (Some(n), false) = (n, text.trim().is_empty()) else {
+                    return Ok(
+                        "Change a quote with !editquote, its number and the new words.".into(),
+                    );
+                };
+                let Some(old) = self.quote(n)? else {
+                    return Ok(format!("There is no quote #{n}."));
+                };
+                if dry {
+                    return Ok(match clean_quote(&text, &old.by, &old.game) {
+                        Ok(_) => format!("Quote #{n} changed."),
+                        Err(Invalid(m)) => format!("{m}."),
+                    });
                 }
+                Ok(
+                    match self.edit_quote(
+                        n,
+                        QuoteInput {
+                            text,
+                            by: old.by,
+                            game: old.game,
+                            id: None,
+                            at: None,
+                        },
+                    )? {
+                        Ok(_) => format!("Quote #{n} changed."),
+                        Err((_, m)) => format!("{}.", m.trim_end_matches('.')),
+                    },
+                )
+            }
+            "deletequote" => {
                 let QuoteLookup::Number(n) = quote_lookup(args) else {
-                    return Ok(Some("Remove a quote with !delquote and its number.".into()));
+                    return Ok("Remove a quote with !deletequote and its number.".into());
                 };
                 let exists = if dry {
                     self.quote(n)?.is_some()
                 } else {
                     self.delete_quote(n)?.is_some()
                 };
-                Ok(Some(if exists {
+                Ok(if exists {
                     format!("Quote #{n} removed.")
                 } else {
                     format!("There is no quote #{n}.")
-                }))
+                })
             }
-            _ => Ok(None),
+            _ => Ok(String::new()),
         }
     }
 }

@@ -22,6 +22,7 @@ const SCOPES = ['moderator:read:followers', 'channel:read:subscriptions', 'bits:
                 'user:read:chat', 'user:bot', 'channel:bot'];
 export const MOD_SCOPES = ['moderator:manage:chat_messages', 'moderator:manage:banned_users'];
 export const LOYALTY_SCOPES = ['moderator:read:chatters'];
+export const COMMAND_SCOPES = ['clips:edit', 'channel:manage:broadcast', 'moderator:read:followers'];
 
 export function startFakeTwitch(port = FAKE_PORT) {
   const state = {
@@ -38,7 +39,11 @@ export function startFakeTwitch(port = FAKE_PORT) {
     chatSent: [],
     // Scopes authorize may grant: what was asked for, limited to these.
     // Tests narrow it to check "scopes".
-    grant: [...SCOPES, ...MOD_SCOPES, ...LOYALTY_SCOPES],
+    grant: [...SCOPES, ...MOD_SCOPES, ...LOYALTY_SCOPES, ...COMMAND_SCOPES],
+    // The channel's title and category, changed by !settitle and !setgame.
+    channelInfo: { title: 'Cozy builds', game_id: '509658', game_name: 'Just Chatting' },
+    // user id -> followed_at, for !followage.
+    follows: new Map(),
     refreshTokens: new Map(), // refresh token -> scopes
     // Seconds new user tokens last. A test sets 0 to make Sylva refresh.
     tokenTtl: 14000,
@@ -243,7 +248,48 @@ export function startFakeTwitch(port = FAKE_PORT) {
           return res.end();
         }
       }
+      if (path === '/channels' && req.method === 'GET') {
+        return json(res, 200, { data: [{ broadcaster_id: url.searchParams.get('broadcaster_id'), ...state.channelInfo }] });
+      }
+      if (path === '/channels' && req.method === 'PATCH') {
+        if (isApp || !state.userTokens.get(token).includes('channel:manage:broadcast')) return json(res, 401, { message: 'missing scope' });
+        const b = JSON.parse(body);
+        if (b.title) state.channelInfo.title = b.title;
+        if (b.game_id) Object.assign(state.channelInfo, { game_id: b.game_id, game_name: b.game_id === '27471' ? 'Minecraft' : 'Game ' + b.game_id });
+        res.writeHead(204);
+        return res.end();
+      }
+      if (path === '/search/categories') {
+        const q = (url.searchParams.get('query') || '').toLowerCase();
+        return json(res, 200, { data: q.startsWith('minecraft') ? [{ id: '27471', name: 'Minecraft' }] : [] });
+      }
+      if (path === '/channels/followers') {
+        if (isApp || !state.userTokens.get(token).includes('moderator:read:followers')) return json(res, 401, { message: 'missing scope' });
+        const at = state.follows.get(url.searchParams.get('user_id'));
+        return json(res, 200, { total: state.follows.size, data: at ? [{ user_id: url.searchParams.get('user_id'), followed_at: at }] : [] });
+      }
+      if (path === '/clips' && req.method === 'POST') {
+        if (isApp || !state.userTokens.get(token).includes('clips:edit')) return json(res, 401, { message: 'missing scope' });
+        return json(res, 202, { data: [{ id: 'FakeClipSlug', edit_url: 'https://clips.twitch.tv/FakeClipSlug/edit' }] });
+      }
+      if (path === '/chat/emotes') return json(res, 200, { data: [{ name: 'mapleHi' }, { name: 'mapleGG' }] });
       return json(res, 404, { message: 'not faked: ' + path });
+    }
+
+    // Stand-ins for the public services the bot's built-in commands read.
+    if (url.pathname.startsWith('/lookup/')) {
+      const [kind, arg] = url.pathname.slice('/lookup/'.length).split('/');
+      if (kind === 'dadjoke') return json(res, 200, { id: 'j1', joke: 'What do you call a fake noodle? An impasta.', status: 200 });
+      if (kind === 'fact') return json(res, 200, { text: 'Octopuses have three hearts.' });
+      if (kind === 'dictionary') {
+        if (arg !== 'kappa') return json(res, 404, { title: 'No Definitions Found' });
+        return json(res, 200, [{ word: 'kappa', meanings: [{ partOfSpeech: 'noun', definitions: [{ definition: 'The tenth letter of the Greek alphabet.' }] }] }]);
+      }
+      if (kind === 'urban') return json(res, 200, { list: [{ word: url.searchParams.get('term'), definition: 'Something [people] say in a [streamer]s chat.' }] });
+      if (kind === '7tv') return json(res, 200, { emote_set: { emotes: [{ name: 'GAMBA' }] } });
+      if (kind === 'bttv') return json(res, 200, { channelEmotes: [{ code: 'catJAM' }], sharedEmotes: [] });
+      if (kind === 'ffz') return json(res, 200, { room: { set: 1 }, sets: { 1: { emoticons: [{ name: 'WideHard' }] } } });
+      if (kind === 'file.txt') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('first line\n\nsecond line\n'); }
     }
 
     json(res, 404, { message: 'not found' });

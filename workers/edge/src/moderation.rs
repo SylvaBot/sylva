@@ -231,6 +231,10 @@ impl ChannelDo {
         if !settings.applies_to(level) {
             return Ok(false);
         }
+        // `!permit` lets someone skip the rules for a minute.
+        if self.permitted(&actor.login, Date::now().as_millis() as i64)? {
+            return Ok(false);
+        }
         let (words_only, emotes) = split_emotes(&e.raw, text);
         let Some(rule) = check(
             &settings,

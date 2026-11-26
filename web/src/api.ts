@@ -98,9 +98,17 @@ export interface BotTimer {
 }
 export interface BotCounter { name: string; label: string; value: number; enabled: boolean }
 export interface QuoteSettings { enabled: boolean; addLevel: UserLevel }
+export interface BuiltinSetting { name: string; enabled: boolean; level: UserLevel; cooldown: number }
 export interface BotSettings {
   enabled: boolean; commands: BotCommand[]; timers: BotTimer[]; counters: BotCounter[]; quotes: QuoteSettings;
+  builtins: BuiltinSetting[];
 }
+export type BuiltinGroup = 'info' | 'fun' | 'commands' | 'quotes' | 'stream' | 'moderation';
+export interface Builtin {
+  name: string; aliases: string[]; group: BuiltinGroup; about: string; usage: string;
+  level: UserLevel; min: UserLevel; cooldown: number; on: boolean; needs: 'nothing' | 'commands' | 'moderation';
+}
+export type Permission = 'ok' | 'missing' | 'expired';
 export interface Quote { id: number; text: string; by: string; game: string; at: number }
 export interface TimerStatus { id: string; nextAt?: number; waiting?: 'off' | 'bot' | 'live' | 'chat'; linesNeeded?: number }
 export interface BotView {
@@ -108,6 +116,8 @@ export interface BotView {
   sender: { kind: 'sylva' | 'streamer'; id: string; login?: string };
   timers: TimerStatus[];
   live: boolean;
+  builtins: Builtin[];
+  permissions: { commands: Permission; moderation: Permission };
 }
 export type BotSkip = 'notACommand' | 'unknown' | 'off' | 'level' | 'cooldown';
 export interface BotTry { reply?: string; skip?: BotSkip; command?: string }
@@ -156,6 +166,12 @@ export interface StoreView {
 export interface Redemption {
   id: number; itemId: string; itemName: string; cost: number; userId: string; login: string; name: string;
   input: string; at: number; status: 'pending' | 'done' | 'refunded'; doneAt?: number;
+}
+export interface PublicCommand {
+  name: string; aliases: string[]; text: string; usage: string; level: UserLevel; cooldown: number; builtin: boolean;
+}
+export interface PublicCommands {
+  channel: string; login: string; commands: PublicCommand[]; counters: BotCounter[];
 }
 export interface PublicViewer { name: string; balance: number; rank: number }
 export interface PublicStore {
@@ -273,6 +289,7 @@ export const api = {
     request<{ redemptions: Redemption[] }>('GET', `${ch(key)}/loyalty/redemptions?status=${status}&limit=${status === 'pending' ? 200 : 50}${before ? `&before=${before}` : ''}`),
   settle: (key: string, id: number, action: 'done' | 'reopen' | 'refund') =>
     request<Redemption>('POST', `${ch(key)}/loyalty/redemptions/${id}/${action}`),
+  publicCommands: (login: string) => request<PublicCommands>('GET', `/v1/public/${encodeURIComponent(login)}/commands`),
   publicStore: (login: string, viewer?: string) =>
     request<PublicStore>('GET', `/v1/public/${encodeURIComponent(login)}${viewer ? `?viewer=${encodeURIComponent(viewer)}` : ''}`),
   giveaways: (key: string) => request<GiveawaysView>('GET', `${ch(key)}/giveaways`),

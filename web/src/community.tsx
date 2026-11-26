@@ -2,7 +2,7 @@
 // crates/sylva-core/src/community.rs, which checks every save again.
 
 import { useEffect, useMemo, useState } from 'react';
-import { api, type BotCounter, type BotSettings, type BotView, type Quote, type UserLevel } from './api';
+import { api, type BotCounter, type BotSettings, type BotView, type Quote } from './api';
 import { useChannel } from './channel';
 import { Card } from './pages';
 import { errorText, Gate, Icon, num, useToast } from './ui';
@@ -136,13 +136,6 @@ function CounterValue({ counter, onSet }: { counter: BotCounter; onSet(v: number
   );
 }
 
-const ADD_LEVELS: { id: UserLevel; label: string }[] = [
-  { id: 'moderator', label: 'Moderators' },
-  { id: 'vip', label: 'VIPs and up' },
-  { id: 'subscriber', label: 'Subscribers and up' },
-  { id: 'broadcaster', label: 'Only you' },
-];
-
 function day(at: number): string {
   return new Date(at).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 }
@@ -193,7 +186,7 @@ export function Quotes({ view, onSave }: { view: BotView; onSave: Save }) {
       id="quotes"
       className="quotes-card"
       title="Quotes"
-      desc={<>Viewers type <code>!quote</code> for a random one, <code>!quote 12</code> for that one, or <code>!quote word</code> to search. <code>!addquote</code> and <code>!delquote 12</code> add and remove them from chat.</>}
+      desc={<>Viewers type <code>!quote</code> for a random one, <code>!quote 12</code> for that one, or <code>!quote word</code> to search. <code>!addquote</code>, <code>!editquote 12</code> and <code>!deletequote 12</code> change them from chat. Who can use each is set under Built-in commands.</>}
       action={
         <button className="btn sm" type="button" onClick={() => setEditing('new')} disabled={!ch.can.moderate || editing === 'new'}>
           <Icon id="plus" />New quote
@@ -206,13 +199,6 @@ export function Quotes({ view, onSave }: { view: BotView; onSave: Save }) {
           <button className="switch" type="button" role="switch" aria-checked={qs.enabled} aria-label="Quotes in chat" disabled={!ch.can.edit}
             onClick={() => void onSave({ ...view.settings, quotes: { ...qs, enabled: !qs.enabled } }, qs.enabled ? 'Quotes are off in chat' : 'Quotes are on in chat')} />
         </div>
-        <label className="field" htmlFor="quote-level">
-          Who can add and remove from chat
-          <select id="quote-level" className="select" value={qs.addLevel} disabled={!qs.enabled || !ch.can.edit}
-            onChange={(e) => void onSave({ ...view.settings, quotes: { ...qs, addLevel: e.target.value as UserLevel } }, 'Saved')}>
-            {ADD_LEVELS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-          </select>
-        </label>
         <label className="field" htmlFor="quote-search">
           Search
           <input id="quote-search" className="input" type="search" placeholder="Words, a name, a game or #12" value={search} onChange={(e) => { setSearch(e.target.value); setShown(PAGE); }} />

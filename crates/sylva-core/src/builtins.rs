@@ -1,0 +1,932 @@
+//! Built-in chat commands: the ones every channel has without writing a
+//! reply, such as `!followage`, `!clip` or `!addcmd`.
+//!
+//! Each one has its own switch, the lowest level of chatter who may use it
+//! and a cooldown, kept in [`BuiltinSetting`]s inside the bot's settings. A
+//! command the streamer writes with the same name replaces the built-in one,
+//! so `!uptime` can say anything they like.
+//!
+//! This module holds the list and everything that needs no network: how
+//! arguments are read, how ages and dates are written, the 8-ball's answers.
+//! The channel's Durable Object runs them (see the Worker's `builtins`).
+
+use chrono::{DateTime, Datelike, Months, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::bot::{UserLevel, MAX_COOLDOWN_S, MAX_REPLY};
+
+/// Which part of the dashboard list a command sits in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Group {
+    Info,
+    Fun,
+    Commands,
+    Quotes,
+    Stream,
+    Moderation,
+}
+
+/// A permission the streamer gives on the Bot page before a command works.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Needs {
+    Nothing,
+    /// The `commands` grant: clips, title and category, followers.
+    Commands,
+    /// The `moderation` grant: deleting messages and timeouts.
+    Moderation,
+}
+
+/// One built-in command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Builtin {
+    pub name: &'static str,
+    /// Other words for it, such as `delquote` for `deletequote`.
+    pub aliases: &'static [&'static str],
+    pub group: Group,
+    /// What it does, for the dashboard and the public commands page.
+    pub about: &'static str,
+    /// How to type it, such as `!followage @name`.
+    pub usage: &'static str,
+    /// Who may use it until the streamer changes it.
+    pub level: UserLevel,
+    /// The lowest level it may be set to. Commands that change the channel
+    /// or remove messages never go below moderators.
+    pub min: UserLevel,
+    /// Seconds between uses, for chatters below moderator.
+    pub cooldown: u32,
+    /// On for a new channel.
+    pub on: bool,
+    pub needs: Needs,
+}
+
+const fn b(
+    name: &'static str,
+    group: Group,
+    about: &'static str,
+    usage: &'static str,
+    level: UserLevel,
+    cooldown: u32,
+) -> Builtin {
+    Builtin {
+        name,
+        aliases: &[],
+        group,
+        about,
+        usage,
+        level,
+        min: UserLevel::Everyone,
+        cooldown,
+        on: true,
+        needs: Needs::Nothing,
+    }
+}
+
+use Group::*;
+use UserLevel::{Broadcaster, Everyone, Moderator};
+
+/// Every built-in command, in the order the dashboard lists them.
+pub const BUILTINS: &[Builtin] = &[
+    b(
+        "commands",
+        Info,
+        "Links to this channel's list of commands",
+        "!commands",
+        Everyone,
+        10,
+    ),
+    b(
+        "uptime",
+        Info,
+        "How long the stream has been live, or offline",
+        "!uptime",
+        Everyone,
+        10,
+    ),
+    b(
+        "game",
+        Info,
+        "The category the stream is in",
+        "!game",
+        Everyone,
+        10,
+    ),
+    b(
+        "title",
+        Info,
+        "The stream's title",
+        "!title",
+        Everyone,
+        10,
+    ),
+    b(
+        "gamesplayed",
+        Info,
+        "Every category of the current or latest stream",
+        "!gamesplayed",
+        Everyone,
+        10,
+    ),
+    Builtin {
+        needs: Needs::Commands,
+        ..b(
+            "followage",
+            Info,
+            "How long someone has followed the channel",
+            "!followage or !followage @name",
+            Everyone,
+            5,
+        )
+    },
+    Builtin {
+        needs: Needs::Commands,
+        ..b(
+            "followsince",
+            Info,
+            "The date someone followed the channel",
+            "!followsince or !followsince @name",
+            Everyone,
+            5,
+        )
+    },
+    b(
+        "accountage",
+        Info,
+        "How old someone's Twitch account is",
+        "!accountage or !accountage @name",
+        Everyone,
+        5,
+    ),
+    b(
+        "accountsince",
+        Info,
+        "The date someone made their Twitch account",
+        "!accountsince or !accountsince @name",
+        Everyone,
+        5,
+    ),
+    b(
+        "ping",
+        Info,
+        "Checks that the bot is listening",
+        "!ping",
+        Everyone,
+        10,
+    ),
+    b(
+        "8ball",
+        Fun,
+        "Ask the mystery 8-ball a question",
+        "!8ball will it rain?",
+        Everyone,
+        5,
+    ),
+    b(
+        "dadjoke",
+        Fun,
+        "Tells an unfunny dad joke",
+        "!dadjoke",
+        Everyone,
+        10,
+    ),
+    b(
+        "fact",
+        Fun,
+        "A useless random fact",
+        "!fact",
+        Everyone,
+        10,
+    ),
+    b(
+        "dictionary",
+        Fun,
+        "The dictionary meaning of a word",
+        "!dictionary word",
+        Everyone,
+        5,
+    ),
+    Builtin {
+        on: false,
+        ..b(
+            "urbandictionary",
+            Fun,
+            "The top Urban Dictionary meaning. Off at first, since its answers can be rude.",
+            "!urbandictionary word",
+            Everyone,
+            10,
+        )
+    },
+    b(
+        "emotes",
+        Fun,
+        "The channel's Twitch, 7TV, BetterTTV and FrankerFaceZ emotes. Moderators reload them with !emotes reload.",
+        "!emotes",
+        Everyone,
+        30,
+    ),
+    Builtin {
+        min: Moderator,
+        ..b(
+            "addcmd",
+            Commands,
+            "Adds a command",
+            "!addcmd !discord Join us at discord.gg/...",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        min: Moderator,
+        ..b(
+            "editcmd",
+            Commands,
+            "Changes a command's reply",
+            "!editcmd !discord New reply",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        min: Moderator,
+        ..b(
+            "setcmd",
+            Commands,
+            "Changes a command, or adds it when it is new",
+            "!setcmd !discord Reply",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        min: Moderator,
+        ..b(
+            "delcmd",
+            Commands,
+            "Deletes a command",
+            "!delcmd !discord",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        min: Moderator,
+        ..b(
+            "command",
+            Commands,
+            "Manages commands: add, edit, set, delete, on, off or show",
+            "!command off !discord",
+            Moderator,
+            0,
+        )
+    },
+    b(
+        "count",
+        Commands,
+        "Shows a counter. Moderators change it with + - or =.",
+        "!count deaths +1",
+        Everyone,
+        5,
+    ),
+    b(
+        "quote",
+        Quotes,
+        "A random quote, quote #12 with !quote 12, or one that mentions a word",
+        "!quote or !quote 12",
+        Everyone,
+        5,
+    ),
+    Builtin {
+        min: UserLevel::Vip,
+        ..b(
+            "addquote",
+            Quotes,
+            "Adds a quote",
+            "!addquote words worth keeping",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        min: UserLevel::Vip,
+        ..b(
+            "editquote",
+            Quotes,
+            "Changes a quote's words",
+            "!editquote 12 new words",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        aliases: &["delquote"],
+        min: UserLevel::Vip,
+        ..b(
+            "deletequote",
+            Quotes,
+            "Removes a quote",
+            "!deletequote 12",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        needs: Needs::Commands,
+        ..b(
+            "clip",
+            Stream,
+            "Makes a clip of the live stream and posts the link",
+            "!clip",
+            Everyone,
+            30,
+        )
+    },
+    Builtin {
+        needs: Needs::Commands,
+        min: Moderator,
+        ..b(
+            "settitle",
+            Stream,
+            "Changes the stream's title",
+            "!settitle New title",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        needs: Needs::Commands,
+        min: Moderator,
+        ..b(
+            "setgame",
+            Stream,
+            "Changes the stream's category",
+            "!setgame Minecraft",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        needs: Needs::Moderation,
+        min: Moderator,
+        ..b(
+            "permit",
+            Moderation,
+            "Lets someone skip the chat rules for 60 seconds",
+            "!permit @name",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        needs: Needs::Moderation,
+        min: Moderator,
+        ..b(
+            "nuke",
+            Moderation,
+            "Removes every message from the last 5 minutes that has the words, or all of one chatter's with @name",
+            "!nuke spam words or !nuke @name",
+            Moderator,
+            0,
+        )
+    },
+    Builtin {
+        needs: Needs::Moderation,
+        ..b(
+            "vanish",
+            Moderation,
+            "Removes your own messages",
+            "!vanish",
+            Everyone,
+            0,
+        )
+    },
+    Builtin {
+        needs: Needs::Moderation,
+        on: false,
+        ..b(
+            "votekick",
+            Moderation,
+            "Chat votes to time someone out for 5 minutes: 5 votes within a minute. Off at first.",
+            "!votekick @name",
+            Everyone,
+            0,
+        )
+    },
+    Builtin {
+        min: Moderator,
+        ..b(
+            "filesay",
+            Moderation,
+            "Posts each line of a text file at a web address, one every 2 seconds, up to 25",
+            "!filesay https://example.com/list.txt",
+            Broadcaster,
+            0,
+        )
+    },
+    Builtin {
+        min: Moderator,
+        ..b(
+            "filesaystop",
+            Moderation,
+            "Stops a running !filesay",
+            "!filesaystop",
+            Moderator,
+            0,
+        )
+    },
+];
+
+/// The built-in command a trigger names, by name or alias.
+pub fn builtin(trigger: &str) -> Option<&'static Builtin> {
+    BUILTINS
+        .iter()
+        .find(|b| b.name == trigger || b.aliases.contains(&trigger))
+}
+
+/// A channel's choices for one built-in command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinSetting {
+    pub name: String,
+    pub enabled: bool,
+    pub level: UserLevel,
+    #[serde(default)]
+    pub cooldown: u32,
+}
+
+impl Builtin {
+    pub fn default_setting(&self) -> BuiltinSetting {
+        BuiltinSetting {
+            name: self.name.into(),
+            enabled: self.on,
+            level: self.level,
+            cooldown: self.cooldown,
+        }
+    }
+}
+
+/// Every built-in command's settings in list order: the stored choice where
+/// there is one (kept within each command's limits), else its default.
+pub fn normalize(stored: &[BuiltinSetting]) -> Vec<BuiltinSetting> {
+    BUILTINS
+        .iter()
+        .map(|b| match stored.iter().find(|s| s.name == b.name) {
+            Some(s) => BuiltinSetting {
+                name: b.name.into(),
+                enabled: s.enabled,
+                level: s.level.max(b.min),
+                cooldown: s.cooldown.min(MAX_COOLDOWN_S),
+            },
+            None => b.default_setting(),
+        })
+        .collect()
+}
+
+/// What `!command` was asked to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandEdit {
+    Add(String, String),
+    Edit(String, String),
+    Set(String, String),
+    Delete(String),
+    Enable(String, bool),
+    Show(String),
+}
+
+/// `!discord Join us` gives `("discord", "Join us")`. The name loses its `!`
+/// and is lower case; the reply keeps its words as typed.
+pub fn name_and_reply(args: &[String]) -> Option<(String, String)> {
+    let name = args.first()?.trim_start_matches('!').to_lowercase();
+    if name.is_empty() {
+        return None;
+    }
+    Some((name, args[1..].join(" ")))
+}
+
+/// `!command add|edit|set|delete|on|off|show !name ...`.
+pub fn command_edit(args: &[String]) -> Option<CommandEdit> {
+    let action = args.first()?.to_lowercase();
+    let rest = &args[1..];
+    let (name, reply) = name_and_reply(rest)?;
+    Some(match action.as_str() {
+        "add" | "new" | "create" => CommandEdit::Add(name, reply),
+        "edit" | "change" => CommandEdit::Edit(name, reply),
+        "set" => CommandEdit::Set(name, reply),
+        "delete" | "del" | "remove" => CommandEdit::Delete(name),
+        "on" | "enable" => CommandEdit::Enable(name, true),
+        "off" | "disable" => CommandEdit::Enable(name, false),
+        "show" | "view" | "info" => CommandEdit::Show(name),
+        _ => return None,
+    })
+}
+
+/// A Twitch login from a chat word: `@Maple` gives `maple`. `None` when the
+/// word cannot be a Twitch name.
+pub fn target_login(word: Option<&String>) -> Option<String> {
+    let w = word?.trim().trim_start_matches('@').to_lowercase();
+    let ok =
+        !w.is_empty() && w.len() <= 25 && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    ok.then_some(w)
+}
+
+/// What `!nuke` removes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Nuke {
+    /// Every recent message from this chatter (a login).
+    User(String),
+    /// Every recent message containing these words, in lower case.
+    Words(String),
+}
+
+/// How far back `!nuke` looks.
+pub const NUKE_WINDOW_MS: i64 = 5 * 60_000;
+/// The most messages one `!nuke` removes.
+pub const NUKE_MAX: usize = 100;
+
+pub fn nuke(args: &[String]) -> Option<Nuke> {
+    if args.len() == 1 && args[0].starts_with('@') {
+        return target_login(args.first()).map(Nuke::User);
+    }
+    let words = args.join(" ").trim().to_lowercase();
+    // Two letters at least, so a slip cannot wipe the whole chat.
+    (words.chars().count() >= 2).then_some(Nuke::Words(words))
+}
+
+/// Votes `!votekick` needs, inside [`VOTEKICK_WINDOW_MS`].
+pub const VOTEKICK_VOTES: usize = 5;
+pub const VOTEKICK_WINDOW_MS: i64 = 60_000;
+/// Seconds a vote kick times someone out for.
+pub const VOTEKICK_TIMEOUT_S: u32 = 300;
+/// Seconds `!permit` lets someone skip the chat rules.
+pub const PERMIT_S: i64 = 60;
+
+/// `!filesay` posts at most this many lines, this far apart.
+pub const FILESAY_MAX_LINES: usize = 25;
+pub const FILESAY_GAP_MS: i64 = 2_000;
+/// The largest file `!filesay` reads.
+pub const FILESAY_MAX_BYTES: usize = 64 * 1024;
+
+/// The lines `!filesay` posts from a file: trimmed, blank ones skipped, each
+/// cut to what Twitch accepts, at most [`FILESAY_MAX_LINES`].
+pub fn filesay_lines(text: &str) -> Vec<String> {
+    text.lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|l| !l.is_empty())
+        .map(|l| l.chars().take(MAX_REPLY).collect())
+        .take(FILESAY_MAX_LINES)
+        .collect()
+}
+
+/// A web address `!filesay` may read: http or https, nothing else.
+pub fn filesay_url(arg: Option<&String>) -> Option<String> {
+    let a = arg?.trim();
+    let lower = a.to_lowercase();
+    ((lower.starts_with("https://") || lower.starts_with("http://")) && a.len() <= 2000)
+        .then(|| a.to_string())
+}
+
+/// The 8-ball's answers.
+pub const EIGHT_BALL: &[&str] = &[
+    "It is certain.",
+    "It is decidedly so.",
+    "Without a doubt.",
+    "Yes, definitely.",
+    "You may rely on it.",
+    "As I see it, yes.",
+    "Most likely.",
+    "Outlook good.",
+    "Yes.",
+    "Signs point to yes.",
+    "Reply hazy, try again.",
+    "Ask again later.",
+    "Better not tell you now.",
+    "Cannot predict now.",
+    "Concentrate and ask again.",
+    "Don't count on it.",
+    "My reply is no.",
+    "My sources say no.",
+    "Outlook not so good.",
+    "Very doubtful.",
+];
+
+/// Used when the joke service does not answer.
+pub const DAD_JOKES: &[&str] = &[
+    "I'm reading a book about anti-gravity. It's impossible to put down.",
+    "Why don't skeletons fight each other? They don't have the guts.",
+    "I used to hate facial hair, but then it grew on me.",
+    "What do you call a fake noodle? An impasta.",
+    "I only know 25 letters of the alphabet. I don't know y.",
+    "Why did the scarecrow win an award? He was outstanding in his field.",
+    "I would tell you a construction joke, but I'm still working on it.",
+    "What do you call a bear with no teeth? A gummy bear.",
+    "Why can't a nose be 12 inches long? Because then it would be a foot.",
+    "I'm on a seafood diet. I see food and I eat it.",
+    "What did the ocean say to the beach? Nothing, it just waved.",
+    "Why do cows wear bells? Because their horns don't work.",
+    "How does a penguin build its house? Igloos it together.",
+    "Did you hear about the restaurant on the moon? Great food, no atmosphere.",
+    "Why did the coffee file a police report? It got mugged.",
+    "What do you call cheese that isn't yours? Nacho cheese.",
+    "Why don't eggs tell jokes? They'd crack each other up.",
+    "I told my wife she was drawing her eyebrows too high. She looked surprised.",
+    "What do you call a factory that makes okay products? A satisfactory.",
+    "Why did the math book look sad? It had too many problems.",
+];
+
+/// Used when the fact service does not answer.
+pub const FACTS: &[&str] = &[
+    "Honey never spoils. Edible honey has been found in ancient Egyptian tombs.",
+    "Octopuses have three hearts.",
+    "A group of flamingos is called a flamboyance.",
+    "Bananas are berries, but strawberries are not.",
+    "Wombat droppings are cube shaped.",
+    "A day on Venus is longer than a year on Venus.",
+    "Sea otters hold hands while they sleep so they don't drift apart.",
+    "The Eiffel Tower can be about 15 cm taller in summer, as the metal expands.",
+    "Cows have best friends and get stressed when they are apart.",
+    "A shrimp's heart is in its head.",
+    "Sloths can hold their breath longer than dolphins can.",
+    "The unicorn is the national animal of Scotland.",
+    "Hot water can freeze faster than cold water. It is called the Mpemba effect.",
+    "There are more possible games of chess than atoms in the observable universe.",
+    "Butterflies taste with their feet.",
+    "An ostrich's eye is bigger than its brain.",
+    "The dot over a lowercase i or j is called a tittle.",
+    "Koalas have fingerprints that are almost impossible to tell from human ones.",
+    "Snails can sleep for up to three years.",
+    "The first oranges were not orange. They were green.",
+];
+
+/// A Twitch time such as `2018-04-28T14:03:11Z`.
+pub fn parse_time(ts: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(ts)
+        .ok()
+        .map(|t| t.with_timezone(&Utc))
+}
+
+/// A time in milliseconds since 1970, as the Worker's clock gives it.
+pub fn utc_from_ms(ms: i64) -> DateTime<Utc> {
+    DateTime::from_timestamp_millis(ms).unwrap_or_default()
+}
+
+/// `28 April 2018`.
+pub fn date_words(t: DateTime<Utc>) -> String {
+    t.format("%-d %B %Y").to_string()
+}
+
+/// How long from `from` to `now`, in the two largest units: "2 years and 3
+/// months", "5 days and 4 hours", "12 minutes".
+pub fn age_words(from: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let unit = |n: i64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    if now <= from {
+        return unit(0, "minute");
+    }
+    // Whole calendar months first, so 28 April to 28 July is 3 months.
+    let mut months =
+        (now.year() as i64 - from.year() as i64) * 12 + now.month() as i64 - from.month() as i64;
+    let after = |m: i64| from.checked_add_months(Months::new(m.max(0) as u32));
+    while months > 0 && after(months).is_none_or(|t| t > now) {
+        months -= 1;
+    }
+    let rest = now - after(months).unwrap_or(from);
+    let (years, months) = (months / 12, months % 12);
+    let (days, hours, minutes) = (
+        rest.num_days(),
+        rest.num_hours() % 24,
+        rest.num_minutes() % 60,
+    );
+    let parts: Vec<String> = [
+        (years, "year"),
+        (months, "month"),
+        (days, "day"),
+        (hours, "hour"),
+        (minutes, "minute"),
+    ]
+    .iter()
+    .skip_while(|(n, _)| *n == 0)
+    .take(2)
+    .filter(|(n, _)| *n > 0)
+    .map(|(n, u)| unit(*n, u))
+    .collect();
+    match parts.len() {
+        0 => unit(0, "minute"),
+        1 => parts[0].clone(),
+        _ => format!("{} and {}", parts[0], parts[1]),
+    }
+}
+
+/// One line of emote names by provider, cut to fit a chat message with "and
+/// N more" when there are too many. Providers with none are left out.
+pub fn emote_line(groups: &[(&str, Vec<String>)]) -> String {
+    let total: usize = groups.iter().map(|(_, e)| e.len()).sum();
+    if total == 0 {
+        return "This channel has no emotes yet.".into();
+    }
+    let mut out = String::new();
+    let mut shown = 0;
+    'outer: for (provider, emotes) in groups.iter().filter(|(_, e)| !e.is_empty()) {
+        let head = if out.is_empty() {
+            format!("{provider}: ")
+        } else {
+            format!(" | {provider}: ")
+        };
+        let mut first = true;
+        for e in emotes {
+            let piece = if first {
+                format!("{head}{e}")
+            } else {
+                format!(" {e}")
+            };
+            // Keep room for " and 9999 more".
+            if out.chars().count() + piece.chars().count() > MAX_REPLY - 16 {
+                break 'outer;
+            }
+            out.push_str(&piece);
+            shown += 1;
+            first = false;
+        }
+    }
+    if shown < total {
+        out.push_str(&format!(" and {} more", total - shown));
+    }
+    out
+}
+
+/// A dictionary or Urban Dictionary meaning, tidied for chat: Urban
+/// Dictionary's `[link]` brackets dropped, one line, cut to fit.
+pub fn meaning_line(prefix: &str, text: &str) -> String {
+    let clean: String = text.chars().filter(|c| *c != '[' && *c != ']').collect();
+    let line = format!(
+        "{prefix}{}",
+        clean.split_whitespace().collect::<Vec<_>>().join(" ")
+    );
+    if line.chars().count() <= MAX_REPLY {
+        return line;
+    }
+    let mut cut: String = line.chars().take(MAX_REPLY - 3).collect();
+    if let Some(i) = cut.rfind(' ') {
+        cut.truncate(i);
+    }
+    cut + "..."
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn list_is_sound() {
+        let mut seen: Vec<&str> = Vec::new();
+        for b in BUILTINS {
+            for t in std::iter::once(&b.name).chain(b.aliases.iter()) {
+                assert!(!seen.contains(t), "{t} twice");
+                seen.push(t);
+            }
+            assert!(b.level >= b.min, "{}", b.name);
+            assert!(!b.about.contains('\u{2014}'), "{}", b.name);
+        }
+        for media in [
+            "sr",
+            "song",
+            "songqueue",
+            "skip",
+            "clear",
+            "volume",
+            "voteskip",
+            "wrongsong",
+        ] {
+            assert!(builtin(media).is_none(), "{media}");
+        }
+        assert_eq!(builtin("delquote").unwrap().name, "deletequote");
+    }
+
+    #[test]
+    fn normalize_keeps_limits() {
+        let stored = vec![
+            BuiltinSetting {
+                name: "nuke".into(),
+                enabled: false,
+                level: UserLevel::Everyone,
+                cooldown: 99_999,
+            },
+            BuiltinSetting {
+                name: "nonsense".into(),
+                enabled: true,
+                level: UserLevel::Everyone,
+                cooldown: 0,
+            },
+        ];
+        let all = normalize(&stored);
+        assert_eq!(all.len(), BUILTINS.len());
+        let nuke = all.iter().find(|s| s.name == "nuke").unwrap();
+        assert!(!nuke.enabled);
+        assert_eq!(nuke.level, UserLevel::Moderator);
+        assert_eq!(nuke.cooldown, MAX_COOLDOWN_S);
+        assert!(all.iter().all(|s| s.name != "nonsense"));
+        let kick = all.iter().find(|s| s.name == "votekick").unwrap();
+        assert!(!kick.enabled);
+    }
+
+    #[test]
+    fn reading_arguments() {
+        assert_eq!(
+            name_and_reply(&s(&["!Discord", "Join", "us"])),
+            Some(("discord".into(), "Join us".into()))
+        );
+        assert_eq!(name_and_reply(&s(&["!"])), None);
+        assert_eq!(
+            command_edit(&s(&["off", "!lurk"])),
+            Some(CommandEdit::Enable("lurk".into(), false))
+        );
+        assert_eq!(
+            command_edit(&s(&["ADD", "hi", "hello", "there"])),
+            Some(CommandEdit::Add("hi".into(), "hello there".into()))
+        );
+        assert_eq!(command_edit(&s(&["frob", "hi"])), None);
+        assert_eq!(command_edit(&s(&["add"])), None);
+        assert_eq!(
+            target_login(Some(&"@Maple_1".into())),
+            Some("maple_1".into())
+        );
+        assert_eq!(target_login(Some(&"no way".into())), None);
+        assert_eq!(nuke(&s(&["@Spammer"])), Some(Nuke::User("spammer".into())));
+        assert_eq!(
+            nuke(&s(&["Buy", "Followers"])),
+            Some(Nuke::Words("buy followers".into()))
+        );
+        assert_eq!(nuke(&s(&["x"])), None);
+        assert_eq!(nuke(&[]), None);
+    }
+
+    #[test]
+    fn filesay() {
+        let lines = filesay_lines("one\n\n  two   words \r\nthree");
+        assert_eq!(lines, s(&["one", "two words", "three"]));
+        let many = "x\n".repeat(100);
+        assert_eq!(filesay_lines(&many).len(), FILESAY_MAX_LINES);
+        assert!(filesay_url(Some(&"https://a.b/c.txt".into())).is_some());
+        assert!(filesay_url(Some(&"file:///etc/passwd".into())).is_none());
+        assert!(filesay_url(None).is_none());
+    }
+
+    #[test]
+    fn ages_and_dates() {
+        let t = |s: &str| parse_time(s).unwrap();
+        assert_eq!(date_words(t("2018-04-28T14:03:11Z")), "28 April 2018");
+        assert_eq!(
+            age_words(t("2018-04-28T00:00:00Z"), t("2020-07-28T04:00:00Z")),
+            "2 years and 3 months"
+        );
+        assert_eq!(
+            age_words(t("2024-01-31T00:00:00Z"), t("2024-03-01T00:00:00Z")),
+            "1 month and 1 day"
+        );
+        assert_eq!(
+            age_words(t("2024-05-01T10:00:00Z"), t("2024-05-03T15:30:00Z")),
+            "2 days and 5 hours"
+        );
+        assert_eq!(
+            age_words(t("2024-05-01T10:00:00Z"), t("2024-05-01T10:12:00Z")),
+            "12 minutes"
+        );
+        assert_eq!(
+            age_words(t("2024-05-01T10:00:00Z"), t("2025-05-01T10:00:00Z")),
+            "1 year"
+        );
+        assert_eq!(
+            age_words(t("2024-05-01T10:00:00Z"), t("2024-05-01T10:00:00Z")),
+            "0 minutes"
+        );
+    }
+
+    #[test]
+    fn emotes_fit() {
+        assert_eq!(emote_line(&[]), "This channel has no emotes yet.");
+        let line = emote_line(&[
+            ("Twitch", s(&["mapleHi", "mapleGG"])),
+            ("7TV", vec![]),
+            ("BetterTTV", s(&["catJAM"])),
+        ]);
+        assert_eq!(line, "Twitch: mapleHi mapleGG | BetterTTV: catJAM");
+        let lots: Vec<String> = (0..200).map(|i| format!("emote{i}")).collect();
+        let line = emote_line(&[("7TV", lots)]);
+        assert!(line.chars().count() <= MAX_REPLY);
+        assert!(line.ends_with(" more"));
+    }
+
+    #[test]
+    fn meanings() {
+        assert_eq!(
+            meaning_line("(noun) kappa: ", "A [Greek]  letter"),
+            "(noun) kappa: A Greek letter"
+        );
+        let long = meaning_line("", &"word ".repeat(200));
+        assert!(long.chars().count() <= MAX_REPLY);
+        assert!(long.ends_with("..."));
+    }
+}

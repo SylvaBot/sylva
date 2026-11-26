@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, type Me } from './api';
 import { ChannelProvider } from './channel';
+import { PublicCommandsPage } from './commandsPage';
 import { DevicePage } from './device';
 import { Landing } from './Landing';
 import { navigate, usePath } from './router';
@@ -46,13 +47,15 @@ export function App() {
   }, [inApp, me]);
 
   useEffect(() => {
-    if (!inApp && path !== '/device' && path !== '/privacy' && !path.startsWith('/s/')) document.title = 'Sylva: alerts, overlays and activity for Twitch';
+    if (!inApp && path !== '/device' && path !== '/privacy' && !path.startsWith('/s/') && !path.startsWith('/c/')) document.title = 'Sylva: alerts, overlays and activity for Twitch';
   }, [inApp, path]);
 
   if (path === '/device') return <DevicePage me={me} />;
   if (path === '/privacy') return <PrivacyPage signedIn={!!me} />;
   const store = /^\/s\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
   if (store) return <PublicStorePage login={store[1].toLowerCase()} signedIn={!!me} />;
+  const commands = /^\/c\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
+  if (commands) return <PublicCommandsPage login={commands[1].toLowerCase()} signedIn={!!me} />;
   if (inApp) {
     if (!me) return <div className="loading" role="status">Loading your channel</div>;
     return (

@@ -562,7 +562,8 @@ if (!fake || !usesFake) {
     assert.equal((await fetch(`${BASE}${path}`)).status, 401, 'owner only');
     const fresh = await getJson(path);
     assert.equal(fresh.settings.enabled, false);
-    assert.deepEqual(fresh.settings.commands.map((c) => c.name), ['commands', 'uptime', 'lurk', 'so']);
+    assert.deepEqual(fresh.settings.commands.map((c) => c.name), ['lurk', 'so']);
+    assert.ok(fresh.builtins.some((b) => b.name === 'followage'), 'built-in commands are listed');
     assert.deepEqual(fresh.sender, { kind: 'streamer', id: bid });
 
     await say('!lurk');
@@ -634,7 +635,6 @@ if (!fake || !usesFake) {
     const base = (await getJson(path)).settings;
     assert.deepEqual(base.quotes, { enabled: true, addLevel: 'moderator' });
     assert.match(await (await post(path, { ...base, counters: [{ name: 'lurk' }] })).text(), /both a command and a counter/);
-    assert.match(await (await post(path, { ...base, commands: [...base.commands, { name: 'quote', reply: 'x' }] })).text(), /used by quotes/);
     const saved = await (await post(path, { ...base, enabled: true, counters: [{ name: '!Deaths' }] })).json();
     assert.deepEqual(saved.settings.counters, [{ name: 'deaths', label: 'Deaths', value: 0, enabled: true }]);
 

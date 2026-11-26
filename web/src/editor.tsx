@@ -4,7 +4,8 @@
 // earlier version.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { api, type Goal, type SceneItem, type SceneState, type WidgetKind } from './api';
+import { api, type CustomCode, type Goal, type SceneItem, type SceneState, type WidgetKind } from './api';
+import { CodeDialog, CustomFrame, STARTER } from './customWidget';
 import { useChannel } from './channel';
 import { Card, sendTest, TESTS } from './pages';
 import { errorText, Icon, num, useToast } from './ui';
@@ -24,8 +25,10 @@ export const WIDGET_META: Record<WidgetKind, WidgetMeta> = {
   top: { name: 'Top label', icon: 'trophy', c: 'c-reward', w: 480, h: 60, text: 'The top cheerer or gifter this stream.' },
   goal: { name: 'Goal bar', icon: 'zap', c: 'c-raid', w: 600, h: 90, text: 'Progress toward your goal.' },
   chat: { name: 'Chat box', icon: 'message', c: 'c-gift', w: 420, h: 520, text: 'Your chat, on stream.' },
+  custom: { name: 'Custom code', icon: 'code', c: 'c-tip', w: 600, h: 160, text: 'Your own HTML, CSS and JavaScript.' },
 };
-const ADDABLE: WidgetKind[] = ['alerts', 'feed', 'latest', 'top', 'goal', 'chat'];
+const ADDABLE: WidgetKind[] = ['alerts', 'feed', 'latest', 'top', 'goal', 'chat', 'custom'];
+const playsAlerts = (i: SceneItem) => i.widget === 'alerts' || (i.widget === 'custom' && !!i.code?.alerts);
 
 export const LATEST_KINDS = [
   { id: 'follow', label: 'Follower' },
@@ -85,6 +88,7 @@ const norm = (items: SceneItem[]) => JSON.stringify(items.map((i) => [
   i.id, i.widget, i.x, i.y, i.w, i.h,
   i.widget === 'latest' ? i.kind ?? 'follow' : i.widget === 'top' ? i.kind ?? 'cheer' : null,
   i.widget === 'feed' ? i.limit ?? 5 : i.widget === 'chat' ? i.limit ?? 12 : null,
+  i.widget === 'custom' ? JSON.stringify(i.code ?? null) : null,
 ]));
 const same = (a: SceneItem[], b: SceneItem[]) => norm(a) === norm(b);
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
@@ -250,6 +254,7 @@ export function SceneEditor({ url }: { url: string | null }) {
       x: (W - m.w) / 2 + (n % 5) * 24, y: (H - m.h) / 2 + (n % 5) * 24,
       kind: widget === 'latest' ? 'follow' : widget === 'top' ? 'cheer' : undefined,
       limit: widget === 'feed' ? 5 : widget === 'chat' ? 12 : undefined,
+      code: widget === 'custom' ? { ...STARTER } : undefined,
     });
     commit([...items, it]);
     setSelected(it.id);
@@ -415,7 +420,7 @@ export function SceneEditor({ url }: { url: string | null }) {
   const published = server?.published ?? null;
   const changed = !!items && (published ? !same(items, published.scene.items) : items.length > 0);
   const sel = items?.find((it) => it.id === selected) ?? null;
-  const hasAlerts = !!items?.some((it) => it.widget === 'alerts');
+  const hasAlerts = !!items?.some(playsAlerts);
 
   const status = save === 'error' ? 'Not saved'
     : save !== 'saved' ? 'Saving'
@@ -562,6 +567,7 @@ export function SceneEditor({ url }: { url: string | null }) {
             {sel ? (
               <Inspector
                 it={sel}
+                canPlayAlerts={!items.some((i) => i.id !== sel.id && playsAlerts(i))}
                 first={items[0]?.id === sel.id}
                 last={items[items.length - 1]?.id === sel.id}
                 onChange={(p) => update(sel.id, p)}
@@ -675,8 +681,8 @@ function TemplateThumb({ t }: { t: Template }) {
   );
 }
 
-function Inspector({ it, first, last, onChange, onRemove, onOrder }: {
-  it: SceneItem; first: boolean; last: boolean;
+function Inspector({ it, first, last, canPlayAlerts, onChange, onRemove, onOrder }: {
+  it: SceneItem; first: boolean; last: boolean; canPlayAlerts: boolean;
   onChange: (p: Partial<SceneItem>) => void; onRemove: () => void; onOrder: (d: 1 | -1) => void;
 }) {
   const m = WIDGET_META[it.widget];
@@ -715,11 +721,35 @@ function Inspector({ it, first, last, onChange, onRemove, onOrder }: {
         </label>
       )}
       {it.widget === 'goal' && <p className="field-hint">Set the goal itself in the Goal card below.</p>}
+      {it.widget === 'custom' && <CustomInspector it={it} canPlayAlerts={canPlayAlerts} onChange={(code) => onChange({ code })} />}
       <div className="insp-actions">
         <button className="btn sm" type="button" disabled={last} onClick={() => onOrder(1)}>Bring forward</button>
         <button className="btn sm" type="button" disabled={first} onClick={() => onOrder(-1)}>Send backward</button>
         <button className="btn sm danger" type="button" onClick={onRemove}><Icon id="trash" />Remove</button>
       </div>
+    </>
+  );
+}
+
+function CustomInspector({ it, canPlayAlerts, onChange }: { it: SceneItem; canPlayAlerts: boolean; onChange: (c: CustomCode) => void }) {
+  const [open, setOpen] = useState(false);
+  const code = it.code ?? STARTER;
+  return (
+    <>
+      <p className="field-hint">
+        <b>{code.name || 'Custom widget'}</b>{code.alerts ? ', plays alerts' : ''}. It runs in a sandbox on your overlay, so it cannot reach your Sylva account.
+      </p>
+      <button className="btn sm" type="button" onClick={() => setOpen(true)}><Icon id="code" />Edit code</button>
+      {open && (
+        <CodeDialog
+          initial={code}
+          width={it.w}
+          height={it.h}
+          canPlayAlerts={canPlayAlerts}
+          onClose={() => setOpen(false)}
+          onSave={(c) => { onChange(c); setOpen(false); }}
+        />
+      )}
     </>
   );
 }
@@ -818,6 +848,8 @@ function Preview({ it, goal }: { it: SceneItem; goal: Goal | null }) {
           ))}
         </div>
       );
+    case 'custom':
+      return it.code ? <CustomFrame code={it.code} /> : null;
     default:
       return null;
   }

@@ -232,3 +232,20 @@ Every widget is the overlay page with `&widget=` added to the same private link,
 Widgets connect with the `widget` role: on connect they get a `widgets` frame (recent events, the latest of each kind, recent chat and the goal with its progress) and then follow live `event` frames, plus `top` frames when the top cheerer or gifter may have changed. A `?scene` overlay also gets the published layout in the `widgets` frame, and a new one whenever it is published. They never receive `play` frames and do not count as connected alert boxes, so they cannot hold up the alert queue. Saving the goal sends a fresh `widgets` frame to every widget on screen. The goal lives in `GET` and `POST /v1/channels/{key}/widget-settings`.
 
 ![Widgets on the Overlay page](site/widgets.png)
+
+### Custom code widgets
+
+The overlay editor's **Add widget > Custom code** places the streamer's own HTML, CSS and JavaScript on the canvas. It is plain web code, the same thing OBS's browser runs, so there is no build step and nothing extra to load. **Edit code** opens an editor with HTML, CSS, JavaScript and Fields tabs, a live preview at the widget's size, and buttons that send a test follow, sub, gift, cheer, raid or chat line.
+
+Each one runs in a sandboxed frame (`/overlay-frame`, served with `Content-Security-Policy: sandbox allow-scripts`), so its code has an origin of its own: it cannot read Sylva's cookies, the overlay link or the page around it, and a broken widget cannot break the rest of the overlay. It may load fonts, images and libraries from anywhere.
+
+The code gets `Sylva`:
+
+- `Sylva.fields`: the widget's settings, by key.
+- `Sylva.data`: what the overlay knows now (`recent`, `latest`, `top`, `chat`, `goal`).
+- `Sylva.on(type, fn)`: `'event'` for every live event, a kind such as `'follow'`, `'subscriber'`, `'communityGift'`, `'cheer'`, `'raid'`, `'tip'`, `'redemption'` or `'chat'`, and `'data'` and `'top'`.
+- In alert mode, `Sylva.on('alert', fn)` gets `{ id, event, view }` and `Sylva.done()` moves the queue on. A widget that plays alerts takes the alert box's place, so a scene has one or the other. If it never calls `done()`, the overlay moves on 15 seconds after the alert's time.
+
+StreamElements custom widgets can be pasted in: the Fields tab takes their JSON as is, `{{field}}` placeholders are filled in HTML, CSS and JavaScript, and `onWidgetLoad`, `onEventReceived` (follower, subscriber, cheer, raid, tip and message listeners) and `SE_API.resumeQueue()` work. `SE_API.store` and counters answer with nothing.
+
+A widget holds up to 100 KB of code, and a scene's custom widgets up to 400 KB together. For the smoothest motion, animate `transform` and `opacity` with CSS.

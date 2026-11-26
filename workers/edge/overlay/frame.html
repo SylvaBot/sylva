@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sylva custom widget</title>
+<style>html, body { margin: 0; background: transparent; overflow: hidden; width: 100%; height: 100%; }</style>
+</head>
+<body>
+<script>
+// Runs one custom widget. The page that holds this frame (an overlay, or the
+// editor's preview) sends the code and then live data with postMessage. The
+// frame is sandboxed without same-origin, so the code cannot reach Sylva's
+// cookies, the overlay link or the page around it.
+//
+// The code gets `Sylva`:
+//   Sylva.fields        the widget's settings, by key
+//   Sylva.data          what the overlay knows now: recent, latest, top, chat, goal
+//   Sylva.on(type, fn)  type: 'event' (every live event), a kind such as
+//                       'follow', 'subscriber', 'cheer', 'raid', 'chat',
+//                       'communityGift', 'tip', 'redemption'; 'data', 'top';
+//                       and 'alert' when the widget plays alerts
+//   Sylva.done()        an alert is over: the queue moves on
+// StreamElements widgets work too: onWidgetLoad, onEventReceived, SE_API
+// and {{field}} placeholders.
+(() => {
+  'use strict';
+  const handlers = {};
+  let current = null;
+  let alertsMode = false;
+  let loaded = false;
+  const waiting = [];
+  const send = (m) => parent.postMessage(Object.assign({ sylvaFrame: true }, m), '*');
+  const emit = (type, arg) => (handlers[type] || []).slice().forEach((fn) => {
+    try { fn(arg); } catch (e) { console.error(e); }
+  });
+  const dispatch = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));
+
+  window.Sylva = {
+    fields: {},
+    data: null,
+    on(type, fn) { (handlers[type] = handlers[type] || []).push(fn); },
+    done(id) {
+      const which = id === undefined ? current : id;
+      if (which !== null && which !== undefined) send({ type: 'done', id: which });
+      if (which === current) current = null;
+    },
+  };
+  window.SE_API = {
+    resumeQueue() { window.Sylva.done(); },
+    store: { get: () => Promise.resolve(null), set() {} },
+    counters: { get: () => Promise.resolve(null) },
+    sanitize: (m) => Promise.resolve({ result: { message: (m && m.message) || '' }, skip: false }),
+    cheerFilter: (m) => Promise.resolve(m),
+    setField() {},
+    getOverlayStatus: () => Promise.resolve({ isEditorMode: false, muted: false }),
+  };
+
+  // StreamElements' field defaults, with the streamer's values over them.
+  const fieldData = (fieldsText, values) => {
+    let defs = {};
+    try { defs = fieldsText && fieldsText.trim() ? JSON.parse(fieldsText) : {}; } catch (e) { defs = {}; }
+    const out = {};
+    for (const [k, f] of Object.entries(defs)) {
+      if (f && typeof f === 'object' && 'value' in f) out[k] = f.value;
+    }
+    return Object.assign(out, values || {});
+  };
+  const fill = (text, fields) => String(text || '').replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, k) => (k in fields ? String(fields[k]) : m));
+
+  const nameOf = (e) => (e.actor ? e.actor.displayName : 'Anonymous');
+  // A Sylva event as StreamElements' onEventReceived has it.
+  const seEvent = (e) => {
+    const name = nameOf(e);
+    switch (e.kind) {
+      case 'follow': return { listener: 'follower-latest', event: { name, type: 'follower' } };
+      case 'subscriber': return { listener: 'subscriber-latest', event: { name, amount: e.amount || 1, message: e.message || '', type: 'subscriber' } };
+      case 'giftedSub': return { listener: 'subscriber-latest', event: { name, amount: 1, gifted: true, type: 'subscriber' } };
+      case 'communityGift': return { listener: 'subscriber-latest', event: { name, sender: name, amount: e.amount || 1, gifted: true, bulkGifted: true, type: 'subscriber' } };
+      case 'cheer': return { listener: 'cheer-latest', event: { name, amount: e.amount || 0, message: e.message || '', type: 'cheer' } };
+      case 'raid': return { listener: 'raid-latest', event: { name, amount: e.amount || 0, type: 'raid' } };
+      case 'tip': return { listener: 'tip-latest', event: { name, amount: e.amount || 0, message: e.message || '', type: 'tip' } };
+      case 'redemption': return { listener: 'redemption-latest', event: { name, item: e.redemption || '', message: e.message || '', type: 'redemption' } };
+      case 'chat': {
+        const login = (e.actor && e.actor.login) || name.toLowerCase();
+        const text = e.message || '';
+        const safe = text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        return { listener: 'message', event: { data: { text, displayName: name, nick: login, userId: (e.actor && e.actor.id) || '', badges: [], emotes: [], msgId: '' }, renderedText: safe } };
+      }
+      default: return null;
+    }
+  };
+  const seSession = (d) => {
+    const data = {};
+    for (const e of (d && d.latest) || []) {
+      const s = seEvent(e);
+      if (s && s.listener !== 'message') data[s.listener] = s.event;
+    }
+    return { data };
+  };
+
+  // Scripts set through innerHTML do not run: make each again, in order,
+  // waiting for ones with src so libraries load before the code after them.
+  const runScripts = async (root) => {
+    for (const old of Array.from(root.querySelectorAll('script'))) {
+      const s = document.createElement('script');
+      for (const a of Array.from(old.attributes)) s.setAttribute(a.name, a.value);
+      s.textContent = old.textContent;
+      const done = old.src ? new Promise((ok) => { s.onload = ok; s.onerror = ok; }) : null;
+      old.replaceWith(s);
+      if (done) await done;
+    }
+  };
+
+  const live = (f) => {
+    if (f.type === 'data') {
+      window.Sylva.data = f.data;
+      emit('data', f.data);
+    } else if (f.type === 'event') {
+      const e = f.event;
+      emit('event', e);
+      emit(e.kind, e);
+      // An alert widget hears alerts through 'alert'; StreamElements code
+      // through onEventReceived, once per alert.
+      if (!alertsMode || e.kind === 'chat') {
+        const s = seEvent(e);
+        if (s) dispatch('onEventReceived', s);
+      }
+    } else if (f.type === 'top') {
+      if (window.Sylva.data) window.Sylva.data.top = f.top;
+      emit('top', f.top);
+    } else if (f.type === 'alert') {
+      current = f.id;
+      emit('alert', { id: f.id, event: f.event, view: f.view });
+      const s = seEvent(f.event);
+      if (s) dispatch('onEventReceived', s);
+      // Nothing listening: let the queue go on after the alert's time.
+      if (!(handlers.alert || []).length && !window.__seListens) {
+        setTimeout(() => window.Sylva.done(f.id), (f.view && f.view.durationMs) || 5000);
+      }
+    } else if (f.type === 'stop') {
+      emit('stop', { id: f.id });
+      if (current === f.id) current = null;
+    }
+  };
+
+  // Count onEventReceived listeners, so an alert widget that only uses
+  // StreamElements' API is not ended early.
+  const add = window.addEventListener.bind(window);
+  window.addEventListener = (type, fn, opts) => {
+    if (type === 'onEventReceived') window.__seListens = true;
+    return add(type, fn, opts);
+  };
+
+  const load = async (f) => {
+    alertsMode = !!f.alerts;
+    const fields = fieldData(f.fields, f.values);
+    window.Sylva.fields = fields;
+    window.Sylva.data = f.data || null;
+    const style = document.createElement('style');
+    style.textContent = fill(f.css, fields);
+    document.head.appendChild(style);
+    const root = document.createElement('div');
+    root.id = 'widget';
+    root.innerHTML = fill(f.html, fields);
+    document.body.appendChild(root);
+    await runScripts(root);
+    if (f.js) {
+      const s = document.createElement('script');
+      s.textContent = fill(f.js, fields);
+      document.body.appendChild(s);
+    }
+    dispatch('onWidgetLoad', {
+      fieldData: fields,
+      channel: { username: f.channel || '', id: '' },
+      session: seSession(f.data),
+      recents: [],
+      currency: { code: 'USD', symbol: '$', name: 'U.S. Dollar' },
+      overlay: { isEditorMode: !!f.preview, muted: false },
+    });
+    if (f.data) emit('data', f.data);
+    loaded = true;
+    waiting.splice(0).forEach(live);
+  };
+
+  addEventListener('message', (m) => {
+    if (m.source !== parent) return;
+    const f = m.data;
+    if (!f || f.sylva !== true) return;
+    if (f.type === 'load') {
+      if (!document.getElementById('widget')) load(f);
+    } else if (loaded) live(f);
+    else waiting.push(f);
+  });
+  send({ type: 'ready' });
+})();
+</script>
+</body>
+</html>

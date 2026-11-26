@@ -351,19 +351,163 @@ pub fn history_len(page: &Value) -> usize {
     list(page).len()
 }
 
-/// Finished streams from `GET /streams/{channel}`: start and end in Unix
-/// milliseconds, and how many people chatted.
-pub fn past_streams(page: &Value) -> Vec<(i64, i64, u64)> {
-    let mut out: Vec<(i64, i64, u64)> = list(page)
+/// One finished StreamElements stream.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PastStream {
+    /// StreamElements' id for it, used to ask for its details.
+    pub id: Option<String>,
+    /// Unix milliseconds.
+    pub start: i64,
+    pub end: i64,
+    pub chatters: u64,
+    pub detail: StreamDetail,
+}
+
+/// Viewer and chat numbers for one stream, when StreamElements has them.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct StreamDetail {
+    pub peak_viewers: Option<u64>,
+    pub avg_viewers: Option<u64>,
+    pub messages: Option<u64>,
+}
+
+impl StreamDetail {
+    /// Fill what is missing here from `other`.
+    pub fn or(self, other: StreamDetail) -> StreamDetail {
+        StreamDetail {
+            peak_viewers: self.peak_viewers.or(other.peak_viewers),
+            avg_viewers: self.avg_viewers.or(other.avg_viewers),
+            messages: self.messages.or(other.messages),
+        }
+    }
+}
+
+/// Finished streams from `GET /streams/{channel}`, oldest first.
+pub fn past_streams(page: &Value) -> Vec<PastStream> {
+    let mut out: Vec<PastStream> = list(page)
         .iter()
         .filter_map(|s| {
             let (start, end) = (ms(&s["start"])?, ms(&s["end"])?);
-            (end > start).then_some((start, end, num(&s["totalChatters"]).max(0) as u64))
+            (end > start).then(|| PastStream {
+                id: s["_id"].as_str().map(String::from),
+                start,
+                end,
+                chatters: num(&s["totalChatters"]).max(0) as u64,
+                detail: stream_detail(s),
+            })
         })
         .collect();
-    out.sort_unstable();
-    out.dedup_by_key(|s| s.0);
+    out.sort_unstable_by_key(|s| s.start);
+    out.dedup_by_key(|s| s.start);
     out
+}
+
+const PEAK_KEYS: [&str; 7] = [
+    "peakviewers",
+    "maxviewers",
+    "viewerspeak",
+    "viewersmax",
+    "highestviewers",
+    "peak",
+    "max",
+];
+const AVG_KEYS: [&str; 7] = [
+    "averageviewers",
+    "avgviewers",
+    "viewersaverage",
+    "viewersavg",
+    "averageviewercount",
+    "average",
+    "avg",
+];
+const MESSAGE_KEYS: [&str; 8] = [
+    "totalmessages",
+    "messages",
+    "chatmessages",
+    "messagecount",
+    "chatlines",
+    "totalchatmessages",
+    "messagestotal",
+    "chat",
+];
+const SAMPLE_KEYS: [&str; 7] = [
+    "viewers",
+    "viewerhistory",
+    "viewershistory",
+    "viewercount",
+    "samples",
+    "graph",
+    "timeline",
+];
+
+fn whole(v: &Value) -> Option<u64> {
+    let n = v.as_f64().or_else(|| v.as_str()?.trim().parse().ok())?;
+    (n.is_finite() && n >= 0.0).then(|| n.round() as u64)
+}
+
+/// The first number under one of `keys` (case and `_` ignored), looking
+/// up to three objects deep.
+fn find(v: &Value, keys: &[&str], depth: u8) -> Option<u64> {
+    let obj = v.as_object()?;
+    for k in keys {
+        for (name, val) in obj {
+            if name.to_lowercase().replace('_', "") == *k {
+                if let Some(n) = whole(val) {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    obj.values().find_map(|val| find(val, keys, depth - 1))
+}
+
+/// Peak and average from a list of viewer counts, bare or as objects.
+fn samples(v: &Value, depth: u8) -> Option<(u64, u64)> {
+    let obj = v.as_object()?;
+    for (name, val) in obj {
+        if !SAMPLE_KEYS.contains(&name.to_lowercase().replace('_', "").as_str()) {
+            continue;
+        }
+        let Some(list) = val.as_array() else { continue };
+        let counts: Vec<u64> = list
+            .iter()
+            .filter_map(|s| {
+                whole(s).or_else(|| {
+                    ["viewers", "viewerCount", "value", "count", "y"]
+                        .iter()
+                        .find_map(|k| whole(&s[*k]))
+                })
+            })
+            .collect();
+        if !counts.is_empty() {
+            let peak = *counts.iter().max()?;
+            let avg = (counts.iter().sum::<u64>() as f64 / counts.len() as f64).round() as u64;
+            return Some((peak, avg));
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    obj.values().find_map(|val| samples(val, depth - 1))
+}
+
+/// Viewer and chat numbers from a stream, as StreamElements sends it.
+/// Their API docs do not describe these, so this looks for the usual names.
+pub fn stream_detail(v: &Value) -> StreamDetail {
+    let v = if v["stream"].is_object() {
+        &v["stream"]
+    } else {
+        v
+    };
+    let from_samples = samples(v, 2);
+    StreamDetail {
+        peak_viewers: find(v, &PEAK_KEYS, 2).or(from_samples.map(|s| s.0)),
+        avg_viewers: find(v, &AVG_KEYS, 2).or(from_samples.map(|s| s.1)),
+        messages: find(v, &MESSAGE_KEYS, 2),
+    }
 }
 
 #[cfg(test)]
@@ -499,6 +643,46 @@ mod tests {
         ]);
         let s = past_streams(&page);
         assert_eq!(s.len(), 2);
-        assert_eq!(s[0], (1734051532088, 1734071324613, 2704));
+        assert_eq!(
+            (s[0].start, s[0].end, s[0].chatters),
+            (1734051532088, 1734071324613, 2704)
+        );
+        assert_eq!(s[0].detail, StreamDetail::default());
+    }
+
+    #[test]
+    fn stream_detail_finds_numbers() {
+        let d = stream_detail(
+            &json!({"peakViewers": 40, "averageViewers": "12.4", "totalMessages": 900}),
+        );
+        assert_eq!(
+            d,
+            StreamDetail {
+                peak_viewers: Some(40),
+                avg_viewers: Some(12),
+                messages: Some(900)
+            }
+        );
+        let d = stream_detail(
+            &json!({"stats": {"viewers": {"peak": 9, "average": 4}, "chat": {"messages": 50}}}),
+        );
+        assert_eq!(
+            d,
+            StreamDetail {
+                peak_viewers: Some(9),
+                avg_viewers: Some(4),
+                messages: Some(50)
+            }
+        );
+        let d =
+            stream_detail(&json!({"viewers": [{"viewers": 2}, {"viewers": 6}, {"viewers": 4}]}));
+        assert_eq!(
+            d,
+            StreamDetail {
+                peak_viewers: Some(6),
+                avg_viewers: Some(4),
+                messages: None
+            }
+        );
     }
 }

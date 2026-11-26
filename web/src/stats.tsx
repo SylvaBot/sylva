@@ -362,7 +362,7 @@ function StreamTable({ streams }: { streams: Recap[] }) {
               <td>{hours(val(r, 'length'))}</td>
               {COLS.slice(2).map((c) => {
                 const v = val(r, c.key);
-                const missing = ((c.key === 'peakViewers' || c.key === 'avgViewers') && r[c.key] == null) || (c.key === 'chatLines' && r.source === 'streamelements');
+                const missing = ((c.key === 'peakViewers' || c.key === 'avgViewers') && r[c.key] == null) || (c.key === 'chatLines' && r.source === 'streamelements' && !r.chatLines);
                 return (
                   <td key={c.key} className={c.c}>
                     {missing ? <span className="faint">-</span> : <span className="cell-bar"><i style={{ width: `${(v / max[c.key]) * 100}%` }} />{num(v)}</span>}

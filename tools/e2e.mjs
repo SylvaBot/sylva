@@ -261,6 +261,30 @@ await check('alert settings: defaults, validation, switches, minimums and the vi
   const tooLong = await post({ kinds: defaults.kinds.map((k) => ({ ...k, durationMs: 60000 })) });
   assert.equal(tooLong.status, 400);
   assert.match(await tooLong.text(), /2 to 20 seconds/);
+
+  // Uploaded media: kept by its bytes, served publicly, and an alert can use it.
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4c10000000049454e44ae426082', 'hex');
+  const up = await fetch(`${BASE}/v1/channels/${skey}/media?name=star.png`, {
+    method: 'POST', headers: { Authorization: `Bearer ${ADMIN}`, 'Content-Type': 'application/octet-stream' }, body: png,
+  });
+  assert.equal(up.status, 200);
+  const file = await up.json();
+  assert.match(file.id, /^[0-9a-f]{16}\.png$/);
+  const bad = await fetch(`${BASE}/v1/channels/${skey}/media?name=x.svg`, {
+    method: 'POST', headers: { Authorization: `Bearer ${ADMIN}` }, body: '<svg onload=alert(1)>',
+  });
+  assert.equal(bad.status, 400);
+  const served = await fetch(`${BASE}/media/${skey}/${file.id}`);
+  assert.equal(served.status, 200);
+  assert.equal(served.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), png);
+  const withArt = await post({ kinds: defaults.kinds.map((k) => (k.kind === 'follow' ? { ...k, image: file.id } : k)) });
+  assert.equal(withArt.status, 200);
+  assert.equal((await post({ kinds: defaults.kinds.map((k) => (k.kind === 'follow' ? { ...k, sound: file.id } : k)) })).status, 400, 'an image is not a sound');
+  await fetch(`${BASE}/v1/channels/${skey}/media/${file.id}/delete`, { method: 'POST', headers: { Authorization: `Bearer ${ADMIN}` } });
+  const after = await getJson(`/v1/channels/${skey}/alert-settings`);
+  assert.equal(after.kinds.find((k) => k.kind === 'follow').image, undefined, 'a deleted file leaves the alert');
+  assert.equal((await fetch(`${BASE}/media/${skey}/${file.id}`)).status, 404);
   assert.equal((await post('nonsense')).status, 400);
 
   const kinds = defaults.kinds.map((k) => {
@@ -284,7 +308,7 @@ await check('alert settings: defaults, validation, switches, minimums and the vi
   assert.equal(big.alert, true);
   const play = await overlay.next((f) => f.type === 'play');
   assert.equal(play.event.seq, big.seq, 'only the cheer over the minimum plays');
-  assert.deepEqual(play.view, { label: 'Bits!', name: 'Big', detail: 'Big gave 12,000', durationMs: 8000 });
+  assert.deepEqual(play.view, { label: 'Bits!', name: 'Big', detail: 'Big gave 12,000', durationMs: 8000, volume: 70 });
   overlay.ack(play.alertId);
   await overlay.close();
   const feed = await getJson(`/v1/channels/${skey}/history?filter=alerts`);
@@ -755,6 +779,26 @@ if (!fake || !usesFake) {
       await sleep(250);
     }
   };
+
+  await check('a stream gets a summary when it ends', async () => {
+    const rid = randomChannelId();
+    const spath = `/v1/channels/twitch:${rid}/streams`;
+    assert.deepEqual(await getJson(spath), { live: null, past: [] });
+    await streamState(rid, true);
+    await sendEventSub(chatLine(rid, { text: 'hello', id: '9101', name: 'Rowan' }));
+    await sendEventSub(chatLine(rid, { text: 'again', id: '9101', name: 'Rowan' }));
+    await sendEventSub(chatLine(rid, { text: 'hi', id: '9102', name: 'Hazel' }));
+    const live = await until(async () => { const v = await getJson(spath); return v.live?.chatLines === 3 && v; });
+    assert.ok(live, 'the live stream counts as it goes');
+    assert.equal(live.live.chatters, 2);
+    assert.deepEqual(live.live.topChatter, { name: 'Rowan', amount: 2 });
+    await streamState(rid, false);
+    const done = await until(async () => { const v = await getJson(spath); return v.past.length === 1 && v; });
+    assert.ok(done, 'the ended stream is kept');
+    assert.equal(done.live, null);
+    assert.equal(done.past[0].chatLines, 3);
+    assert.ok(done.past[0].endedAt >= done.past[0].startedAt);
+  });
 
   await check('loyalty points pay viewers while live, and chat can check and move them', async () => {
     const lid = randomChannelId();

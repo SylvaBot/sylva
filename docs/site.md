@@ -74,6 +74,24 @@ Each kind of alert (follows, subs, gifted subs, cheers, raids, tips, channel poi
 
 The channel applies these on the server (`crates/sylva-core/src/alerts.rs`): it decides what goes into the queue, and every `play` frame carries the finished text and time on screen, so all overlays show the same thing and old overlay links need no change. A `duration` in an overlay link still overrides the time for that overlay. Test alerts follow the settings too, and the dashboard says when a test only went to Activity.
 
+### Alert sounds and images
+
+Each alert type can have an uploaded sound (MP3, OGG, WAV) with its volume and
+an image or GIF (PNG, JPG, GIF, WebP), up to 3 MB each and 30 files, 40 MB per
+channel. Files are checked by their first bytes, kept in the channel's own
+SQLite in pieces, and served at `/media/{channel}/{id}` with a year of
+caching and a sandbox CSP. The overlay plays the sound, and the alert box shows
+the image; custom alert widgets get `view.soundUrl` and `view.imageUrl`.
+Deleting a file takes it out of every alert that used it.
+
+## Stream summaries
+
+When a stream goes offline the channel works out its summary from the event
+log (followers, subs, gifted subs, bits, raids, tips, redemptions, chat lines,
+people who chatted, and the top chatter, cheerer and gifter) and keeps the
+last 60. The Overview page shows the live stream so far, or the last one, with
+earlier streams in a picker. `GET /v1/channels/{key}/streams`.
+
 ## The overlay editor
 
 The top of the Overlay page. Every widget sits on one 1920 by 1080 canvas, and the whole layout is one Browser Source in OBS: the overlay link with `&scene` added.

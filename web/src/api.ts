@@ -68,7 +68,22 @@ export interface KindSettings {
   label: string;
   template: string;
   showMessage: boolean;
+  /** Uploaded media ids (see MediaFile). */
+  sound?: string;
+  image?: string;
+  volume: number;
 }
+export interface Leader { name: string; amount: number }
+export interface Recap {
+  startedAt: number; endedAt: number | null;
+  follows: number; subs: number; gifted: number; bits: number; raids: number; raiders: number;
+  tips: number; redemptions: number; chatLines: number; chatters: number;
+  topChatter: Leader | null; topCheerer: Leader | null; topGifter: Leader | null;
+}
+export interface MediaFile { id: string; name: string; size: number; at: number }
+/** Where an uploaded file is served. */
+export const mediaUrl = (key: string, id: string) => `/media/${key}/${encodeURIComponent(id)}`;
+export const isSound = (id: string) => /\.(mp3|ogg|wav)$/.test(id);
 export interface AlertSettings { kinds: KindSettings[] }
 
 export type GoalKind = 'follows' | 'subs' | 'bits';
@@ -234,8 +249,8 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined ? undefined : { 'Content-Type': body instanceof Blob ? 'application/octet-stream' : 'application/json' },
+      body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
     });
   } catch {
     throw new ApiError('Sylva could not be reached. Check your connection.', 0);
@@ -268,6 +283,11 @@ export const api = {
   replay: (key: string, seq: number) => request<AlertState>('POST', `${ch(key)}/alerts/replay/${seq}`),
   testEvent: (key: string, e: { kind: Kind; name: string; amount?: number; message?: string }) =>
     request<{ seq: number; duplicate: boolean; alert: boolean }>('POST', `${ch(key)}/test-event`, e),
+  streams: (key: string) => request<{ live: Recap | null; past: Recap[] }>('GET', `${ch(key)}/streams`),
+  media: (key: string) => request<MediaFile[]>('GET', `${ch(key)}/media`),
+  uploadMedia: (key: string, file: File) =>
+    request<MediaFile>('POST', `${ch(key)}/media?name=${encodeURIComponent(file.name.slice(0, 60))}`, file),
+  deleteMedia: (key: string, id: string) => request<MediaFile[]>('POST', `${ch(key)}/media/${encodeURIComponent(id)}/delete`),
   alertSettings: (key: string) => request<AlertSettings>('GET', `${ch(key)}/alert-settings`),
   saveAlertSettings: (key: string, s: AlertSettings) => request<AlertSettings>('POST', `${ch(key)}/alert-settings`, s),
   widgetSettings: (key: string) => request<WidgetSettings>('GET', `${ch(key)}/widget-settings`),

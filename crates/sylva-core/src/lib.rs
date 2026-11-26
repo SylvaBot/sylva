@@ -11,6 +11,7 @@ pub mod builtins;
 pub mod community;
 pub mod event;
 pub mod giveaway;
+pub mod import;
 pub mod loyalty;
 pub mod moderation;
 pub mod protocol;

@@ -49,6 +49,8 @@ SYLVA_BOT_LOGIN = "sylva_bot"
 # Leave empty. The end to end tests point the public services that some chat
 # commands read (jokes, facts, dictionaries, emotes) at a local stand-in.
 SYLVA_LOOKUP_URL = ""
+# Leave empty. The tests point the StreamElements import at a local stand-in.
+SYLVA_SE_URL = ""
 
 # Workers Logs: keeps console output (such as rejected webhooks) for 7 days.
 [observability]

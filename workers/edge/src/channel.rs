@@ -458,6 +458,15 @@ impl DurableObject for ChannelDo {
                 self.remember_site(&url)?;
                 Response::from_json(&self.bot_view().await?)
             }
+            (Method::Post, ["import", "streamelements"]) => {
+                let Ok(body) = req.json::<crate::import::ImportRequest>().await else {
+                    return Response::error("Paste your StreamElements JWT token", 400);
+                };
+                match self.import_streamelements(body).await? {
+                    Ok(r) => Response::from_json(&r),
+                    Err(m) => Response::error(m, 400),
+                }
+            }
             (Method::Get, ["public", "commands"]) => match self.public_commands()? {
                 Some(p) => Response::from_json(&p),
                 None => Response::error("This channel's bot is off", 404),

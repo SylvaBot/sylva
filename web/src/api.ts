@@ -167,6 +167,7 @@ export interface Redemption {
   id: number; itemId: string; itemName: string; cost: number; userId: string; login: string; name: string;
   input: string; at: number; status: 'pending' | 'done' | 'refunded'; doneAt?: number;
 }
+export interface ImportResult { commands: number; timers: number; points: number; skipped: { what: string; why: string }[] }
 export interface PublicCommand {
   name: string; aliases: string[]; text: string; usage: string; level: UserLevel; cooldown: number; builtin: boolean;
 }
@@ -289,6 +290,8 @@ export const api = {
     request<{ redemptions: Redemption[] }>('GET', `${ch(key)}/loyalty/redemptions?status=${status}&limit=${status === 'pending' ? 200 : 50}${before ? `&before=${before}` : ''}`),
   settle: (key: string, id: number, action: 'done' | 'reopen' | 'refund') =>
     request<Redemption>('POST', `${ch(key)}/loyalty/redemptions/${id}/${action}`),
+  importStreamElements: (key: string, body: { token: string; commands: boolean; timers: boolean; points: boolean }) =>
+    request<ImportResult>('POST', `${ch(key)}/import/streamelements`, body),
   publicCommands: (login: string) => request<PublicCommands>('GET', `/v1/public/${encodeURIComponent(login)}/commands`),
   publicStore: (login: string, viewer?: string) =>
     request<PublicStore>('GET', `/v1/public/${encodeURIComponent(login)}${viewer ? `?viewer=${encodeURIComponent(viewer)}` : ''}`),

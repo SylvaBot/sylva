@@ -1099,3 +1099,10 @@ fieldset.gate { border: 0; margin: 0; padding: 0; min-width: 0; }
   .role-key b { display: block; }
 }
 .switch:disabled { opacity: .55; }
+
+.import-form { display: grid; gap: 14px; max-width: 520px; }
+.import-pick { display: flex; flex-wrap: wrap; gap: 8px 20px; border: 0; margin: 0; padding: 0; }
+.import-pick .check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.import-form .btn { justify-self: start; }
+.import-done { border-top: 1px solid var(--border); font-size: 14px; color: var(--text-2); }
+.import-skipped { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }

@@ -129,6 +129,10 @@ Every channel has these without writing a reply (the list is `sylva_core::builti
 
 Song request and media queue commands are left out on purpose. Settings saved before built-ins existed are upgraded on first read: the old default `!commands` and `!uptime` replies make way for the built-in ones, and the quote commands take the old "who can add quotes" level.
 
+### Moving from StreamElements
+
+Settings has **Move from StreamElements** for the owner: paste the StreamElements JWT token (Account, Channels, Show secrets) and pick commands, timers and loyalty points. Sylva calls StreamElements' API once with it and never stores it. Commands come over one at a time, so one Sylva cannot keep (an unknown variable, a name already used) is listed with the reason instead of stopping the rest; common variables such as `${user.name}` are renamed. A timer that rotates several messages becomes one timer per message. Points come over for the top 1000 viewers, each keeping whichever balance is higher, so running the import twice changes nothing. Code: `sylva_core::import` and the Worker's `import`.
+
 ## Moderation
 
 Off until the streamer picks a preset. Each chat line is checked in the channel's Durable Object before the bot sees it; a line that breaks a rule gets no bot answer.

@@ -266,8 +266,15 @@ alerts over the whole canvas (they play the alert queue) and a Twitch-style
 chat. Add widget, Alert box and Chat box insert them too. The chat shows
 Twitch badges and Twitch, 7TV, BetterTTV and FrankerFaceZ emotes, which the
 overlay reads from `GET /v1/chat-assets/{channel}` (public, cached an hour)
-and hands to every custom widget the way StreamElements does. Older scenes
-with the stock alert box and chat box keep working.
+and hands to every custom widget the way StreamElements does.
+
+The overlay page carries the same code (the Worker puts it into the page from
+`web/src/widgets`), so the stock alert box and chat box are gone everywhere:
+a scene item of kind `alerts` or `chat`, the plain alert link and the
+`&widget=chat` link all show the built-in widgets, and a channel that has not
+published a layout shows both. The editor opens a never published channel on
+the default template and turns old alert box and chat box items into the
+built-in widgets in the draft.
 
 ### Custom code widgets
 

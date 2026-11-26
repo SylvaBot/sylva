@@ -62,6 +62,16 @@ export const TEMPLATES: Template[] = [
 let idCounter = 0;
 const newId = (widget: WidgetKind) => `${widget}-${Date.now().toString(36)}${(idCounter++).toString(36)}`;
 const fromTemplate = (t: Template): SceneItem[] => t.items.map((i) => ({ ...i, id: newId(i.widget) }));
+/**
+ * What the editor opens with. A channel that never published starts from the
+ * default template, and the old stock alert box and chat box become the
+ * built-in widgets, which is what the overlay shows for them.
+ */
+const upgrade = (list: SceneItem[], fresh: boolean): SceneItem[] =>
+  fresh && !list.length ? fromTemplate(TEMPLATES[0])
+    : list.map((i) => (i.widget === 'alerts' || i.widget === 'chat'
+      ? { id: i.id, widget: 'custom', x: i.x, y: i.y, w: i.w, h: i.h, code: i.widget === 'alerts' ? PILL_ALERTS : TWITCH_CHAT }
+      : i));
 /** The same layout, whatever order the fields came in and with the server's defaults filled in. */
 const norm = (items: SceneItem[]) => JSON.stringify(items.map((i) => [
   i.id, i.widget, i.x, i.y, i.w, i.h,
@@ -138,7 +148,7 @@ export function SceneEditor({ url }: { url: string | null }) {
   useEffect(() => {
     api.scene(ch.key).then((s) => {
       setServer(s);
-      setItems(s.draft.items);
+      setItems(upgrade(s.draft.items, !s.published));
       lastSaved.current = norm(s.draft.items);
     }).catch((x) => toast('Could not load the editor: ' + errorText(x), true));
     api.widgetSettings(ch.key).then((s) => setGoal(s.goal ?? null)).catch(() => setGoal(null));

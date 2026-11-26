@@ -71,6 +71,35 @@ use worker::*;
 const OVERLAY_HTML: &str = include_str!("../overlay/index.html");
 const OVERLAY_FRAME_HTML: &str = include_str!("../overlay/frame.html");
 
+/// The built-in alerts and chat widgets, the same code the editor adds. The
+/// overlay shows them for its alert box and chat box, and for a channel that
+/// has not published a layout yet.
+fn overlay_html() -> &'static str {
+    static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PAGE.get_or_init(|| {
+        macro_rules! widget {
+            ($name:literal, $title:literal, $alerts:literal) => {
+                serde_json::json!({
+                    "name": $title,
+                    "html": include_str!(concat!("../../../web/src/widgets/", $name, ".html")),
+                    "css": include_str!(concat!("../../../web/src/widgets/", $name, ".css")),
+                    "js": include_str!(concat!("../../../web/src/widgets/", $name, ".js")),
+                    "fields": include_str!(concat!("../../../web/src/widgets/", $name, ".json")),
+                    "values": {},
+                    "alerts": $alerts,
+                })
+            };
+        }
+        let defaults = serde_json::json!({
+            "alerts": widget!("pill-alerts", "Pill alerts", true),
+            "chat": widget!("twitch-chat", "Chat", false),
+        });
+        // Inside a script tag, "</" could end the script early.
+        let json = defaults.to_string().replace("</", "<\\/");
+        OVERLAY_HTML.replacen("/*SYLVA_DEFAULTS*/null", &json, 1)
+    })
+}
+
 /// Who is calling the channel API.
 #[derive(PartialEq)]
 enum Caller {
@@ -174,7 +203,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             if !valid_key(key) {
                 return Response::error("Not found", 404);
             }
-            let mut res = Response::from_html(OVERLAY_HTML)?;
+            let mut res = Response::from_html(overlay_html())?;
             res.headers_mut().set("Cache-Control", "no-store")?;
             // Overlay links carry a token in the query: never send it on.
             res.headers_mut().set("Referrer-Policy", "no-referrer")?;

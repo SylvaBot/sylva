@@ -298,6 +298,53 @@ pub fn history_span(page: &Value) -> Option<(i64, i64, bool)> {
     Some((lo, hi, first >= last))
 }
 
+/// Ways to ask for activities, tried in order until StreamElements takes
+/// one: (page size, `types` as a JSON list, dates as ISO text). Their docs
+/// allow both forms, but the API has been strict about some of them.
+pub const HISTORY_ASKS: [(usize, bool, bool); 5] = [
+    (HISTORY_PAGE, false, false),
+    (HISTORY_PAGE, true, false),
+    (100, true, true),
+    (100, false, true),
+    (25, true, true),
+];
+
+/// The query for `GET /activities/{channel}`, from `after` to `before`
+/// (Unix milliseconds).
+pub fn activities_query(after: i64, before: i64, ask: (usize, bool, bool)) -> String {
+    let (limit, json_types, iso) = ask;
+    let date = |ms: i64| {
+        if iso {
+            chrono::DateTime::from_timestamp_millis(ms)
+                .map(|d| d.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+                .unwrap_or_else(|| ms.to_string())
+        } else {
+            ms.to_string()
+        }
+    };
+    let types = if json_types {
+        let list: Vec<String> = HISTORY_TYPES.iter().map(|t| format!("%22{t}%22")).collect();
+        format!("&types=%5B{}%5D", list.join("%2C"))
+    } else {
+        HISTORY_TYPES
+            .iter()
+            .map(|t| format!("&types={t}"))
+            .collect()
+    };
+    format!(
+        "after={}&before={}&limit={limit}{types}",
+        date(after),
+        date(before)
+    )
+}
+
+/// When a StreamElements account was made, from its id (a MongoDB object
+/// id starts with its creation time in seconds).
+pub fn created_ms(id: &str) -> Option<i64> {
+    let secs = i64::from_str_radix(id.get(..8)?, 16).ok()?;
+    (id.len() == 24).then_some(secs * 1000)
+}
+
 /// How many activities a page holds, counted the way StreamElements does.
 pub fn history_len(page: &Value) -> usize {
     list(page).len()
@@ -426,6 +473,20 @@ mod tests {
             history_rows(&json!({"total": 1, "docs": [page[0].clone()]})).len(),
             1
         );
+    }
+
+    #[test]
+    fn activity_queries() {
+        assert_eq!(
+            activities_query(1, 2, HISTORY_ASKS[0]),
+            "after=1&before=2&limit=500&types=follow&types=subscriber&types=cheer&types=raid&types=tip"
+        );
+        assert_eq!(
+            activities_query(1733873727941, 1733873727942, HISTORY_ASKS[2]),
+            "after=2024-12-10T23:35:27.941Z&before=2024-12-10T23:35:27.942Z&limit=100&types=%5B%22follow%22%2C%22subscriber%22%2C%22cheer%22%2C%22raid%22%2C%22tip%22%5D"
+        );
+        assert_eq!(created_ms("68c25f6fc41e0d0d7c530984"), Some(1757568879000));
+        assert_eq!(created_ms("nope"), None);
     }
 
     #[test]

@@ -65,10 +65,7 @@ pub const COMMAND_SCOPES: &[(&str, &str)] = &[
 /// Asked for only when the streamer turns on chat alerts that need more
 /// than the sign in scopes.
 pub const ALERT_SCOPES: &[(&str, &str)] = &[
-    (
-        "channel:read:charity",
-        "Announce charity donations in chat",
-    ),
+    ("channel:read:charity", "Announce charity donations in chat"),
     ("channel:read:ads", "Announce ad breaks in chat"),
     ("channel:read:hype_train", "Announce hype trains in chat"),
     ("channel:read:predictions", "Announce predictions in chat"),

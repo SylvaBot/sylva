@@ -339,9 +339,9 @@ pub async fn channel_status(app: &App, broadcaster_user_id: &str) -> Result<Vec<
     let mut out: Vec<FeatureStatus> = Vec::new();
     let specs = channel_subscriptions(broadcaster_user_id);
     let found_any = |feature: Feature| {
-        specs.iter().any(|spec| {
-            spec.feature == feature && subs.iter().any(|s| s["type"] == spec.kind)
-        })
+        specs
+            .iter()
+            .any(|spec| spec.feature == feature && subs.iter().any(|s| s["type"] == spec.kind))
     };
     for spec in specs.iter().cloned() {
         // A feature behind an extra grant the streamer never gave is not

@@ -410,6 +410,17 @@ await check('the overlay editor saves drafts, publishes versions and pushes the 
   assert.equal((await post('', { items: [item('a b', 'goal')] })).status, 400);
   assert.equal((await post('', { items: [item('a', 'sparkles')] })).status, 400);
   assert.equal((await post('', { items: Array.from({ length: 25 }, (_, i) => item(`i${i}`, 'goal')) })).status, 400);
+  // Custom code: fields must be JSON, and only one thing on a scene plays alerts.
+  const custom = (id, code) => item(id, 'custom', { code: { name: 'Mine', html: '<b>hi</b>', css: '', js: '', fields: '', values: {}, alerts: false, ...code } });
+  assert.equal((await post('', { items: [custom('c', { fields: 'nope' })] })).status, 400);
+  assert.equal((await post('', { items: [custom('c', { alerts: true }), item('a', 'alerts')] })).status, 400);
+  const withCode = await (await post('', { items: [custom('c', { alerts: true, fields: '{"x":{"type":"text","value":"1"}}' })] })).json();
+  assert.equal(withCode.draft.items[0].code.alerts, true);
+  const frame = await fetch(`${BASE}/overlay-frame`);
+  assert.equal(frame.status, 200);
+  assert.match(frame.headers.get('content-security-policy'), /sandbox allow-scripts/);
+  assert.match(await frame.text(), /window\.Sylva = /);
+  await post('', { items: [] });
 
   // A draft is tidied and kept, but overlays do not see it yet.
   const widget = new Client(key, 'widget', 0, { token: overlayToken });

@@ -75,10 +75,14 @@ export type GoalKind = 'follows' | 'subs' | 'bits';
 export interface Goal { title: string; kind: GoalKind; target: number; since: number }
 export interface WidgetSettings { goal?: Goal | null }
 
-export type WidgetKind = 'alerts' | 'feed' | 'latest' | 'top' | 'goal' | 'chat';
+export type WidgetKind = 'alerts' | 'feed' | 'latest' | 'top' | 'goal' | 'chat' | 'custom';
+export interface CustomCode {
+  name: string; html: string; css: string; js: string; fields: string;
+  values: Record<string, unknown>; alerts: boolean;
+}
 export interface SceneItem {
   id: string; widget: WidgetKind; x: number; y: number; w: number; h: number;
-  kind?: string | null; limit?: number | null;
+  kind?: string | null; limit?: number | null; code?: CustomCode | null;
 }
 export interface Scene { items: SceneItem[] }
 export interface SceneState {

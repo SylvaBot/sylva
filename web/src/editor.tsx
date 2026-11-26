@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { api, type CustomCode, type Goal, type SceneItem, type SceneState, type WidgetKind } from './api';
-import { CodeDialog, CustomFrame, STARTER } from './customWidget';
+import { CodeDialog, CustomFrame, STARTER, testEvent, type Send } from './customWidget';
 import { PILL_ALERTS, TWITCH_CHAT } from './widgets';
 import { useChannel } from './channel';
 import { Card, sendTest, TESTS } from './pages';
@@ -144,6 +144,18 @@ export function SceneEditor({ url }: { url: string | null }) {
   itemsRef.current = items;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastSaved = useRef<string>('');
+  // The canvas's custom widget previews, so Try it plays there too.
+  const previews = useRef(new Map<string, { send: Send; alerts: boolean }>());
+  const bindPreview = useCallback((it: SceneItem, send: Send | null) => {
+    if (!send) { previews.current.delete(it.id); return; }
+    const alerts = !!it.code?.alerts;
+    previews.current.set(it.id, { send, alerts });
+    // A chat preview starts with a few lines, so it is not blank.
+    if (!alerts) for (let i = 0; i < 4; i++) testEvent(send, 'chat', false);
+  }, []);
+  const playInPreviews = (kind: string) => {
+    previews.current.forEach((p) => testEvent(p.send, p.alerts ? kind : 'chat', p.alerts));
+  };
 
   useEffect(() => {
     api.scene(ch.key).then((s) => {
@@ -477,6 +489,7 @@ export function SceneEditor({ url }: { url: string | null }) {
                 role="menuitem"
                 onClick={async () => {
                   setMenu(null);
+                  playInPreviews(t.kind);
                   try {
                     const r = await sendTest(ch.key, t);
                     toast(r.alert ? `Test ${t.label.toLowerCase()} sent to your overlay` : `${t.label} alerts are off, so only the widgets got the test`);
@@ -525,7 +538,7 @@ export function SceneEditor({ url }: { url: string | null }) {
                     onFocus={() => setSelected(it.id)}
                   >
                     <div className="slot-preview" style={{ width: it.w, height: it.h, transform: `scale(${scale})` }} aria-hidden="true">
-                      <Preview it={it} goal={goal} />
+                      <Preview it={it} goal={goal} bind={bindPreview} />
                     </div>
                     <span className="slot-tag" aria-hidden="true"><Icon id={m.icon} />{m.name}</span>
                     {isSel && (['nw', 'ne', 'sw', 'se'] as const).map((h) => (
@@ -793,7 +806,7 @@ const LATEST_SAMPLE: Record<string, [string, string, string?]> = {
   cheer: ['c-bits', 'Rowan', '500'], raid: ['c-raid', 'Hazel', '42'],
 };
 
-function Preview({ it, goal }: { it: SceneItem; goal: Goal | null }) {
+function Preview({ it, goal, bind }: { it: SceneItem; goal: Goal | null; bind?: (it: SceneItem, send: Send | null) => void }) {
   const limit = it.limit ?? (it.widget === 'feed' ? 5 : 12);
   switch (it.widget) {
     case 'alerts':
@@ -846,7 +859,7 @@ function Preview({ it, goal }: { it: SceneItem; goal: Goal | null }) {
         </div>
       );
     case 'custom':
-      return it.code ? <CustomFrame code={it.code} /> : null;
+      return it.code ? <CustomFrame code={it.code} bind={(s) => bind?.(it, s)} /> : null;
     default:
       return null;
   }

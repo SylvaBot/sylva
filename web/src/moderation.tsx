@@ -9,7 +9,7 @@ import {
 } from './api';
 import { useChannel } from './channel';
 import { Card, PageHead } from './pages';
-import { errorText, Gate, Icon, useToast } from './ui';
+import { errorText, Gate, Icon, SkelCard, SkelRows, useToast } from './ui';
 
 const PRESETS: { id: ModPreset; label: string; what: string }[] = [
   { id: 'off', label: 'Off', what: 'Sylva leaves your chat alone. Twitch AutoMod and your moderators still work as usual.' },
@@ -116,7 +116,7 @@ export function ModerationPage() {
     <div className="page">
       <PageHead title="Moderation" desc="Rules that keep spam out of your chat. Sylva removes the message first, and times out chatters who keep going." />
       {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load moderation. Refresh to try again.</p></div></Card>}
-      {!view && !failed && <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>}
+      {!view && !failed && <SkelCard rows={4} />}
       {view && draft && next && (
         <div className="stack">
           {view.permission === 'notMod' && (
@@ -426,7 +426,7 @@ function ActionLog({ permission }: { permission: ModView['permission'] }) {
       desc="Every message Sylva removed and every timeout. A timeout can be lifted while it lasts; Twitch cannot bring back a removed message."
       action={<button className="btn sm ghost" type="button" onClick={() => void load()}><Icon id="refresh" />Refresh</button>}
     >
-      {entries === null && <p className="empty">Loading</p>}
+      {entries === null && <SkelRows n={4} tile={false} />}
       {entries?.length === 0 && (
         <p className="empty">
           <Icon id="shield" />

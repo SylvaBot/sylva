@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, type PublicCommand, type PublicCommands, type UserLevel } from './api';
 import { Link } from './router';
 import { SiteFooter, SiteHeader } from './site';
-import { num } from './ui';
+import { num, SkelRows } from './ui';
 
 const WHO: Record<UserLevel, string> = {
   everyone: 'Everyone',
@@ -70,7 +70,7 @@ export function PublicCommandsPage({ login, signedIn }: { login: string; signedI
         {header}
         <main id="content" className="prose wrap">
           {data === null
-            ? <p className="prose-lede" role="status">Loading</p>
+            ? <SkelRows n={5} tile={false} />
             : <>
                 <h1>{data === 'missing' ? 'No commands here' : 'Something went wrong'}</h1>
                 <p className="prose-lede">

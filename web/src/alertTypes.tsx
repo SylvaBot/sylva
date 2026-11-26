@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, isSound, mediaUrl, type AlertSettings, type Kind, type KindSettings, type MediaFile } from './api';
 import { useChannel } from './channel';
-import { errorText, Gate, Icon, num, useToast } from './ui';
+import { errorText, Gate, Icon, num, SkelRows, useToast } from './ui';
 
 const META: Partial<Record<Kind, { name: string; c: string; icon: string; unit?: string; sample: number; hint?: string }>> = {
   follow: { name: 'Follows', c: 'c-follow', icon: 'heart', sample: 0 },
@@ -95,7 +95,7 @@ export function AlertTypes() {
         </div>
       </div>
       {failed && !settings && <div className="card-body"><p className="card-text">Could not load your alert settings. Refresh to try again.</p></div>}
-      {!settings && !failed && <div className="card-body"><p className="card-text">Loading</p></div>}
+      {!settings && !failed && <div className="card-body"><SkelRows n={7} /></div>}
       {settings && (
         <ul className="types">
           {settings.kinds.filter((k) => META[k.kind]).map((k) => {

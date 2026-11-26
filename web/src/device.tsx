@@ -5,7 +5,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, type Me } from './api';
 import { Link } from './router';
 import { SiteFooter } from './site';
-import { errorText, Icon } from './ui';
+import { errorText, Icon, SkelRows } from './ui';
 
 type Step =
   | { at: 'enter' }
@@ -77,7 +77,7 @@ export function DevicePage({ me }: { me: Me | null | undefined }) {
       <main id="content" className="device wrap">
         <section className="card device-card" aria-labelledby="device-title">
           <span className="device-icon"><Icon id="monitor" /></span>
-          {me === undefined && <p className="card-text">Loading</p>}
+          {me === undefined && <SkelRows n={2} tile={false} />}
 
           {me === null && (
             <>

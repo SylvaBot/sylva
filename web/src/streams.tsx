@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, type Recap } from './api';
 import { useChannel } from './channel';
 import { Card } from './pages';
-import { num } from './ui';
+import { num, Skel } from './ui';
 
 const hours = (ms: number) => {
   const m = Math.max(0, Math.round(ms / 60000));
@@ -79,7 +79,7 @@ export function StreamRecaps() {
     >
       <div className="card-body">
         {failed && <p className="card-text">Could not load your streams. Refresh to try again.</p>}
-        {!data && !failed && <p className="card-text">Loading</p>}
+        {!data && !failed && <div className="recap-skel" role="status" aria-label="Loading">{Array.from({ length: 8 }, (_, i) => <div key={i}><Skel w={80} h={10} /><Skel w={56} h={18} /></div>)}</div>}
         {data && !r && <p className="card-text">After your next stream ends, its summary shows here: followers, subs, bits, raids and who chatted the most.</p>}
         {r && <RecapBody r={r} />}
       </div>

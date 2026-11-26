@@ -4,6 +4,7 @@ import { App } from './App';
 import { watchTheme } from './theme';
 import { Toasts } from './ui';
 import './styles.css';
+import './skeleton.css';
 
 watchTheme();
 

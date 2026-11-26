@@ -1,0 +1,41 @@
+/*
+ * Loading states. Gray shapes stand where content will be, sized like it, so
+ * nothing jumps when the data arrives; the content then fades in.
+ */
+.skel {
+  display: block; flex: none; max-width: 100%; border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 40%, var(--surface-2) 80%);
+  background-size: 250% 100%;
+  animation: skel-shimmer 1.5s ease-in-out infinite;
+}
+.skel.round { border-radius: 999px; }
+:root[data-theme="light"] .skel { background-image: linear-gradient(90deg, var(--surface-3) 0%, var(--surface-2) 40%, var(--surface-3) 80%); }
+@keyframes skel-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+.skel-lines { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
+.skel-rows { display: flex; flex-direction: column; gap: 2px; }
+.skel-row { display: flex; align-items: center; gap: 14px; padding: 10px 0; min-height: 60px; }
+.skel-card .card-head { min-height: 74px; }
+.kpi-num .skel { height: 31px; width: 72px; }
+
+/* The dashboard frame shown while your account loads, in the same places as the real one. */
+.boot .rail-nav { gap: 10px; padding-top: 10px; }
+.boot .rail-nav .skel { width: 24px; height: 24px; border-radius: 8px; margin: 8px 0; }
+.boot .appbar { justify-content: space-between; }
+.boot .boot-head { display: flex; flex-direction: column; gap: 10px; margin: 20px 0 22px; }
+.boot .kpis .card { height: 128px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+
+/* New content fades in once, which reads calmer than popping in. */
+.page > *, .skel-card + *, .card-body > .types, .card-body > .feed, .card > .feed, .card > .types { animation: content-in .22s var(--ease) both; }
+@keyframes content-in { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .skel { animation: none; }
+  .page > *, .skel-card + *, .card-body > .types, .card-body > .feed, .card > .feed, .card > .types { animation: none; }
+}
+.cell-num .skel { display: inline-block; vertical-align: middle; }
+.feed-skel { padding: 0 20px 8px; }
+.recap-skel { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 16px; padding: 4px 0 8px; }
+.recap-skel > div { display: flex; flex-direction: column; gap: 8px; }
+.boot .boot-menu { display: none; }
+.boot .appbar > .skel:nth-child(2) { margin-right: auto; }
+@media (max-width: 860px) { .boot .boot-menu { display: block; } .boot .rail { display: none; } }

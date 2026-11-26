@@ -7,7 +7,7 @@ import { api, type ChatAlertGroup, type ChatAlertInfo, type ChatAlertSettings, t
 import { useChannel } from './channel';
 import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
-import { errorText, Gate, Icon, useToast } from './ui';
+import { errorText, Gate, Icon, SkelCard, useToast } from './ui';
 
 const ALLOW_URL = '/auth/twitch/start?scopes=alerts&next=/app/chat-alerts';
 const MAX = 500;
@@ -74,7 +74,7 @@ export function ChatAlertsPage() {
       )}
 
       {tab === 'twitch' && failed && !view && <Card><div className="card-body"><p className="card-text">Could not load chat alerts. Refresh to try again.</p></div></Card>}
-      {tab === 'twitch' && !view && !failed && <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>}
+      {tab === 'twitch' && !view && !failed && <SkelCard rows={4} />}
       {tab === 'twitch' && view && draft && (
         <div className="stack">
           <p className="field-hint">

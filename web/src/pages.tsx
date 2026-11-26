@@ -1,6 +1,7 @@
 // The dashboard's pages. Each reads the live channel from useChannel().
 
 import { StreamRecaps } from './streams';
+import { Kpi, useStats } from './stats';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError, type AlertState, type AppToken, type FeatureStatus, type Kind, type SylvaEvent } from './api';
 import { AlertTypes } from './alertTypes';
@@ -60,15 +61,19 @@ export function OverviewPage() {
   const s = ch.summary;
   const { counts, total } = lastDay(ch.events);
   const first = ch.you.split(/\s+/)[0];
+  const week = useStats(7).data;
+  const spark = (k: 'follows' | 'subs' | 'bits' | 'raids') => week?.series.map((d) => (k === 'subs' ? d.subs + d.gifted : d[k]));
 
   return (
     <div className="page">
-      <PageHead title={`Welcome back, ${first}`} desc={ch.role === 'owner' ? 'Here is your channel over the last 24 hours.' : `Here is ${ch.name}'s channel over the last 24 hours.`} />
-      <div className="stats" role="group" aria-label="Last 24 hours">
-        <Stat c="c-follow" label="New followers" value={s ? c.follow || 0 : null} />
-        <Stat c="c-sub" label="Subs" value={s ? (c.subscriber || 0) + (c.giftedSub || 0) : null} />
-        <Stat c="c-bits" label="Bits" value={s ? s.bits : null} />
-        <Stat c="c-raid" label="Raids" value={s ? c.raid || 0 : null} />
+      <PageHead title={`Welcome back, ${first}`} desc={ch.role === 'owner' ? 'Here is your channel over the last 24 hours.' : `Here is ${ch.name}'s channel over the last 24 hours.`}>
+        <Link className="btn" href="/app/stats"><Icon id="chart" />All stats</Link>
+      </PageHead>
+      <div className="kpis four" role="group" aria-label="Last 24 hours">
+        <Kpi c="c-follow" label="New followers" value={s ? c.follow || 0 : null} spark={spark('follows')} note="24 hours, 7 day trend" />
+        <Kpi c="c-sub" label="Subs" value={s ? (c.subscriber || 0) + (c.giftedSub || 0) : null} spark={spark('subs')} note="24 hours, 7 day trend" />
+        <Kpi c="c-bits" label="Bits" value={s ? s.bits : null} spark={spark('bits')} note="24 hours, 7 day trend" />
+        <Kpi c="c-raid" label="Raids" value={s ? c.raid || 0 : null} spark={spark('raids')} note="24 hours, 7 day trend" />
       </div>
       <GetStarted />
       <StreamRecaps />
@@ -101,16 +106,6 @@ export function OverviewPage() {
           </Card>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Stat({ c, label, value }: { c: string; label: string; value: number | null }) {
-  return (
-    <div className={'card stat ' + c}>
-      <div className="stat-label"><span className="bar" />{label}</div>
-      <div className="stat-num">{num(value)}</div>
-      <div className="stat-note">Last 24 hours</div>
     </div>
   );
 }

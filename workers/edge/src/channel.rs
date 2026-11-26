@@ -135,6 +135,11 @@ CREATE TABLE IF NOT EXISTS points_ledger (
     at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS points_ledger_user ON points_ledger(user_id, id);
+CREATE INDEX IF NOT EXISTS events_received ON events(received_at);
+CREATE TABLE IF NOT EXISTS viewer_samples (
+    at      INTEGER PRIMARY KEY,
+    viewers INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS stream_recaps (
     started_at INTEGER PRIMARY KEY,
     body       TEXT NOT NULL
@@ -455,6 +460,11 @@ impl DurableObject for ChannelDo {
             (Method::Get, ["public", "media", id]) => self.media_file(id),
             (Method::Get, ["media"]) => Response::from_json(&self.media_list()?),
             (Method::Get, ["streams"]) => Response::from_json(&self.streams_view()?),
+            (Method::Get, ["stats"]) => {
+                let days = q.get("days").and_then(|v| v.parse().ok()).unwrap_or(30);
+                let tz = q.get("tz").and_then(|v| v.parse().ok()).unwrap_or(0);
+                Response::from_json(&self.stats(days, tz)?)
+            }
             (Method::Post, ["media"]) => {
                 let name = q.get("name").cloned().unwrap_or_default();
                 let bytes = req.bytes().await?;
@@ -926,6 +936,9 @@ impl DurableObject for ChannelDo {
         if let Err(e) = self.run_raffle(now).await {
             console_error!("The raffle could not post: {e}");
         }
+        if let Err(e) = self.run_viewers(now).await {
+            console_error!("The viewer count could not be read: {e}");
+        }
         self.schedule().await?;
         Response::ok("ok")
     }
@@ -1147,6 +1160,7 @@ impl ChannelDo {
         if stored_raw == "stream.online" {
             self.restart_timers(received_at)?;
             self.restart_loyalty(received_at)?;
+            self.restart_viewers(received_at)?;
             self.schedule().await?;
         }
         if is_chat {
@@ -1739,6 +1753,7 @@ impl ChannelDo {
         let points = self.next_loyalty_at()?;
         let filesay = self.next_filesay_at()?;
         let raffle = self.next_raffle_at()?;
+        let viewers = self.next_viewers_at()?;
         let storage = self.state.storage();
         match alert
             .into_iter()
@@ -1746,6 +1761,7 @@ impl ChannelDo {
             .chain(points)
             .chain(filesay)
             .chain(raffle)
+            .chain(viewers)
             .min()
         {
             // Careful: a Duration here is an offset from now, not a timestamp.

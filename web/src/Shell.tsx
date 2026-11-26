@@ -1,7 +1,7 @@
 // The dashboard frame: a sidebar with the pages, the channel and the live
 // connection, and on phones a top bar that opens the sidebar as a drawer.
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { BotPage } from './bot';
 import { ChatAlertsPage } from './chatAlerts';
 import { ROLE_NAMES, useChannel } from './channel';
@@ -12,22 +12,24 @@ import { ModerationPage } from './moderation';
 import { OverlayPage } from './overlay';
 import { ActivityPage, AlertsPage, ChatPage, NotFoundPage, OverviewPage, SettingsPage } from './pages';
 import { Link } from './router';
+import { StatsPage } from './stats';
 import { Avatar, Icon } from './ui';
 
 const PAGES = [
-  { path: '/app', label: 'Overview', icon: 'home', view: OverviewPage },
-  { path: '/app/activity', label: 'Activity', icon: 'activity', view: ActivityPage },
-  { path: '/app/alerts', label: 'Alerts', icon: 'bell', view: AlertsPage },
-  { path: '/app/overlay', label: 'Overlay', icon: 'monitor', view: OverlayPage },
-  { path: '/app/chat', label: 'Chat', icon: 'message', view: ChatPage },
-  { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage },
-  { path: '/app/chat-alerts', label: 'Chat alerts', icon: 'zap', view: ChatAlertsPage },
-  { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage },
-  { path: '/app/loyalty', label: 'Loyalty', icon: 'gem', view: LoyaltyPage },
-  { path: '/app/store', label: 'Store', icon: 'gift', view: StorePage },
-  { path: '/app/giveaways', label: 'Giveaways', icon: 'trophy', view: GiveawaysPage },
+  { path: '/app', label: 'Overview', icon: 'home', view: OverviewPage, group: 'Home' },
+  { path: '/app/stats', label: 'Stats', icon: 'chart', view: StatsPage, group: 'Home' },
+  { path: '/app/activity', label: 'Activity', icon: 'activity', view: ActivityPage, group: 'Home' },
+  { path: '/app/alerts', label: 'Alerts', icon: 'bell', view: AlertsPage, group: 'Stream' },
+  { path: '/app/overlay', label: 'Overlay', icon: 'monitor', view: OverlayPage, group: 'Stream' },
+  { path: '/app/chat', label: 'Chat', icon: 'message', view: ChatPage, group: 'Stream' },
+  { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage, group: 'Bot' },
+  { path: '/app/chat-alerts', label: 'Chat alerts', icon: 'zap', view: ChatAlertsPage, group: 'Bot' },
+  { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage, group: 'Bot' },
+  { path: '/app/loyalty', label: 'Loyalty', icon: 'gem', view: LoyaltyPage, group: 'Community' },
+  { path: '/app/store', label: 'Store', icon: 'gift', view: StorePage, group: 'Community' },
+  { path: '/app/giveaways', label: 'Giveaways', icon: 'trophy', view: GiveawaysPage, group: 'Community' },
 ];
-const SETTINGS = { path: '/app/settings', label: 'Settings', icon: 'settings', view: SettingsPage };
+const SETTINGS = { path: '/app/settings', label: 'Settings', icon: 'settings', view: SettingsPage, group: 'Account' };
 
 export function Shell({ path }: { path: string }) {
   const ch = useChannel();
@@ -84,11 +86,14 @@ export function Shell({ path }: { path: string }) {
       <aside ref={sidebar} className="sidebar" aria-label="Dashboard">
         <Link className="brand" href="/app"><img src="/logo.svg" alt="" width="26" height="26" /><span>Sylva</span></Link>
         <nav className="nav" aria-label="Pages">
-          {PAGES.map((p) => (
-            <Link key={p.path} href={p.path} current={p === page}>
-              <Icon id={p.icon} />{p.label}
-              {p.path === '/app/alerts' && queued > 0 && <span className="badge" title={`${queued} alerts waiting`}>{queued}</span>}
-            </Link>
+          {PAGES.map((p, i) => (
+            <Fragment key={p.path}>
+              {p.group !== 'Home' && p.group !== PAGES[i - 1]?.group && <span className="nav-label">{p.group}</span>}
+              <Link href={p.path} current={p === page}>
+                <Icon id={p.icon} />{p.label}
+                {p.path === '/app/alerts' && queued > 0 && <span className="badge" title={`${queued} alerts waiting`}>{queued}</span>}
+              </Link>
+            </Fragment>
           ))}
           <span className="nav-label">Account</span>
           <Link href={SETTINGS.path} current={page === SETTINGS}><Icon id="settings" />Settings</Link>
@@ -118,6 +123,10 @@ export function Shell({ path }: { path: string }) {
       </aside>
 
       <main className="main" id="content" inert={open}>
+        <div className="crumbs" aria-hidden="true">
+          <span>{ch.name || 'Your channel'}</span><Icon id="chevron" /><span>{page?.group ?? 'Sylva'}</span><Icon id="chevron" /><b>{page?.label ?? 'Not found'}</b>
+          <span className="crumbs-end">{conn}</span>
+        </div>
         {!ch.connected && <div className="notice reconnect" role="status">Reconnecting to live events. Nothing is lost while this shows.</div>}
         {!ch.can.edit && (
           <div className="notice role-note">

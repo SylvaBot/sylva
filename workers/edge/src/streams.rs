@@ -38,6 +38,11 @@ pub(crate) struct Recap {
     pub top_chatter: Option<Leader>,
     pub top_cheerer: Option<Leader>,
     pub top_gifter: Option<Leader>,
+    /// From the viewer samples; `None` when none were taken.
+    #[serde(default)]
+    pub peak_viewers: Option<u64>,
+    #[serde(default)]
+    pub avg_viewers: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -146,6 +151,7 @@ impl ChannelDo {
         r.top_chatter = leader("chat", false)?;
         r.top_cheerer = leader("cheer", true)?;
         r.top_gifter = leader("communityGift", true)?;
+        self.add_viewers(&mut r)?;
         Ok(r)
     }
 

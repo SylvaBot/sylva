@@ -79,6 +79,23 @@ export interface Recap {
   follows: number; subs: number; gifted: number; bits: number; raids: number; raiders: number;
   tips: number; redemptions: number; chatLines: number; chatters: number;
   topChatter: Leader | null; topCheerer: Leader | null; topGifter: Leader | null;
+  peakViewers?: number | null; avgViewers?: number | null;
+}
+export interface StatTotals {
+  follows: number; subs: number; gifted: number; bits: number; raids: number; raiders: number;
+  tips: number; redemptions: number; chat: number; chatters: number;
+}
+export interface Ranked { name: string; amount: number }
+export interface Stats {
+  days: number; from: number;
+  series: (StatTotals & { start: number })[];
+  totals: StatTotals; previous: StatTotals;
+  topChatters: Ranked[]; topCheerers: Ranked[]; topGifters: Ranked[]; topRaiders: Ranked[];
+  commands: Ranked[];
+  /** Chat lines by weekday (0 is Sunday) then hour, in the browser's time. */
+  heatmap: number[][];
+  viewers: { at: number; viewers: number }[];
+  streams: Recap[];
 }
 export interface MediaFile { id: string; name: string; size: number; at: number }
 /** Where an uploaded file is served. */
@@ -283,6 +300,8 @@ export const api = {
   replay: (key: string, seq: number) => request<AlertState>('POST', `${ch(key)}/alerts/replay/${seq}`),
   testEvent: (key: string, e: { kind: Kind; name: string; amount?: number; message?: string }) =>
     request<{ seq: number; duplicate: boolean; alert: boolean }>('POST', `${ch(key)}/test-event`, e),
+  stats: (key: string, days: number) =>
+    request<Stats>('GET', `${ch(key)}/stats?days=${days}&tz=${new Date().getTimezoneOffset()}`),
   streams: (key: string) => request<{ live: Recap | null; past: Recap[] }>('GET', `${ch(key)}/streams`),
   media: (key: string) => request<MediaFile[]>('GET', `${ch(key)}/media`),
   uploadMedia: (key: string, file: File) =>

@@ -106,6 +106,9 @@ pub struct WidgetData {
     /// The published scene, for `?scene` overlays.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene: Option<crate::scene::Published>,
+    /// The streamer's overlays, once saved (see workers/edge/src/overlays.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlays: Option<serde_json::Value>,
 }
 
 /// Kinds that the event list widget shows.

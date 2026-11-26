@@ -1,41 +1,58 @@
-// The Overlay page: the private overlay link, the widgets that share it (each
-// its own OBS Browser Source), the goal, and how to add them to OBS.
+// The Overlays page. Each overlay is one element that fills its own OBS
+// Browser Source; the streamer sizes and places it in OBS, not here. Alerts
+// and Chat are built in. Any overlay can play sounds, and its settings are a
+// plain form. Saved as you go (workers/edge/src/overlays.rs).
 
-import { useEffect, useRef, useState } from 'react';
-import { api, type Goal, type GoalKind } from './api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api, isSound, mediaUrl, type CustomCode, type MediaFile, type Overlay, type OverlaySound, type SoundOn } from './api';
 import { useChannel } from './channel';
-import { LATEST_KINDS, SceneEditor, TOP_KINDS } from './editor';
+import { useWidth } from './charts';
+import { CodeDialog, CustomFrame, FieldInput, parseFields, STARTER, testEvent, type Field, type Send } from './customWidget';
 import { Card, PageHead, remember } from './pages';
 import { Link } from './router';
 import { errorText, Icon, num, useToast } from './ui';
+import { PILL_ALERTS, TWITCH_CHAT } from './widgets';
 
-interface WidgetDef {
-  id: string;
-  name: string;
-  icon: string;
-  c: string;
-  text: string;
-  size: string;
-  query: string;
+const BUILTIN: Record<'alerts' | 'chat', CustomCode> = { alerts: PILL_ALERTS, chat: TWITCH_CHAT };
+const MAX = 24;
+
+/** The code an overlay runs: Sylva's for the built-ins, with the streamer's values. */
+export function codeOf(o: Overlay): CustomCode {
+  if (o.builtin) {
+    const base = BUILTIN[o.builtin];
+    return { ...base, values: { ...base.values, ...(o.values ?? {}) } };
+  }
+  return o.code ?? STARTER;
 }
 
-
-const GOAL_KINDS: { id: GoalKind; label: string; unit: string }[] = [
-  { id: 'follows', label: 'Followers', unit: 'followers' },
-  { id: 'subs', label: 'Subs', unit: 'subs' },
-  { id: 'bits', label: 'Bits', unit: 'bits' },
+const SOUND_ON: { id: SoundOn; label: string }[] = [
+  { id: 'alert', label: 'Every alert' },
+  { id: 'follow', label: 'A follow' },
+  { id: 'subscriber', label: 'A sub' },
+  { id: 'communityGift', label: 'Gifted subs' },
+  { id: 'cheer', label: 'A cheer' },
+  { id: 'raid', label: 'A raid' },
+  { id: 'redemption', label: 'A redemption' },
+  { id: 'chat', label: 'A chat message' },
+  { id: 'any', label: 'Anything' },
 ];
+const TRY = [
+  { kind: 'follow', label: 'Follow' }, { kind: 'subscriber', label: 'Sub' }, { kind: 'communityGift', label: 'Gift' },
+  { kind: 'cheer', label: 'Cheer' }, { kind: 'raid', label: 'Raid' }, { kind: 'chat', label: 'Chat' },
+];
+
+const newId = () => 'o' + Math.random().toString(36).slice(2, 9);
 
 export function OverlayPage() {
   const ch = useChannel();
-  if (ch.can.edit) return <OverlayEditorPage />;
+  if (ch.can.edit) return <Overlays />;
   return (
     <div className="page">
-      <PageHead title="Overlay" desc="The alert box and widgets that show on stream." />
-      <Card id="overlay-locked" title="Only the owner and editors change the overlay">
+      <PageHead title="Overlays" desc="What shows on stream." />
+      <Card id="overlay-locked" title="Only the owner and editors change overlays">
         <div className="card-body">
           <p className="card-text">
-            The overlay links show this channel&apos;s alerts to anyone who has them, so they stay with the owner and editors.
+            Overlay links show this channel&apos;s alerts to anyone who has them, so they stay with the owner and editors.
             You can still pause, mute, skip and replay alerts from <Link href="/app/alerts">Alerts</Link>.
           </p>
         </div>
@@ -44,41 +61,66 @@ export function OverlayPage() {
   );
 }
 
-function OverlayEditorPage() {
+function Overlays() {
   const ch = useChannel();
   const toast = useToast();
   const [url, setUrl] = useState<string | null>(null);
+  const [list, setList] = useState<Overlay[] | null>(null);
+  const [open, setOpen] = useState<string | null>(() => new URLSearchParams(location.search).get('o'));
+  const [save, setSave] = useState<'saved' | 'saving' | 'error'>('saved');
   const [armed, setArmed] = useState(false);
-  const [latestKind, setLatestKind] = useState('follow');
-  const [topKind, setTopKind] = useState('cheer');
+  const [adding, setAdding] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const disarm = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    api.overlay(ch.key).then((r) => setUrl(r.url)).catch((x) => toast('Could not load the overlay link: ' + errorText(x), true));
+    api.overlay(ch.key).then((r) => setUrl(r.url)).catch((x) => toast('Could not load your overlay links: ' + errorText(x), true));
+    api.overlays(ch.key).then(setList).catch((x) => toast('Could not load your overlays: ' + errorText(x), true));
   }, [ch.key, toast]);
-  useEffect(() => () => clearTimeout(disarm.current), []);
+  useEffect(() => () => { clearTimeout(timer.current); clearTimeout(disarm.current); }, []);
 
-  const connected = ch.alerts?.overlaysConnected ?? 0;
-  const widgets: WidgetDef[] = [
-    { id: 'alerts', name: 'Alert box', icon: 'bell', c: 'c-sub', text: 'Plays your alerts one at a time.', size: '1920 × 1080', query: '' },
-    { id: 'feed', name: 'Event list', icon: 'activity', c: 'c-follow', text: 'The last five follows, subs, cheers and raids.', size: '400 × 360', query: '&widget=feed' },
-    { id: 'latest', name: 'Latest label', icon: 'star', c: 'c-bits', text: 'One line with the latest follower, sub, gifter, cheer or raid.', size: '500 × 60', query: `&widget=latest&kind=${latestKind}` },
-    { id: 'top', name: 'Top label', icon: 'trophy', c: 'c-reward', text: 'The top cheerer or gifter since the stream went live.', size: '500 × 60', query: `&widget=top&kind=${topKind}` },
-    { id: 'goal', name: 'Goal bar', icon: 'zap', c: 'c-raid', text: 'Progress toward the goal you set below.', size: '600 × 90', query: '&widget=goal' },
-    { id: 'chat', name: 'Chat box', icon: 'message', c: 'c-gift', text: 'Your chat, on stream.', size: '400 × 500', query: '&widget=chat' },
-  ];
+  // Keep the open overlay in the address, so a reload comes back to it.
+  useEffect(() => {
+    const u = new URL(location.href);
+    if (open) u.searchParams.set('o', open); else u.searchParams.delete('o');
+    history.replaceState(history.state, '', u.pathname + u.search);
+  }, [open]);
 
-  const copy = async (w: WidgetDef) => {
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url + w.query);
-      if (w.id === 'alerts') remember('sylva.overlayCopied');
-      toast(`${w.name} link copied`);
-    } catch {
-      toast('Your browser blocked copying. Open the widget and copy its address instead.', true);
-    }
+  /** Change the list now and save it shortly after the last change. */
+  const update = (next: Overlay[], now = false) => {
+    setList(next);
+    setSave('saving');
+    clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      try {
+        await api.saveOverlays(ch.key, next);
+        setSave('saved');
+      } catch (x) {
+        setSave('error');
+        toast(errorText(x), true);
+      }
+    }, now ? 0 : 600);
   };
 
+  const linkOf = (o: Overlay) => (url ? (o.id === 'alerts' ? url : o.id === 'chat' ? url + '&widget=chat' : `${url}&overlay=${o.id}`) : null);
+  const copy = async (o: Overlay) => {
+    const link = linkOf(o);
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      if (o.id === 'alerts') remember('sylva.overlayCopied');
+      toast(`${o.name} link copied. Paste it into a Browser Source in OBS.`);
+    } catch {
+      toast('Your browser blocked copying. Open the overlay and copy its address instead.', true);
+    }
+  };
+  const add = (code: CustomCode, name: string) => {
+    if (!list) return;
+    const o: Overlay = { id: newId(), name, code: { ...code, values: { ...code.values } }, sounds: [] };
+    update([...list, o], true);
+    setAdding(false);
+    setOpen(o.id);
+  };
   const replace = async () => {
     if (!armed) {
       setArmed(true);
@@ -95,185 +137,267 @@ function OverlayEditorPage() {
     }
   };
 
+  const current = list?.find((o) => o.id === open);
+  if (list && current) {
+    return (
+      <OverlayEditor
+        o={current}
+        link={linkOf(current)}
+        save={save}
+        onBack={() => setOpen(null)}
+        onCopy={() => copy(current)}
+        onChange={(next) => update(list.map((x) => (x.id === next.id ? next : x)))}
+        onDelete={() => { update(list.filter((x) => x.id !== current.id), true); setOpen(null); toast(`${current.name} deleted`); }}
+      />
+    );
+  }
+
+  const connected = ch.alerts?.overlaysConnected ?? 0;
   return (
     <div className="page">
       <PageHead
-        title="Overlay"
-        desc={connected === 0 ? 'No alert box is connected right now.' : connected === 1 ? '1 alert box is connected right now.' : `${num(connected)} alert boxes are connected right now.`}
+        title="Overlays"
+        desc={<>Each overlay is one element. Add it to OBS as a Browser Source, then size and place it there.{connected > 0 && <> Alerts are on screen in {num(connected)} {connected === 1 ? 'place' : 'places'} now.</>}</>}
       >
         {ch.can.own && (
           <button className={'btn' + (armed ? ' armed' : '')} type="button" disabled={!url} onClick={replace} title="Make new links and stop the old ones">
             <Icon id="refresh" />{armed ? 'Click again to replace' : 'New links'}
           </button>
         )}
-      </PageHead>
-      <div className="stack">
-        <SceneEditor url={url} />
-        <GoalCard />
-        <Card id="widgets" title="One widget per source" desc="For more control in OBS, add widgets as separate Browser Sources instead. Anyone with a link can show it, so keep them private.">
-          <ul className="widgets">
-            {widgets.map((w) => (
-              <li key={w.id} className={'widget ' + w.c}>
-                <span className="tile"><Icon id={w.icon} /></span>
-                <div className="widget-main">
-                  <b>{w.name}</b>
-                  <span>{w.text} Size {w.size}.</span>
-                  {w.id === 'top' && (
-                    <div className="segmented sm" role="group" aria-label="Top label shows">
-                      {TOP_KINDS.map((k) => (
-                        <button key={k.id} type="button" aria-pressed={topKind === k.id} onClick={() => setTopKind(k.id)}>{k.label}</button>
-                      ))}
-                    </div>
-                  )}
-                  {w.id === 'latest' && (
-                    <div className="segmented sm" role="group" aria-label="Latest label shows">
-                      {LATEST_KINDS.map((k) => (
-                        <button key={k.id} type="button" aria-pressed={latestKind === k.id} onClick={() => setLatestKind(k.id)}>{k.label}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="widget-actions">
-                  <button className="btn sm" type="button" disabled={!url} onClick={() => copy(w)}><Icon id="copy" />Copy link</button>
-                  <a className="btn sm" href={url ? url + w.query + '&debug' : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!url}>
-                    <Icon id="external" />Open
-                  </a>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-        <div className="grid-2">
-          <Card id="obs" title="Add your overlay to OBS">
-            <div className="card-body">
-              <ol className="steps">
-                <li>Lay out your widgets above and click <b>Publish</b>, then <b>Copy link</b>.</li>
-                <li>In OBS, under <b>Sources</b>, click <b>+</b> and choose <b>Browser</b>. Give it a name and click <b>OK</b>.</li>
-                <li>Paste the link into <b>URL</b>, set <b>Width</b> to 1920 and <b>Height</b> to 1080, and click <b>OK</b>.</li>
-                <li>Use <b>Try it</b> in the editor, or <Link href="/app/alerts">Alerts</Link>, to check it.</li>
-              </ol>
+        <div className="filter-wrap">
+          <button className="btn primary" type="button" disabled={!list || list.length >= MAX} aria-expanded={adding} onClick={() => setAdding(!adding)}>
+            <Icon id="plus" />New overlay
+          </button>
+          {adding && (
+            <div className="filter-pop add-pop">
+              <button className="filter-opt" type="button" onClick={() => add(PILL_ALERTS, 'Alerts copy')}><Icon id="bell" />Alerts<span className="count">Pill alerts</span></button>
+              <button className="filter-opt" type="button" onClick={() => add(TWITCH_CHAT, 'Chat copy')}><Icon id="message" />Chat<span className="count">Twitch style</span></button>
+              <button className="filter-opt" type="button" onClick={() => add(STARTER, 'My overlay')}><Icon id="code" />Your own code<span className="count">HTML, CSS, JS</span></button>
             </div>
-          </Card>
-          <Card id="look" title="What an alert looks like" desc="Change the text and timing in Alerts.">
-            <div className="card-body">
-              <div className="stage" aria-hidden="true">
-                <div className="alert-card c-sub">
-                  <div className="label">New subscriber</div>
-                  <div className="name">Juniper</div>
-                  <div className="detail">Thanks for subscribing!</div>
+          )}
+        </div>
+      </PageHead>
+
+      {!list && <div className="overlay-grid">{[0, 1].map((i) => <div key={i} className="card overlay-card"><div className="chart-skeleton overlay-thumb" /></div>)}</div>}
+      {list && (
+        <div className="overlay-grid">
+          {list.map((o) => (
+            <article key={o.id} className="card overlay-card">
+              <button className="overlay-thumb" type="button" onClick={() => setOpen(o.id)} aria-label={`Edit ${o.name}`}>
+                <Preview code={codeOf(o)} demo />
+              </button>
+              <div className="overlay-meta">
+                <div>
+                  <h2>{o.name}</h2>
+                  <p>{o.builtin ? 'Built in' : 'Your code'}{codeOf(o).alerts ? ' · plays alerts' : ''}{o.sounds.length ? ` · ${o.sounds.length} sound${o.sounds.length === 1 ? '' : 's'}` : ''}</p>
+                </div>
+                <div className="overlay-actions">
+                  <button className="btn sm" type="button" onClick={() => setOpen(o.id)}>Edit</button>
+                  <button className="btn sm primary" type="button" disabled={!url} onClick={() => copy(o)}><Icon id="copy" />Copy link</button>
                 </div>
               </div>
-            </div>
-          </Card>
+            </article>
+          ))}
         </div>
-      </div>
+      )}
+      <p className="overlay-hint">
+        In OBS: <b>Sources</b>, <b>+</b>, <b>Browser</b>, paste the link, set 1920 by 1080, then drag and resize it where you want it. Anyone with a link can show it, so keep links private.
+      </p>
     </div>
   );
 }
 
-function GoalCard() {
+/**
+ * A live preview at 1920 by 1080, scaled to fit its box. `demo` plays a
+ * sample so a thumbnail is not blank.
+ */
+function Preview({ code, demo, bind }: { code: CustomCode; demo?: boolean; bind?: (send: Send | null) => void }) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const scale = width / 1920 || 0;
+  const onBind = (send: Send | null) => {
+    bind?.(send);
+    if (!send) return;
+    if (code.alerts) { if (demo) setTimeout(() => testEvent(send, 'subscriber', true), 600); }
+    else for (let i = 0; i < 4; i++) testEvent(send, 'chat', false);
+  };
+  return (
+    <div className="preview-box" ref={ref}>
+      {scale > 0 && (
+        <div className="preview-canvas" style={{ transform: `scale(${scale})` }}>
+          <CustomFrame code={code} bind={onBind} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverlayEditor({ o, link, save, onBack, onCopy, onChange, onDelete }: {
+  o: Overlay; link: string | null; save: 'saved' | 'saving' | 'error';
+  onBack(): void; onCopy(): void; onChange(o: Overlay): void; onDelete(): void;
+}) {
   const ch = useChannel();
   const toast = useToast();
-  const [goal, setGoal] = useState<Goal | null | undefined>(undefined);
-  const [title, setTitle] = useState('');
-  const [kind, setKind] = useState<GoalKind>('subs');
-  const [target, setTarget] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [current, setCurrent] = useState<number | null>(null);
-
-  const load = (g: Goal | null) => {
-    setGoal(g);
-    setTitle(g?.title ?? '');
-    setKind(g?.kind ?? 'subs');
-    setTarget(g ? String(g.target) : '');
-  };
+  const code = codeOf(o);
+  const send = useRef<Send | null>(null);
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [sureDelete, setSureDelete] = useState(false);
+  const [media, setMedia] = useState<MediaFile[]>([]);
+  const { fields, error } = parseFields(code.fields);
+  const groups = useMemo(() => {
+    const g = new Map<string, [string, Field][]>();
+    for (const [k, f] of Object.entries(fields)) {
+      const name = f.group || 'Settings';
+      g.set(name, [...(g.get(name) ?? []), [k, f]]);
+    }
+    return [...g];
+  }, [fields]);
 
   useEffect(() => {
-    api.widgetSettings(ch.key).then((s) => load(s.goal ?? null)).catch(() => load(null));
+    api.media(ch.key).then(setMedia).catch(() => {});
   }, [ch.key]);
 
-  // Progress, counted the same way the goal bar counts it.
-  useEffect(() => {
-    if (!goal) { setCurrent(null); return; }
-    api.summary(ch.key, goal.since).then((s) => {
-      const c = s.counts;
-      setCurrent(goal.kind === 'follows' ? c.follow || 0 : goal.kind === 'subs' ? (c.subscriber || 0) + (c.giftedSub || 0) : s.bits);
-    }).catch(() => setCurrent(null));
-  }, [ch.key, goal, ch.summary]);
+  const setValue = (k: string, v: unknown) => {
+    if (o.builtin) onChange({ ...o, values: { ...(o.values ?? {}), [k]: v } });
+    else onChange({ ...o, code: { ...code, values: { ...code.values, [k]: v } } });
+  };
+  const valueOf = (k: string, f: Field) => (k in code.values ? code.values[k] : f.value);
+  const setSounds = (sounds: OverlaySound[]) => onChange({ ...o, sounds });
+  const sounds = media.filter((m) => isSound(m.id));
 
-  const save = async (next: Goal | null, done: string) => {
-    setBusy(true);
+  const upload = async (file: File) => {
     try {
-      const r = await api.saveWidgetSettings(ch.key, { goal: next });
-      load(r.goal ?? null);
-      toast(done);
+      const added = await api.uploadMedia(ch.key, file);
+      setMedia((m) => [added, ...m.filter((x) => x.id !== added.id)]);
+      return added;
     } catch (x) {
       toast(errorText(x), true);
-    } finally {
-      setBusy(false);
+      return null;
     }
   };
 
-  const unit = GOAL_KINDS.find((k) => k.id === kind)!.unit;
-  const n = Number(target);
-  const valid = title.trim().length > 0 && Number.isFinite(n) && n >= 1;
-  const changed = !goal || goal.title !== title.trim() || goal.kind !== kind || goal.target !== n;
-  const pct = goal && current !== null ? Math.min(100, (current / goal.target) * 100) : 0;
-
   return (
-    <Card id="goal" title="Goal" desc="Shown by the goal bar widget. It counts from when you start it.">
-      <form
-        className="card-body goal-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!valid) return;
-          // Changing what is counted starts the count again.
-          const since = goal && goal.kind === kind ? goal.since : Date.now();
-          save({ title: title.trim(), kind, target: n, since }, goal ? 'Goal saved' : 'Goal started');
-        }}
-      >
-        {goal === undefined ? <p className="card-text">Loading</p> : (
-          <>
-            <div className="goal-fields">
-              <label className="field">
-                Title
-                <input className="input" maxLength={60} value={title} placeholder="Sub goal" onChange={(e) => setTitle(e.target.value)} />
-              </label>
-              <label className="field">
-                Counts
-                <select className="select" value={kind} onChange={(e) => setKind(e.target.value as GoalKind)}>
-                  {GOAL_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
-                </select>
-              </label>
-              <label className="field">
-                Target
-                <input className="input" type="number" min={1} max={10000000} step={1} value={target} placeholder="50" onChange={(e) => setTarget(e.target.value)} />
-              </label>
+    <div className="page page-wide">
+      <div className="editor-head">
+        <button className="btn ghost" type="button" onClick={onBack}><Icon id="chevron-left" />All overlays</button>
+        <span className={'save-state ' + save} role="status">{save === 'saving' ? 'Saving' : save === 'error' ? 'Not saved' : 'Saved'}</span>
+      </div>
+      <PageHead title={o.name}>
+        <a className="btn" href={link ? link + '&debug' : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!link}><Icon id="external" />Open</a>
+        <button className="btn primary" type="button" disabled={!link} onClick={onCopy}><Icon id="copy" />Copy link</button>
+      </PageHead>
+
+      <div className="overlay-edit">
+        <div className="stack">
+          <div className="card overlay-stage">
+            <Preview code={code} bind={(s) => { send.current = s; }} />
+          </div>
+          <div className="try-row" role="group" aria-label="Try it">
+            <span>Try it</span>
+            {TRY.map((t) => (
+              <button key={t.kind} className="btn sm" type="button" onClick={() => send.current && testEvent(send.current, t.kind, !!code.alerts)}>{t.label}</button>
+            ))}
+          </div>
+          <p className="overlay-hint">This is the whole Browser Source at 1920 by 1080. Make it smaller and move it in OBS.</p>
+        </div>
+
+        <div className="stack">
+          <Card id="ov-name" title="Name">
+            <div className="card-body">
+              <input className="input" aria-label="Name" value={o.name} maxLength={60} onChange={(e) => onChange({ ...o, name: e.target.value })} />
             </div>
-            {goal && (
-              <div className={'goal-preview ' + (goal.kind === 'follows' ? 'c-follow' : goal.kind === 'subs' ? 'c-sub' : 'c-bits')}>
-                <div className="goal-line">
-                  <b>{goal.title}</b>
-                  <span>{current === null ? '-' : num(current)} / {num(goal.target)} {GOAL_KINDS.find((k) => k.id === goal.kind)!.unit}</span>
-                </div>
-                <div className="goal-track"><div className="goal-fill" style={{ width: pct + '%' }} /></div>
-                <p className="field-hint">Counting since {new Date(goal.since).toLocaleString()}.</p>
+          </Card>
+
+          {groups.length > 0 && groups.map(([g, items]) => (
+            <details key={g} className="card fold" open={groups.length <= 2 || g === groups[0][0]}>
+              <summary><h2>{g}</h2><Icon id="chevron" /></summary>
+              <div className="card-body field-grid">
+                {items.map(([k, f]) => (
+                  <FieldInput key={k} id={k} f={f} value={valueOf(k, f)} onChange={(v) => setValue(k, v)}
+                    onPress={() => send.current?.({ type: 'button', field: k, value: f.value })} />
+                ))}
               </div>
-            )}
-            <div className="goal-actions">
-              {goal && (
+            </details>
+          ))}
+          {error && <div className="notice">{error}</div>}
+
+          <details className="card fold" open={o.sounds.length > 0}>
+            <summary><h2>Sounds{o.sounds.length > 0 && <span className="tab-count">{o.sounds.length}</span>}</h2><Icon id="chevron" /></summary>
+            <div className="card-body">
+              <p className="card-text">Play a sound on this overlay when something happens. Sounds stay quiet while alerts are muted.</p>
+              <ul className="sound-list">
+                {o.sounds.map((s, i) => (
+                  <li key={i}>
+                    <select className="select sm" aria-label="When" value={s.on} onChange={(e) => setSounds(o.sounds.map((x, j) => (j === i ? { ...x, on: e.target.value as SoundOn } : x)))}>
+                      {SOUND_ON.filter((x) => x.id !== 'alert' || code.alerts).map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                    </select>
+                    <select className="select sm" aria-label="Sound" value={s.media} onChange={(e) => setSounds(o.sounds.map((x, j) => (j === i ? { ...x, media: e.target.value } : x)))}>
+                      {!sounds.some((m) => m.id === s.media) && <option value={s.media}>{s.media || 'Pick a sound'}</option>}
+                      {sounds.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                    <input className="volume" type="range" min={0} max={1} step={0.05} aria-label="Volume" value={s.volume}
+                      onChange={(e) => setSounds(o.sounds.map((x, j) => (j === i ? { ...x, volume: Number(e.target.value) } : x)))} />
+                    <button className="icon-btn" type="button" aria-label="Play" disabled={!s.media}
+                      onClick={() => { const a = new Audio(mediaUrl(ch.key, s.media)); a.volume = s.volume; void a.play().catch(() => {}); }}><Icon id="play" /></button>
+                    <button className="icon-btn" type="button" aria-label="Remove sound" onClick={() => setSounds(o.sounds.filter((_, j) => j !== i))}><Icon id="trash" /></button>
+                  </li>
+                ))}
+              </ul>
+              <div className="sound-add">
+                <label className="btn sm">
+                  <Icon id="plus" />{sounds.length ? 'Upload a sound' : 'Upload your first sound'}
+                  <input type="file" accept="audio/mpeg,audio/ogg,audio/wav,.mp3,.ogg,.wav" hidden onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!f) return;
+                    const added = await upload(f);
+                    if (added) setSounds([...o.sounds, { on: code.alerts ? 'alert' : 'chat', media: added.id, volume: 0.8 }]);
+                  }} />
+                </label>
+                {sounds.length > 0 && (
+                  <button className="btn sm" type="button" disabled={o.sounds.length >= 12}
+                    onClick={() => setSounds([...o.sounds, { on: code.alerts ? 'alert' : 'chat', media: sounds[0].id, volume: 0.8 }])}>
+                    Add a sound
+                  </button>
+                )}
+              </div>
+            </div>
+          </details>
+
+          <details className="card fold">
+            <summary><h2>Advanced</h2><Icon id="chevron" /></summary>
+            <div className="card-body adv">
+              {o.builtin ? (
                 <>
-                  <button className="btn ghost danger" type="button" disabled={busy} onClick={() => save(null, 'Goal removed')}>Remove</button>
-                  <button className="btn" type="button" disabled={busy} onClick={() => save({ ...goal, since: Date.now() }, 'Counting from zero again')}>Start again</button>
+                  <p className="card-text">This overlay uses Sylva&apos;s own code, so it gets updates. To change the code, make a copy with New overlay.</p>
+                  <button className="btn sm" type="button" onClick={() => onChange({ ...o, values: {} })}>Reset settings</button>
+                </>
+              ) : (
+                <>
+                  <p className="card-text">The overlay&apos;s HTML, CSS, JavaScript and fields. It runs in a sandbox, so it cannot reach your Sylva account.</p>
+                  <div className="adv-row">
+                    <button className="btn sm" type="button" onClick={() => setCodeOpen(true)}><Icon id="code" />Edit code</button>
+                    <button className={'btn sm danger' + (sureDelete ? ' armed' : '')} type="button"
+                      onClick={() => (sureDelete ? onDelete() : setSureDelete(true))}>
+                      <Icon id="trash" />{sureDelete ? 'Click again to delete' : 'Delete overlay'}
+                    </button>
+                  </div>
                 </>
               )}
-              <button className="btn primary" type="submit" disabled={busy || !valid || !changed}>
-                {goal ? 'Save' : `Start counting ${unit}`}
-              </button>
             </div>
-          </>
-        )}
-      </form>
-    </Card>
+          </details>
+        </div>
+      </div>
+
+      {codeOpen && !o.builtin && (
+        <CodeDialog
+          initial={code}
+          width={1920}
+          height={1080}
+          canPlayAlerts
+          onClose={() => setCodeOpen(false)}
+          onSave={(c) => { onChange({ ...o, code: c }); setCodeOpen(false); }}
+        />
+      )}
+    </div>
   );
 }

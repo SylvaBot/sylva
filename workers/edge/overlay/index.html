@@ -526,16 +526,66 @@
     });
   }
 
+  /* ---------------- One overlay ---------------- */
+  // The overlay's widget fills the page; sounds play when its events come in.
+  function overlayPage(host, id) {
+    const builtin = id === 'alerts' || id === 'chat';
+    let w = null, sig = null, alertConn = null, rules = [], alerts = false;
+    const ack = (aid) => { if (alertConn && alertConn.send({ type: 'ack', alertId: aid })) window.sylva.acked.push(aid); };
+    const ring = (kind) => {
+      if (soundOff) return;
+      for (const r of rules) {
+        if (r.on !== 'any' && r.on !== kind && !(r.on === 'alert' && alerts)) continue;
+        const a = new Audio(mediaUrl(r.media));
+        a.volume = clamp(r.volume, 0, 1, 1);
+        a.play().catch(() => {});
+      }
+    };
+    const target = {
+      play: (f) => { ring(f.event && f.event.kind); if (w) w.play(f); },
+      stop: (x) => { if (w) w.stop(x); },
+      mute: (m) => { if (w && w.mute) w.mute(m); },
+    };
+    const resolve = (list) => {
+      const o = (list || []).find((x) => x.id === id) || (builtin ? { id, builtin: id } : null);
+      if (!o) return null;
+      const base = o.builtin ? DEFAULTS[o.builtin] : null;
+      const code = base ? Object.assign({}, base, { values: Object.assign({}, base.values, o.values || {}) }) : o.code;
+      return code ? { code, sounds: o.sounds || [], name: o.name } : null;
+    };
+    const show = (o) => {
+      rules = o ? o.sounds : [];
+      const s = JSON.stringify(o ? o.code : null);
+      if (s === sig) return;
+      sig = s;
+      if (w) { w.remove(); w = null; }
+      if (!o) { setState('overlay', 'this overlay was deleted'); return; }
+      w = customWidget(host, { widget: 'custom', code: o.code }, ack);
+      alerts = !!o.code.alerts;
+      if (alerts && !alertConn) alertConn = alertConnection(target);
+      if (!alerts && alertConn) { alertConn.close(); alertConn = null; delete states.alerts; }
+      setState('overlay', o.name || o.code.name || id);
+    };
+    window.sylva.overlay = id;
+    if (builtin) show(resolve(null));
+    const proxy = {
+      data: (d) => { if (w) w.data(d); },
+      event: (e) => { if (!alerts) ring(e.kind); if (w) w.event(e); },
+      top: (t) => { if (w) w.top(t); },
+    };
+    widgetConnection(() => [proxy], (d) => show(resolve(d.overlays)));
+  }
+
   if (!sceneMode) {
     // One widget filling the source.
     const host = el('div', 'fill-page');
     root.appendChild(host);
-    if (DEFAULTS && (widget === 'chat' || !WIDGETS[widget])) {
-      const it = builtIn({ widget: widget === 'chat' ? 'chat' : 'alerts' });
-      let conn = null;
-      const w = customWidget(host, it, (id) => { if (conn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); });
-      if (it.code.alerts) conn = alertConnection(w);
-      widgetConnection(() => [w]);
+    // `&overlay=<id>` shows one of the streamer's overlays. The plain link is
+    // the built-in alerts overlay and `&widget=chat` the built-in chat, so
+    // links made before overlays existed keep working.
+    const overlayId = params.get('overlay') || (widget === 'chat' ? 'chat' : !WIDGETS[widget] ? 'alerts' : null);
+    if (DEFAULTS && overlayId) {
+      overlayPage(host, overlayId);
     } else if (!WIDGETS[widget]) {
       let conn = null;
       const box = alertBox((id) => { if (conn.send({ type: 'ack', alertId: id })) window.sylva.acked.push(id); });

@@ -761,6 +761,16 @@ impl DurableObject for ChannelDo {
                 }
             }
             (Method::Get, ["scene"]) => Response::from_json(&self.scene_state()?),
+            (Method::Get, ["overlays"]) => Response::from_json(&self.overlays()?),
+            (Method::Post, ["overlays"]) => {
+                let Ok(list) = req.json::<Vec<crate::overlays::Overlay>>().await else {
+                    return Response::error("Those overlays could not be read", 400);
+                };
+                match self.save_overlays(list) {
+                    Ok(saved) => Response::from_json(&saved),
+                    Err(e) => Response::error(e, 400),
+                }
+            }
             (Method::Post, ["scene"]) => {
                 let Ok(body) = req.json::<Scene>().await else {
                     return Response::error("That layout could not be read", 400);
@@ -1447,11 +1457,12 @@ impl ChannelDo {
             goal,
             top: self.top()?,
             scene: self.published()?,
+            overlays: self.overlays_for_widgets()?,
         })
     }
 
     /// Send every widget socket what it shows, after a change to it.
-    fn send_widget_data(&self) -> Result<()> {
+    pub(crate) fn send_widget_data(&self) -> Result<()> {
         let sockets = self.sockets(Role::Widget);
         if !sockets.is_empty() {
             let text = serde_json::to_string(&ServerFrame::Widgets(self.widget_data()?))?;

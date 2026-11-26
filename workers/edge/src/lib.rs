@@ -50,6 +50,7 @@ mod loyalty;
 mod media;
 mod moderation;
 mod nuke;
+mod overlays;
 mod store;
 mod stats;
 mod streams;
@@ -290,6 +291,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Get, ["stats"])
                 | (Method::Post, ["media", ..])
                 | (Method::Get, ["scene"])
+                | (Method::Get, ["overlays"])
+                | (Method::Post, ["overlays"])
                 | (Method::Post, ["scene", ..])
                 | (Method::Post, ["import", "streamelements"])
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,

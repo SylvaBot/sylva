@@ -548,26 +548,15 @@ h1, h2, h3, p { margin: 0; }
 }
 
 /* Overlay widgets */
-.widgets { list-style: none; margin: 0; padding: 0 0 8px; }
-.widget { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-top: 1px solid var(--border); }
-.widget .tile { color: var(--c); }
-.widget-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.widget-main b { font-size: 13.5px; font-weight: 600; }
-.widget-main > span { font-size: 12.5px; color: var(--muted); }
-.widget-main .segmented { margin-top: 8px; }
-.widget-actions { display: flex; gap: 8px; flex: none; }
 .segmented.sm button { height: 24px; padding: 0 9px; font-size: 12px; }
 .goal-form { display: flex; flex-direction: column; gap: 16px; }
 .goal-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 14px 16px; }
-.goal-preview { padding: 14px 16px; border-radius: var(--r); background: var(--sunken); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
 .goal-line { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; }
 .goal-line span { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .goal-track { height: 10px; border-radius: 5px; background: color-mix(in srgb, var(--c) 16%, var(--surface-2)); overflow: hidden; }
 .goal-fill { height: 100%; border-radius: 5px; background: var(--c); transition: width .6s var(--ease); }
 .goal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 700px) {
-  .widget { flex-wrap: wrap; padding: 14px 16px; }
-  .widget-actions { width: 100%; padding-left: 46px; }
   .goal-fields { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -678,128 +667,13 @@ h1, h2, h3, p { margin: 0; }
   .site-nav .btn.ghost { display: none; }
 }
 
-/* ---------- Overlay editor ---------- */
-.editor { display: flex; flex-direction: column; }
-.editor-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 20px 14px; }
-.bar-sep { width: 1px; height: 20px; background: var(--border-2); }
+/* ---------- Shared bits that the old overlay editor introduced ---------- */
 .icon-btn:disabled { opacity: .4; pointer-events: none; }
-.save-state { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
-.save-state.pending { color: var(--warn); }
-.save-state.bad { color: var(--danger); }
-
-.popover { position: relative; }
-.popover > .btn svg:last-child { width: 14px; height: 14px; margin-right: -2px; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
-.popover > .btn[aria-expanded="true"] svg:last-child { transform: rotate(-90deg); }
-.popover .menu { top: calc(100% + 6px); bottom: auto; right: auto; width: 340px; max-width: calc(100vw - 40px); display: flex; flex-direction: column; gap: 2px; box-shadow: 0 12px 32px rgba(0, 0, 0, .28); }
-.popover .menu-item { align-items: flex-start; padding: 8px; }
-.popover .menu-item:disabled { opacity: .5; }
-.popover .menu-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .menu-item .tile svg { color: var(--c, var(--muted)); width: 15px; height: 15px; }
 .menu-item b { display: block; font-weight: 600; font-size: 13px; }
 .menu-item small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 1px; }
 .tile.sm { width: 28px; height: 28px; }
 .tile.sm svg { width: 15px; height: 15px; }
-
-.editor-main { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; padding: 0 20px 16px; }
-.canvas-wrap { min-width: 0; }
-.canvas {
-  position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r);
-  border: 1px solid var(--border-2); touch-action: none; user-select: none;
-  background-color: #0b0b0d;
-  background-image: linear-gradient(45deg, #121215 25%, transparent 25%), linear-gradient(-45deg, #121215 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #121215 75%), linear-gradient(-45deg, transparent 75%, #121215 75%);
-  background-size: 24px 24px; background-position: 0 0, 0 12px, 12px -12px, -12px 0;
-  /* The overlay is always dark in OBS, so the canvas is too, in both themes. */
-  --follow: #3ecf74; --sub: #9b7bf7; --gift: #ec5c9e; --bits: #5b8def; --tip: #eab308; --reward: #f08a3c; --raid: #2bbfae; --other: #8b8b94;
-}
-.slot { position: absolute; cursor: grab; outline: 1px dashed rgba(255, 255, 255, .18); }
-.slot:hover { outline-color: rgba(255, 255, 255, .4); }
-.slot:active { cursor: grabbing; }
-.slot.selected { outline: 2px solid var(--focus); z-index: 2; }
-.slot:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.slot-preview { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
-.slot-tag {
-  position: absolute; left: 0; top: 0; transform: translateY(-100%); display: none; align-items: center; gap: 4px;
-  padding: 2px 6px; font-size: 11px; font-weight: 600; white-space: nowrap; color: #fff; background: var(--focus); border-radius: 4px 4px 0 0;
-}
-.slot-tag svg { width: 12px; height: 12px; }
-.slot.selected .slot-tag, .slot:hover .slot-tag { display: inline-flex; }
-.slot.tag-inside .slot-tag { transform: none; border-radius: 0 0 4px 0; }
-.slot-preview { overflow: hidden; }
-.slot.selected .slot-tag { color: #0b1020; }
-.slot:not(.selected):hover .slot-tag { background: rgba(60, 60, 68, .95); }
-.handle { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid var(--focus); border-radius: 3px; z-index: 3; }
-.handle.nw { left: -7px; top: -7px; cursor: nwse-resize; }
-.handle.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
-.handle.ne { right: -7px; top: -7px; cursor: nesw-resize; }
-.handle.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
-.guide { position: absolute; background: #f0b3ff; pointer-events: none; z-index: 4; }
-.guide.v { top: 0; bottom: 0; width: 1px; }
-.guide.h { left: 0; right: 0; height: 1px; }
-.canvas-empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 16px; text-align: center; padding: 16px; color: #c4c4ca; font-size: 14px; }
-.canvas-empty b { color: #ededef; }
-.template-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-.template-pick { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px; border-radius: var(--r); border: 1px solid #303035; background: rgba(22, 22, 24, .9); color: #ededef; font-size: 13px; }
-.template-pick:hover { border-color: #5b5b63; }
-.template-pick .thumb { width: 128px; }
-.thumb { position: relative; display: block; width: 72px; aspect-ratio: 16 / 9; flex: none; border-radius: 4px; background: #0b0b0d; border: 1px solid var(--border-2); overflow: hidden; }
-.thumb span { position: absolute; border-radius: 2px; background: color-mix(in srgb, var(--c) 55%, transparent); }
-
-.inspector { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.inspector h3 { font-size: 13.5px; font-weight: 600; }
-.insp-head { display: flex; gap: 10px; align-items: flex-start; }
-.insp-head .field-hint { margin-top: 2px; }
-.insp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.insp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.layer { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); color: var(--text); font-size: 13px; text-align: left; }
-.layer:hover { border-color: var(--border-3); }
-.layer small { color: var(--muted); font-size: 12px; }
-
-.editor-foot { border-top: 1px solid var(--border); padding: 14px 20px 18px; display: flex; flex-direction: column; gap: 12px; }
-.overlay-link { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.overlay-link b { display: block; font-size: 13.5px; }
-.overlay-link span { display: block; font-size: 12.5px; color: var(--muted); }
-.versions { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.versions li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r); }
-.versions b { font-size: 13px; }
-.versions small { display: block; font-size: 12px; color: var(--muted); }
-.pill-live { margin-left: 8px; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
-
-@media (max-width: 1100px) {
-  .editor-main { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 560px) {
-  .editor-bar, .editor-main { padding-left: 16px; padding-right: 16px; }
-  .editor-foot { padding-left: 16px; padding-right: 16px; }
-  .save-state { order: 10; width: 100%; }
-  .bar-sep { display: none; }
-}
-
-/* What widgets look like on the canvas, at overlay size (the slot scales them). Always dark, like OBS. */
-.slot-preview { font: 16px/1.5 Inter, system-ui, sans-serif; color: #ededef; --surf: #161618; --bord: #3d3d44; }
-.pv-stage { position: absolute; inset: 0; display: grid; place-items: center; }
-.pv-card { min-width: 320px; max-width: 560px; padding: 20px 24px; border-radius: 12px; background: color-mix(in srgb, var(--c) 14%, var(--surf)); border: 1px solid color-mix(in srgb, var(--c) 45%, var(--bord)); }
-.pv-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, var(--c) 70%, #ffffff); font-weight: 600; }
-.pv-name { font-size: 28px; font-weight: 650; letter-spacing: -.02em; }
-.pv-detail { color: #a4a4ac; }
-.pv-list { position: absolute; inset: 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
-.pv-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--c) 14%, var(--surf)); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--bord)); }
-.pv-row span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pv-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c); flex: none; }
-.pv-label-box { position: absolute; inset: 6px; display: flex; align-items: center; padding: 0 16px; gap: 12px; white-space: nowrap; border-radius: 10px; background: color-mix(in srgb, var(--c) 14%, var(--surf)); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--bord)); overflow: hidden; }
-.pv-label-box .pv-label { font-size: 13px; }
-.pv-who { font-size: 22px; font-weight: 650; }
-.pv-amount { color: #a4a4ac; font-size: 18px; }
-.pv-goal { position: absolute; inset: 6px; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: 10px; background: var(--surf); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--bord)); }
-.pv-goal-top { display: flex; justify-content: space-between; gap: 16px; font-size: 18px; font-weight: 650; white-space: nowrap; }
-.pv-goal-top span:last-child { font-weight: 400; color: #a4a4ac; font-size: 16px; }
-.pv-goal-top b { color: #ededef; }
-.pv-track { height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--c) 18%, #0e0e10); overflow: hidden; }
-.pv-track div { height: 100%; background: var(--c); border-radius: 7px; }
-.pv-chat { position: absolute; inset: 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; overflow: hidden; }
-.pv-line { padding: 6px 12px; border-radius: 8px; background: rgba(22, 22, 24, .82); border: 1px solid #2a2a2f; flex: none; }
-.pv-line b { font-weight: 650; margin-right: 6px; color: #c9b8ff; }
 
 /* ---------------------------------------------------------------- Chat bot */
 .bot-status { display: flex; align-items: center; gap: 12px; padding: 16px 20px; }
@@ -1508,7 +1382,7 @@ body::before {
 
 /* Nested boxes inside cards: soft fills, no outlines */
 .setup { padding: 22px; }
-.setup li, .goal-preview, .layer, .versions li, .cmd-preview, .give-entry-list li, .status {
+.setup li, .cmd-preview, .give-entry-list li, .status {
   border-color: transparent; background: var(--surface-2); border-radius: var(--r-lg);
 }
 .setup li { padding: 16px; }
@@ -1562,3 +1436,56 @@ body::before {
 .chat-tab { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
 .chat-tab > div + div { border-left: 1px solid var(--border); }
 @media (max-width: 960px) { .chat-tab { grid-template-columns: minmax(0, 1fr); } .chat-tab > div + div { border-left: 0; border-top: 1px solid var(--border); } }
+.tab-count { margin-left: 8px; padding: 1px 7px; border-radius: var(--pill); font-size: 11.5px; background: var(--surface-3); color: inherit; font-variant-numeric: tabular-nums; }
+.tabs [aria-selected="true"] .tab-count { background: color-mix(in srgb, var(--on-primary) 12%, transparent); }
+.stack > .tabs { margin: 4px 0 -2px; }
+
+/* Overlays: one element per overlay, each with a live preview */
+.overlay-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.overlay-card { overflow: hidden; display: flex; flex-direction: column; }
+.overlay-thumb { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; aspect-ratio: 16 / 9; }
+div.overlay-thumb { border-radius: var(--r-xl) var(--r-xl) 0 0; }
+.preview-box {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, .025) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, .025) 75%) 0 0 / 24px 24px,
+    linear-gradient(45deg, rgba(255, 255, 255, .025) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, .025) 75%) 12px 12px / 24px 24px,
+    #0b0a0a;
+}
+.preview-canvas { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; pointer-events: none; }
+.overlay-thumb:hover .preview-box { outline: 2px solid var(--border-3); outline-offset: -2px; }
+.overlay-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 16px; flex-wrap: wrap; }
+.overlay-meta h2 { font-size: 15px; font-weight: 650; }
+.overlay-meta p { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.overlay-actions { display: flex; gap: 8px; }
+.overlay-hint { margin-top: 14px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+.add-pop { min-width: 260px; }
+.add-pop .filter-opt svg { color: var(--muted); }
+.editor-head { display: flex; align-items: center; justify-content: space-between; margin: -4px 0 8px -12px; }
+.save-state { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.save-state.saving { color: var(--warn); }
+.save-state.error { color: var(--danger); }
+.overlay-edit { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; }
+.overlay-edit > .stack:first-child { position: sticky; top: 76px; }
+.overlay-stage { overflow: hidden; }
+.try-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.try-row > span { font-size: 13px; font-weight: 600; color: var(--muted); margin-right: 4px; }
+.fold > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; cursor: pointer; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary h2 { font-size: 15px; font-weight: 650; display: flex; align-items: center; }
+.fold > summary svg { color: var(--muted); transition: transform .15s; }
+.fold[open] > summary svg { transform: rotate(90deg); }
+.fold > .card-body { padding-top: 0; }
+.field-grid { display: flex; flex-direction: column; gap: 14px; }
+.field.inline { flex-direction: row; align-items: center; justify-content: space-between; }
+.field input[type="range"], .volume { accent-color: var(--primary); width: 100%; }
+.sound-list { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sound-list li { display: grid; grid-template-columns: 1fr 1fr 70px auto auto; gap: 6px; align-items: center; padding: 8px; border-radius: var(--r-lg); background: var(--surface-2); }
+.sound-list .select { min-width: 0; }
+.sound-add { display: flex; gap: 8px; flex-wrap: wrap; }
+.adv { display: flex; flex-direction: column; gap: 12px; }
+.adv-row { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 1100px) {
+  .overlay-edit { grid-template-columns: minmax(0, 1fr); }
+  .overlay-edit > .stack:first-child { position: static; }
+}

@@ -1,16 +1,18 @@
-// The Stats page: how the channel is doing over 7, 30 or 90 days, compared
-// with the period before. Worked out by the channel from its event log
+// The Stats page: how the channel is doing over 7, 30 or 90 days or a year,
+// compared with the period before. Growth numbers first, then every other
+// number in a dense grid, a daily chart with the period before behind it,
+// and tabs for streams, viewers, supporters and chat. Worked out by the channel from its event log
 // (workers/edge/src/stats.rs); viewer counts are sampled while live.
 
 import NumberFlow from '@number-flow/react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, type Recap, type StatTotals, type Stats } from './api';
 import { useChannel } from './channel';
-import { DayBars, Heatmap, RankList, Sparkline, TimeLine, type Series } from './charts';
+import { DayBars, Heatmap, RankList, Sparkline, TimeLine } from './charts';
 import { PageHead } from './pages';
-import { num } from './ui';
+import { Icon, num } from './ui';
 
-const RANGES = [7, 30, 90] as const;
+const RANGES = [7, 30, 90, 365] as const;
 const RANGE_KEY = 'sylva.statsDays';
 
 function savedRange(): number {
@@ -66,13 +68,17 @@ export function Kpi({ c, label, value, pct, spark, note, unit }: {
   );
 }
 
-type MetricKey = 'follows' | 'subs' | 'bits' | 'chat' | 'chatters' | 'raiders';
-const METRICS: { key: MetricKey; label: string; c: string; unit: string }[] = [
-  { key: 'follows', label: 'Followers', c: 'c-follow', unit: 'followers' },
-  { key: 'subs', label: 'Subs', c: 'c-sub', unit: 'subs' },
-  { key: 'bits', label: 'Bits', c: 'c-bits', unit: 'bits' },
-  { key: 'chat', label: 'Chat messages', c: 'c-chat', unit: 'messages' },
-  { key: 'raiders', label: 'Raid viewers', c: 'c-raid', unit: 'viewers' },
+type MetricKey = 'follows' | 'subs' | 'gifted' | 'bits' | 'chat' | 'chatters' | 'raids' | 'raiders' | 'redemptions';
+const METRICS: { key: MetricKey; label: string; c: string }[] = [
+  { key: 'follows', label: 'Followers', c: 'c-follow' },
+  { key: 'subs', label: 'New subs', c: 'c-sub' },
+  { key: 'gifted', label: 'Gifted subs', c: 'c-gift' },
+  { key: 'bits', label: 'Bits', c: 'c-bits' },
+  { key: 'chat', label: 'Chat messages', c: 'c-chat' },
+  { key: 'chatters', label: 'Chatters', c: 'c-raid' },
+  { key: 'raids', label: 'Raids', c: 'c-raid' },
+  { key: 'raiders', label: 'Raid viewers', c: 'c-raid' },
+  { key: 'redemptions', label: 'Redemptions', c: 'c-reward' },
 ];
 
 const hours = (ms: number) => {
@@ -81,32 +87,47 @@ const hours = (ms: number) => {
   return h ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`;
 };
 const streamDay = (at: number) => new Date(at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const one = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
-type Tab = 'growth' | 'viewers' | 'streams' | 'people' | 'chat';
+type Tab = 'streams' | 'viewers' | 'people' | 'chat';
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'growth', label: 'Growth' },
-  { id: 'viewers', label: 'Viewers' },
   { id: 'streams', label: 'Streams' },
+  { id: 'viewers', label: 'Viewers' },
   { id: 'people', label: 'Top supporters' },
   { id: 'chat', label: 'Chat' },
 ];
+const RANGE_NAMES: Record<number, string> = { 7: '7 days', 30: '30 days', 90: '90 days', 365: '1 year' };
 
-/** "363 new followers, up 12% on the 30 days before." */
-function sentence(n: number, before: number, what: string, days: number) {
-  const pct = change(n, before);
-  if (!n && !before) return `No ${what} yet.`;
-  if (pct === null) return `${num(n)} ${what}, the first in a while.`;
-  const r = Math.round(pct);
-  if (r === 0) return `${num(n)} ${what}, about the same as the ${days} days before.`;
-  return `${num(n)} ${what}, ${r > 0 ? 'up' : 'down'} ${num(Math.abs(r))}% on the ${days} days before.`;
+/** One small number in the metric grid, with its change when there is something to compare. */
+function Cell({ label, value, before, text, hint }: { label: string; value: number | null; before?: number | null; text?: string; hint?: string }) {
+  return (
+    <div className="cell" title={hint}>
+      <span className="cell-label">{label}</span>
+      <span className="cell-num">{value === null ? '-' : text ?? num(value)}</span>
+      {value !== null && before !== undefined && before !== null && <Delta pct={change(value, before)} label="vs the period before" />}
+    </div>
+  );
+}
+
+/** The daily numbers as a CSV file, for spreadsheets. */
+function exportCsv(s: Stats) {
+  const cols: (keyof StatTotals)[] = ['follows', 'subs', 'gifted', 'bits', 'raids', 'raiders', 'tips', 'redemptions', 'chat', 'chatters'];
+  const day = (ms: number) => new Date(ms).toLocaleDateString('en-CA');
+  const lines = [['date', ...cols].join(','), ...s.series.map((d) => [day(d.start), ...cols.map((c) => d[c])].join(','))];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/csv' }));
+  a.download = `sylva-stats-${day(s.from)}-${s.days}d.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 export function StatsPage() {
   const [days, setDays] = useState(savedRange);
   const { data, stale, failed } = useStats(days);
   const s = data ?? stale;
-  const [tab, setTab] = useState<Tab>('growth');
+  const [tab, setTab] = useState<Tab>('streams');
   const [metric, setMetric] = useState<MetricKey>('follows');
+  const [compare, setCompare] = useState(true);
   const [board, setBoard] = useState<'chat' | 'cheer' | 'gift' | 'raid'>('chat');
 
   const pick = (d: number) => {
@@ -116,28 +137,23 @@ export function StatsPage() {
 
   const starts = s ? s.series.map((d) => d.start) : [];
   const col = (k: keyof StatTotals) => (s ? s.series.map((d) => d[k]) : []);
-  const t = s?.totals, p = s?.previous;
-  const vs = `vs ${days} days before`;
+  const t = s?.totals, p = s?.previous, b4 = s?.before;
+  const vs = `vs the ${RANGE_NAMES[days] ?? `${days} days`} before`;
 
   const streams = s?.streams ?? [];
   const viewerStats = useMemo(() => {
     const v = s?.viewers ?? [];
     if (!v.length) return null;
-    const peak = Math.max(...v.map((x) => x.viewers));
-    const avg = Math.round(v.reduce((a, x) => a + x.viewers, 0) / v.length);
-    return { peak, avg };
+    return { peak: Math.max(...v.map((x) => x.viewers)), avg: Math.round(v.reduce((a, x) => a + x.viewers, 0) / v.length) };
   }, [s]);
-  const hoursLive = streams.reduce((a, r) => a + ((r.endedAt ?? Date.now()) - r.startedAt), 0);
+  const liveMs = streams.reduce((a, r) => a + ((r.endedAt ?? Date.now()) - r.startedAt), 0);
+  const liveH = liveMs / 3_600_000, prevH = (b4?.liveMs ?? 0) / 3_600_000;
+  const returning = t && s ? Math.max(0, t.chatters - s.newChatters) : null;
+  const prevReturning = p && b4 ? Math.max(0, p.chatters - b4.newChatters) : null;
 
   const m = METRICS.find((x) => x.key === metric)!;
-  const mainSeries: Series[] = metric === 'subs'
-    ? [
-      { key: 'subs', label: 'Subs', c: 'c-sub', values: col('subs') },
-      { key: 'gifted', label: 'Gifted subs', c: 'c-gift', values: col('gifted') },
-    ]
-    : [{ key: metric, label: m.label, c: m.c, values: col(metric) }];
-  const mainTotal = metric === 'subs' ? (t ? t.subs + t.gifted : 0) : t ? t[metric] : 0;
-  const mainPrev = metric === 'subs' ? (p ? p.subs + p.gifted : 0) : p ? p[metric] : 0;
+  const mainTotal = t ? t[metric] : 0;
+  const mainPrev = p ? p[metric] : 0;
 
   const boards = {
     chat: { label: 'Chatters', rows: s?.topChatters ?? [], unit: 'messages', c: 'c-chat', empty: 'Nobody has chatted in this range yet.' },
@@ -145,40 +161,76 @@ export function StatsPage() {
     gift: { label: 'Gifters', rows: s?.topGifters ?? [], unit: 'subs', c: 'c-gift', empty: 'No gifted subs in this range yet.' },
     raid: { label: 'Raiders', rows: s?.topRaiders ?? [], unit: 'viewers', c: 'c-raid', empty: 'No raids in this range yet.' },
   };
-  const b = boards[board];
-
-  const summary = t && p ? [
-    sentence(t.follows, p.follows, 'new followers', days),
-    sentence(t.subs + t.gifted, p.subs + p.gifted, 'subs and gifted subs', days),
-    streams.length ? `${num(streams.length)} stream${streams.length === 1 ? '' : 's'}, ${hours(hoursLive)} live${viewerStats ? `, ${num(viewerStats.avg)} viewers on average` : ''}.` : 'No streams in this range yet.',
-  ] : [];
+  const board_ = boards[board];
 
   return (
-    <div className="page">
-      <PageHead title="Stats" desc={summary.length ? undefined : 'How your channel is doing.'}>
+    <div className="page page-wide">
+      <PageHead title="Stats">
+        <button className="btn" type="button" disabled={!data} onClick={() => data && exportCsv(data)}><Icon id="download" />Export CSV</button>
         <div className="segmented" role="group" aria-label="Range">
           {RANGES.map((r) => (
-            <button key={r} type="button" aria-pressed={days === r} onClick={() => pick(r)}>{r} days</button>
+            <button key={r} type="button" aria-pressed={days === r} onClick={() => pick(r)}>{RANGE_NAMES[r]}</button>
           ))}
         </div>
       </PageHead>
 
       {failed && !s && <div className="notice">Could not load your stats. Refresh to try again.</div>}
 
-      {summary.length > 0 && (
-        <ul className="stats-summary" aria-label={`The last ${days} days`}>
-          {summary.map((line) => <li key={line}>{line}</li>)}
-        </ul>
-      )}
-
-      <div className={'kpis four' + (s && !data ? ' loading' : '')} role="group" aria-label={`Last ${days} days`}>
-        <Kpi c="c-follow" label="New followers" value={t ? t.follows : null} pct={t && p ? change(t.follows, p.follows) : undefined} spark={col('follows')} note={vs} />
+      <h2 className="section-label">Growth</h2>
+      <div className={'kpis four' + (s && !data ? ' loading' : '')} role="group" aria-label="Growth">
+        <Kpi c="c-follow" label="Followers gained" value={t ? t.follows : null} pct={t && p ? change(t.follows, p.follows) : undefined} spark={col('follows')} note={vs} />
         <Kpi c="c-sub" label="Subs and gifts" value={t ? t.subs + t.gifted : null} pct={t && p ? change(t.subs + t.gifted, p.subs + p.gifted) : undefined} note={vs}
           spark={s ? s.series.map((d) => d.subs + d.gifted) : []} />
         <Kpi c="c-viewers" label="Average viewers" value={s ? viewerStats?.avg ?? null : null}
-          note={viewerStats ? `Peak ${num(viewerStats.peak)}` : 'Counted while you are live'} />
-        <Kpi c="c-chat" label="People who chatted" value={t ? t.chatters : null} pct={t && p ? change(t.chatters, p.chatters) : undefined} spark={col('chatters')} note={vs} />
+          pct={viewerStats && b4?.avgViewers ? change(viewerStats.avg, b4.avgViewers) : undefined}
+          note={viewerStats ? `Peak ${num(viewerStats.peak)}, ${vs}` : 'Counted while you are live'} />
+        <Kpi c="c-chat" label="New chatters" value={s ? s.newChatters : null} pct={s && b4 ? change(s.newChatters, b4.newChatters) : undefined}
+          note="First message ever" spark={col('chatters')} />
       </div>
+
+      <h2 className="section-label">Everything else</h2>
+      <div className={'card cells' + (s && !data ? ' loading' : '')} role="group" aria-label="More numbers">
+        <Cell label="Peak viewers" value={s ? viewerStats?.peak ?? null : null} before={b4?.peakViewers} />
+        <Cell label="Hours live" value={s ? liveH : null} text={hours(liveMs)} before={b4 ? prevH : undefined} />
+        <Cell label="Streams" value={s ? streams.length : null} before={b4?.streams} />
+        <Cell label="Average stream" value={s && streams.length ? liveMs / streams.length : null} text={hours(streams.length ? liveMs / streams.length : 0)}
+          before={b4 && b4.streams ? b4.liveMs / b4.streams : undefined} />
+        <Cell label="Followers per hour live" value={t && liveH ? t.follows / liveH : null} text={t && liveH ? one.format(t.follows / liveH) : undefined}
+          before={p && prevH ? p.follows / prevH : undefined} hint="Followers gained divided by hours live" />
+        <Cell label="New subs" value={t ? t.subs : null} before={p?.subs} />
+        <Cell label="Gifted subs" value={t ? t.gifted : null} before={p?.gifted} />
+        <Cell label="Bits" value={t ? t.bits : null} before={p?.bits} />
+        <Cell label="Raids received" value={t ? t.raids : null} before={p?.raids} />
+        <Cell label="Raid viewers" value={t ? t.raiders : null} before={p?.raiders} />
+        <Cell label="Chat messages" value={t ? t.chat : null} before={p?.chat} />
+        <Cell label="People who chatted" value={t ? t.chatters : null} before={p?.chatters} />
+        <Cell label="Returning chatters" value={returning} before={prevReturning} hint="Chatted before this range too" />
+        <Cell label="Messages per chatter" value={t && t.chatters ? t.chat / t.chatters : null} text={t && t.chatters ? one.format(t.chat / t.chatters) : undefined}
+          before={p && p.chatters ? p.chat / p.chatters : undefined} />
+        <Cell label="Redemptions" value={t ? t.redemptions : null} before={p?.redemptions} />
+      </div>
+
+      <section className="card chart-card" aria-labelledby="trend-title">
+        <div className="card-head">
+          <div>
+            <h2 id="trend-title">{m.label} each day</h2>
+            {s && <p><b className="big-num">{num(mainTotal)}</b> in {RANGE_NAMES[days] ? `the last ${RANGE_NAMES[days]}` : 'this range'} <DeltaInline now={mainTotal} before={mainPrev} /></p>}
+          </div>
+          <div className="trend-tools">
+            <label className="check-pill">
+              <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} />Compare with the period before
+            </label>
+            <select className="select sm fit" aria-label="Metric" value={metric} onChange={(e) => setMetric(e.target.value as MetricKey)}>
+              {METRICS.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="card-body">
+          {s
+            ? <DayBars starts={starts} series={[{ key: metric, label: m.label, c: m.c, values: col(metric) }]} ghost={compare ? s.previousSeries?.map((d) => d[metric]) : undefined} height={280} />
+            : <div className="chart-skeleton" style={{ height: 280 }} />}
+        </div>
+      </section>
 
       <div className="tabs" role="tablist" aria-label="Details">
         {TABS.map((x) => (
@@ -187,25 +239,6 @@ export function StatsPage() {
       </div>
 
       <section className="card" id="stats-panel" role="tabpanel" aria-labelledby={'tab-' + tab}>
-        {tab === 'growth' && (
-          <>
-            <div className="card-head">
-              <div>
-                <h2>{m.label} each day</h2>
-                {s && <p><b className="big-num">{num(mainTotal)}</b> in the last {days} days <DeltaInline now={mainTotal} before={mainPrev} /></p>}
-              </div>
-              <div className="segmented sm metric-tabs" role="group" aria-label="Show">
-                {METRICS.map((x) => (
-                  <button key={x.key} type="button" aria-pressed={metric === x.key} onClick={() => setMetric(x.key)}>{x.label}</button>
-                ))}
-              </div>
-            </div>
-            <div className="card-body">
-              {mainSeries.length > 1 && <Legend series={mainSeries} />}
-              {s ? <DayBars starts={starts} series={mainSeries} height={280} /> : <div className="chart-skeleton" style={{ height: 280 }} />}
-            </div>
-          </>
-        )}
         {tab === 'viewers' && (
           <>
             <div className="card-head"><div>
@@ -223,7 +256,7 @@ export function StatsPage() {
           <>
             <div className="card-head"><div>
               <h2>Each stream</h2>
-              <p>{streams.length ? `${num(streams.length)} streams, ${hours(hoursLive)} live. Pick a column to sort.` : 'Streams show here once they end.'}</p>
+              <p>{streams.length ? `${num(streams.length)} streams, ${hours(liveMs)} live. Pick a column to sort.` : 'Streams show here once they end.'}</p>
             </div></div>
             {streams.length ? <StreamTable streams={streams} /> : <div className="card-body"><Empty text="After your next stream ends it shows here next to the others." /></div>}
           </>
@@ -231,14 +264,14 @@ export function StatsPage() {
         {tab === 'people' && (
           <>
             <div className="card-head">
-              <div><h2>Top {b.label.toLowerCase()}</h2><p>The last {days} days</p></div>
+              <div><h2>Top {board_.label.toLowerCase()}</h2><p>{RANGE_NAMES[days] ? `The last ${RANGE_NAMES[days]}` : ''}</p></div>
               <div className="segmented sm" role="group" aria-label="Who">
                 {Object.entries(boards).map(([k, v]) => (
                   <button key={k} type="button" aria-pressed={board === k} onClick={() => setBoard(k as typeof board)}>{v.label}</button>
                 ))}
               </div>
             </div>
-            <div className="card-body narrow"><RankList rows={b.rows} unit={b.unit} c={b.c} empty={b.empty} /></div>
+            <div className="card-body narrow"><RankList rows={board_.rows} unit={board_.unit} c={board_.c} empty={board_.empty} /></div>
           </>
         )}
         {tab === 'chat' && (
@@ -273,14 +306,6 @@ function DeltaInline({ now, before }: { now: number; before: number }) {
   const pct = change(now, before);
   if (pct === null || !before) return null;
   return <Delta pct={pct} label="vs the period before" />;
-}
-
-function Legend({ series }: { series: Series[] }) {
-  return (
-    <ul className="legend" aria-label="Legend">
-      {series.map((s) => <li key={s.key} className={s.c}><i />{s.label}</li>)}
-    </ul>
-  );
 }
 
 function Empty({ text }: { text: string }) {

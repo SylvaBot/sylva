@@ -87,6 +87,12 @@ struct BodyRow {
 }
 
 #[derive(Deserialize)]
+struct FirstRow {
+    now: f64,
+    before: f64,
+}
+
+#[derive(Deserialize)]
 struct PeakRow {
     peak: Option<f64>,
     avg: Option<f64>,
@@ -109,7 +115,35 @@ fn add(t: &mut Totals, kind: &str, n: u64, amount: f64) {
     }
 }
 
+/// Add one day's counts to a total. Chatters are left out: people who
+/// chatted on two days count once, so totals take their own query.
+fn sum_into(t: &mut Totals, d: &Totals) {
+    t.follows += d.follows;
+    t.subs += d.subs;
+    t.gifted += d.gifted;
+    t.bits += d.bits;
+    t.raids += d.raids;
+    t.raiders += d.raiders;
+    t.tips += d.tips;
+    t.redemptions += d.redemptions;
+    t.chat += d.chat;
+}
+
 impl ChannelDo {
+    /// How many different people chatted between two times.
+    fn distinct_chatters(&self, from: i64, to: i64) -> Result<u64> {
+        Ok(self
+            .sql
+            .exec(
+                "SELECT 0 AS d, COUNT(DISTINCT json_extract(body, '$.actor.id')) AS n
+                 FROM events WHERE kind = 'chat' AND received_at >= ? AND received_at < ?",
+                vec![(from as f64).into(), (to as f64).into()],
+            )?
+            .to_array::<CountRow>()?
+            .first()
+            .map_or(0, |c| c.n as u64))
+    }
+
     /// `GET .../stats?days=30&tz=300`. `tz` is the browser's
     /// `getTimezoneOffset()`, so days and hours follow the streamer's clock.
     pub(crate) fn stats(&self, days: i64, tz: i64) -> Result<serde_json::Value> {
@@ -121,73 +155,58 @@ impl ChannelDo {
         let prev = from - days * DAY;
         let to = now + 1;
 
-        // Day by day, and the period before as one bucket (d = -1).
+        // Day by day, counted from the start of the period before: days
+        // 0..days are the period before, days..2*days this one.
         let rows: Vec<KindRow> = self
             .sql
             .exec(
-                "SELECT CASE WHEN received_at < ?1 THEN -1 ELSE CAST((received_at - ?1) / 86400000 AS INTEGER) END AS d,
+                "SELECT CAST((received_at - ?1) / 86400000 AS INTEGER) AS d,
                         kind, COUNT(*) AS n, COALESCE(SUM(json_extract(body, '$.amount')), 0) AS amount
-                 FROM events WHERE received_at >= ?2 AND received_at < ?3
+                 FROM events WHERE received_at >= ?1 AND received_at < ?2
                    AND kind IN ('follow', 'subscriber', 'communityGift', 'cheer', 'raid', 'tip', 'redemption', 'chat')
                  GROUP BY d, kind",
-                vec![(from as f64).into(), (prev as f64).into(), (to as f64).into()],
+                vec![(prev as f64).into(), (to as f64).into()],
             )?
             .to_array()?;
-        let mut series: Vec<Day> = (0..days)
+        // Both periods in one list (from = prev + days * DAY), split below.
+        let mut all: Vec<Day> = (0..2 * days)
             .map(|i| Day {
-                start: from + i * DAY,
+                start: prev + i * DAY,
                 totals: Totals::default(),
             })
             .collect();
-        let mut previous = Totals::default();
         for r in &rows {
-            let (n, amount) = (r.n as u64, r.amount);
-            if r.d < 0.0 {
-                add(&mut previous, &r.kind, n, amount);
-            } else if let Some(day) = series.get_mut(r.d as usize) {
-                add(&mut day.totals, &r.kind, n, amount);
+            if let Some(d) = all.get_mut(r.d.max(0.0) as usize) {
+                add(&mut d.totals, &r.kind, r.n as u64, r.amount);
             }
         }
         let chatters: Vec<CountRow> = self
             .sql
             .exec(
-                "SELECT CASE WHEN received_at < ?1 THEN -1 ELSE CAST((received_at - ?1) / 86400000 AS INTEGER) END AS d,
+                "SELECT CAST((received_at - ?1) / 86400000 AS INTEGER) AS d,
                         COUNT(DISTINCT json_extract(body, '$.actor.id')) AS n
-                 FROM events WHERE kind = 'chat' AND received_at >= ?2 AND received_at < ?3
+                 FROM events WHERE kind = 'chat' AND received_at >= ?1 AND received_at < ?2
                  GROUP BY d",
-                vec![(from as f64).into(), (prev as f64).into(), (to as f64).into()],
+                vec![(prev as f64).into(), (to as f64).into()],
             )?
             .to_array()?;
         for c in &chatters {
-            if c.d < 0.0 {
-                previous.chatters = c.n as u64;
-            } else if let Some(day) = series.get_mut(c.d as usize) {
-                day.totals.chatters = c.n as u64;
+            if let Some(d) = all.get_mut(c.d.max(0.0) as usize) {
+                d.totals.chatters = c.n as u64;
             }
         }
+        let series = all.split_off(days as usize);
+        let before = all;
+        let mut previous = Totals::default();
+        for d in &before {
+            sum_into(&mut previous, &d.totals);
+        }
+        previous.chatters = self.distinct_chatters(prev, from)?;
         let mut totals = Totals::default();
         for d in &series {
-            let t = &d.totals;
-            totals.follows += t.follows;
-            totals.subs += t.subs;
-            totals.gifted += t.gifted;
-            totals.bits += t.bits;
-            totals.raids += t.raids;
-            totals.raiders += t.raiders;
-            totals.tips += t.tips;
-            totals.redemptions += t.redemptions;
-            totals.chat += t.chat;
+            sum_into(&mut totals, &d.totals);
         }
-        totals.chatters = self
-            .sql
-            .exec(
-                "SELECT 0 AS d, COUNT(DISTINCT json_extract(body, '$.actor.id')) AS n
-                 FROM events WHERE kind = 'chat' AND received_at >= ? AND received_at < ?",
-                vec![(from as f64).into(), (to as f64).into()],
-            )?
-            .to_array::<CountRow>()?
-            .first()
-            .map_or(0, |c| c.n as u64);
+        totals.chatters = self.distinct_chatters(from, to)?;
 
         let range = || vec![(from as f64).into(), (to as f64).into()];
         let ranked = |kind: &str, sum: bool, limit: u32| -> Result<Vec<Ranked>> {
@@ -261,6 +280,42 @@ impl ChannelDo {
             }
         }
 
+        // First time chatters: people whose first message ever falls in the range.
+        let firsts: Vec<FirstRow> = self
+            .sql
+            .exec(
+                "SELECT COALESCE(SUM(first >= ?1), 0) AS now, COALESCE(SUM(first >= ?2 AND first < ?1), 0) AS before
+                 FROM (SELECT MIN(received_at) AS first FROM events WHERE kind = 'chat'
+                       AND json_extract(body, '$.actor.id') IS NOT NULL
+                       GROUP BY json_extract(body, '$.actor.id'))",
+                vec![(from as f64).into(), (prev as f64).into()],
+            )?
+            .to_array()?;
+        let (new_chatters, prev_new_chatters) = firsts.first().map_or((0, 0), |f| (f.now as u64, f.before as u64));
+
+        // The period before, for streams and viewers.
+        let prev_viewers = self
+            .sql
+            .exec(
+                "SELECT MAX(viewers) AS peak, AVG(viewers) AS avg FROM viewer_samples WHERE at >= ? AND at < ?",
+                vec![(prev as f64).into(), (from as f64).into()],
+            )?
+            .to_array::<PeakRow>()?;
+        let prev_streams: Vec<Recap> = self
+            .sql
+            .exec(
+                "SELECT body FROM stream_recaps WHERE started_at >= ? AND started_at < ?",
+                vec![(prev as f64).into(), (from as f64).into()],
+            )?
+            .to_array::<BodyRow>()?
+            .into_iter()
+            .filter_map(|b| serde_json::from_str(&b.body).ok())
+            .collect();
+        let prev_ms: i64 = prev_streams
+            .iter()
+            .map(|r| r.ended_at.unwrap_or(r.started_at) - r.started_at)
+            .sum();
+
         let viewers: Vec<Sample> = self
             .sql
             .exec(
@@ -292,6 +347,7 @@ impl ChannelDo {
             "series": series,
             "totals": totals,
             "previous": previous,
+            "previousSeries": before,
             "topChatters": ranked("chat", false, 10)?,
             "topCheerers": ranked("cheer", true, 10)?,
             "topGifters": ranked("communityGift", true, 10)?,
@@ -300,6 +356,14 @@ impl ChannelDo {
             "heatmap": heat,
             "viewers": viewers,
             "streams": streams,
+            "newChatters": new_chatters,
+            "before": {
+                "newChatters": prev_new_chatters,
+                "streams": prev_streams.len(),
+                "liveMs": prev_ms,
+                "peakViewers": prev_viewers.first().and_then(|p| p.peak),
+                "avgViewers": prev_viewers.first().and_then(|p| p.avg.map(f64::round)),
+            },
         }))
     }
 

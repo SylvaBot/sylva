@@ -2,7 +2,7 @@
 
 import { StreamRecaps } from './streams';
 import { Kpi, useStats } from './stats';
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError, type AlertState, type AppToken, type FeatureStatus, type Kind, type SylvaEvent } from './api';
 import { AlertTypes } from './alertTypes';
 import { PAGE, useChannel } from './channel';
@@ -95,14 +95,6 @@ export function OverviewPage() {
         <div className="stack">
           <Card id="alerts" title="Alerts" action={<Link className="btn sm ghost" href="/app/alerts">Manage</Link>}>
             <div className="card-body"><AlertControls /></div>
-          </Card>
-          <Card
-            id="chat-preview"
-            title="Chat"
-            desc={s ? `${num(c.chat || 0)} messages in the last 24 hours` : undefined}
-            action={<Link className="btn sm ghost" href="/app/chat">Open</Link>}
-          >
-            <ChatList lines={ch.chat.slice(-30)} freshFrom={ch.freshFrom} size="short" />
           </Card>
         </div>
       </div>
@@ -410,51 +402,6 @@ export function ActivityPage() {
   );
 }
 
-/* ---------------------------------------------------------------- Chat */
-
-function ChatList({ lines, freshFrom, size }: { lines: SylvaEvent[]; freshFrom: number; size: 'short' | 'tall' }) {
-  const list = useRef<HTMLOListElement>(null);
-  const stick = useRef(true);
-  useEffect(() => {
-    const el = list.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [lines]);
-  return (
-    <ol
-      className={'chat ' + size}
-      ref={list}
-      aria-live="polite"
-      tabIndex={0}
-      aria-label="Chat messages"
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        // Follow new lines only while scrolled to the bottom.
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-      }}
-    >
-      {lines.length === 0 && <li className="empty">No chat yet. Messages show up here as they are sent.</li>}
-      {lines.map((l) => (
-        <li key={l.seq} className={l.seq > freshFrom ? 'fresh' : undefined}>
-          <time dateTime={l.createdAt} title={new Date(l.createdAt).toLocaleString()}>{ago(l.createdAt)}</time>
-          <b>{l.actor?.displayName || 'Someone'}</b>{l.message}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-export function ChatPage() {
-  const ch = useChannel();
-  useTick();
-  return (
-    <div className="page">
-      <PageHead title="Chat" desc="Your Twitch chat, live. Scroll up to pause, scroll down to follow again." />
-      <Card id="chat" title={`twitch.tv/${ch.login}`} desc="Read only">
-        <ChatList lines={ch.chat} freshFrom={ch.freshFrom} size="tall" />
-      </Card>
-    </div>
-  );
-}
 
 /* ---------------------------------------------------------------- Settings */
 

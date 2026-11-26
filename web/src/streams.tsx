@@ -15,28 +15,40 @@ const hours = (ms: number) => {
 const when = (at: number) => new Date(at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 function RecapBody({ r }: { r: Recap }) {
-  const facts: [string, string, string][] = [
-    ['c-follow', 'New followers', num(r.follows)],
-    ['c-sub', 'Subs', num(r.subs)],
-    ['c-gift', 'Gifted subs', num(r.gifted)],
-    ['c-bits', 'Bits', num(r.bits)],
-    ['c-raid', 'Raids', r.raids ? `${num(r.raids)} (${num(r.raiders)} viewers)` : '0'],
-    ['c-follow', 'Chat messages', num(r.chatLines)],
-    ['c-sub', 'People who chatted', num(r.chatters)],
-  ];
-  if (r.tips) facts.push(['c-tip', 'Tips', num(r.tips)]);
-  if (r.redemptions) facts.push(['c-reward', 'Redemptions', num(r.redemptions)]);
-  const leaders = [
-    r.topChatter && `Most chatty: ${r.topChatter.name} (${num(r.topChatter.amount)} messages)`,
-    r.topCheerer && `Top cheerer: ${r.topCheerer.name} (${num(r.topCheerer.amount)} bits)`,
-    r.topGifter && `Top gifter: ${r.topGifter.name} (${num(r.topGifter.amount)} subs)`,
-  ].filter(Boolean) as string[];
+  const facts: [string, string][] = [];
+  if (r.peakViewers != null) facts.push(['Peak viewers', num(r.peakViewers)]);
+  if (r.avgViewers != null) facts.push(['Average viewers', num(r.avgViewers)]);
+  facts.push(
+    ['Followers', num(r.follows)],
+    ['Subs', num(r.subs)],
+    ['Gifted subs', num(r.gifted)],
+    ['Bits', num(r.bits)],
+    ['Raids', r.raids ? `${num(r.raids)} \u00b7 ${num(r.raiders)} viewers` : '0'],
+    ['Chat messages', num(r.chatLines)],
+    ['People who chatted', num(r.chatters)],
+  );
+  if (r.tips) facts.push(['Tips', num(r.tips)]);
+  if (r.redemptions) facts.push(['Redemptions', num(r.redemptions)]);
+  const leaders = ([
+    ['Most messages', r.topChatter, 'messages'],
+    ['Most bits', r.topCheerer, 'bits'],
+    ['Most gifted subs', r.topGifter, 'subs'],
+  ] as const).filter(([, l]) => l);
   return (
     <>
-      <dl className="recap">
-        {facts.map(([c, k, v]) => <div key={k} className={c}><dt>{k}</dt><dd>{v}</dd></div>)}
+      <dl className="cells flat">
+        {facts.map(([k, v]) => <div key={k} className="cell"><dt className="cell-label">{k}</dt><dd className="cell-num">{v}</dd></div>)}
       </dl>
-      {leaders.length > 0 && <ul className="recap-leaders">{leaders.map((l) => <li key={l}>{l}</li>)}</ul>}
+      {leaders.length > 0 && (
+        <dl className="standouts">
+          {leaders.map(([k, l, unit]) => (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd><b>{l!.name}</b><span>{num(l!.amount)} {unit}</span></dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </>
   );
 }

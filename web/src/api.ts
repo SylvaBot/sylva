@@ -80,6 +80,8 @@ export interface Recap {
   tips: number; redemptions: number; chatLines: number; chatters: number;
   topChatter: Leader | null; topCheerer: Leader | null; topGifter: Leader | null;
   peakViewers?: number | null; avgViewers?: number | null;
+  /** 'streamelements' when brought over from there: chat lines and viewers are not known. */
+  source?: string;
 }
 export interface StatTotals {
   follows: number; subs: number; gifted: number; bits: number; raids: number; raiders: number;
@@ -250,7 +252,7 @@ export interface Redemption {
   id: number; itemId: string; itemName: string; cost: number; userId: string; login: string; name: string;
   input: string; at: number; status: 'pending' | 'done' | 'refunded'; doneAt?: number;
 }
-export interface ImportResult { commands: number; timers: number; points: number; watchtime: number; skipped: { what: string; why: string }[] }
+export interface ImportResult { commands: number; timers: number; points: number; watchtime: number; streams: number; activities: number; skipped: { what: string; why: string }[] }
 export interface PublicCommand {
   name: string; aliases: string[]; text: string; usage: string; level: UserLevel; cooldown: number; builtin: boolean;
 }

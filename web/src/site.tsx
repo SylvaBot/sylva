@@ -74,7 +74,9 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
           </li>
           <li>
             <b>Your StreamElements token, if you import:</b> used once to read your StreamElements commands,
-            timers and points, then thrown away. Sylva never stores it.
+            timers, points, watch time and stream history, then thrown away. Sylva never stores it. The stream history
+            it brings over (past streams and the names behind their follows, subs, bits, raids and tips) is kept with
+            your channel and removed when you delete your account.
           </li>
           <li>
             <b>Chat list permission, if you allow it:</b> a Twitch token that may read who is in your chat,

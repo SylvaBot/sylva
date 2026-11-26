@@ -19,6 +19,7 @@ export const STARTER: CustomCode = {
 
 const actor = (name: string, id: string) => ({ id, login: name.toLowerCase(), displayName: name });
 let seq = 1_000_000;
+const SAMPLE_LINES = [['Willow', 'hello chat!'], ['Maple', 'that was so clean'], ['Juniper', 'GG everyone'], ['Hazel', 'what game is next?']];
 export const sampleEvent = (kind: string) => {
   const base = { seq: ++seq, receivedAt: Date.now(), kind };
   switch (kind) {
@@ -27,7 +28,10 @@ export const sampleEvent = (kind: string) => {
     case 'communityGift': return { ...base, actor: actor('Aspen', '3'), amount: 5 };
     case 'cheer': return { ...base, actor: actor('Rowan', '4'), amount: 500, message: 'Cheer500 great stream' };
     case 'raid': return { ...base, actor: actor('Hazel', '5'), amount: 42 };
-    default: return { ...base, kind: 'chat', actor: actor('Willow', '6'), message: 'hello chat!' };
+    default: {
+      const [who, message] = SAMPLE_LINES[seq % SAMPLE_LINES.length];
+      return { ...base, kind: 'chat', actor: actor(who, String(10 + (seq % SAMPLE_LINES.length))), message };
+    }
   }
 };
 const SAMPLE_DATA = {
@@ -45,7 +49,7 @@ const VIEW: Record<string, { label: string; name: string; detail: string }> = {
   raid: { label: 'Raid', name: 'Hazel', detail: 'with 42 viewers' },
 };
 
-type Send = (m: Record<string, unknown>) => void;
+export type Send = (m: Record<string, unknown>) => void;
 
 /** One custom widget in a sandboxed frame, fed with sample data. */
 export function CustomFrame({ code, bind, interactive }: { code: CustomCode; bind?: (send: Send | null) => void; interactive?: boolean }) {

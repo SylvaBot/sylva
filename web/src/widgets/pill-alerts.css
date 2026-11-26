@@ -8,8 +8,6 @@
   --muted: #A3A3A3;
   --badge-text: #000000;
   --size: 26.4px;
-  --offset-x: 60px;
-  --offset-y: 60px;
 }
 
 html, body {
@@ -21,31 +19,39 @@ html, body {
   overflow: hidden;
 }
 
+/* The alert fills the canvas: the script sets --size so the pill (and its
+   message) is as big as the Browser Source allows. Size and place it in OBS. */
 #stage {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  padding: var(--offset-y) var(--offset-x);
+  padding: 0.5em;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  align-items: flex-start;
+  justify-content: center;
+  align-items: center;
   font-family: var(--font);
   font-size: var(--size);
   line-height: 1.2;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Position on the canvas */
-#stage.v-middle { justify-content: center; }
+/* Where the alert sits in any space the fit leaves over */
+#stage.v-top { justify-content: flex-start; }
 #stage.v-bottom { justify-content: flex-end; }
-#stage.h-center { align-items: center; }
+#stage.h-left { align-items: flex-start; }
 #stage.h-right { align-items: flex-end; }
 
+/* Pill and message stacked; the message keeps its space so the pill never moves */
 .alert {
   position: relative;
-  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
+#stage.h-left .alert { align-items: flex-start; }
+#stage.h-right .alert { align-items: flex-end; }
+#stage.v-bottom .alert { flex-direction: column-reverse; }
 
 /* The pill clips the row while it opens and closes */
 .pill {
@@ -54,7 +60,7 @@ html, body {
   background: var(--card);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  box-shadow: 0 0.6em 1.4em rgba(0, 0, 0, 0.4), 0 0.1em 0.3em rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0.25em 0.6em rgba(0, 0, 0, 0.4), 0 0.1em 0.3em rgba(0, 0, 0, 0.3);
   overflow: hidden;
 
   /* Hidden state: small circle */
@@ -198,12 +204,9 @@ html, body {
   transition: opacity 0.3s ease 0.3s, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s;
 }
 
-/* Viewer message: floats under the pill (above it at the bottom of the screen)
-   so the pill never moves */
+/* Viewer message: under the pill (above it at the bottom of the screen) */
 .msg {
-  position: absolute;
-  top: 100%;
-  left: 0;
+  flex: 0 0 auto;
   width: max-content;
   max-width: 24em;
   margin-top: 0.45em;
@@ -228,18 +231,13 @@ html, body {
   pointer-events: none;
 }
 
-.msg:empty { visibility: hidden; }
+.msg:empty { display: none; }
 
 #stage.v-bottom .msg {
-  top: auto;
-  bottom: 100%;
   margin-top: 0;
   margin-bottom: 0.45em;
   transform: translateY(0.4em);
 }
-
-#stage.h-right .msg { left: auto; right: 0; }
-#stage.h-center .msg { right: 0; margin-left: auto; margin-right: auto; }
 
 .msg.show {
   opacity: 1;

@@ -1,5 +1,5 @@
 // Minimal Pill Alerts for StreamElements (Custom Widget)
-// Full-canvas (1920x1080) alert widget. Handles every StreamElements alert event,
+// Alert widget that fills its canvas: size and place the source in OBS. Handles every StreamElements alert event,
 // with a fallback for any new "-latest" event type.
 
 var settings = {};
@@ -31,6 +31,7 @@ if (sylva) {
 }
 
 var stageEl = document.getElementById('stage');
+var alertEl = document.getElementById('alert');
 var pillEl = document.getElementById('pill');
 var rowEl = document.getElementById('row');
 var iconEl = document.getElementById('icon');
@@ -128,15 +129,13 @@ function applyStyle() {
   root.setProperty('--text', setting('textColor', '#FFFFFF'));
   root.setProperty('--muted', setting('mutedColor', '#A3A3A3'));
   root.setProperty('--badge-text', setting('badgeTextColor', '#000000'));
-  root.setProperty('--size', (22 * num(setting('size', 120), 120) / 100) + 'px');
-  root.setProperty('--offset-x', num(setting('offsetX', 60), 60) + 'px');
-  root.setProperty('--offset-y', num(setting('offsetY', 60), 60) + 'px');
 
-  // position looks like "bottom-left", "middle-center", "top-right"
-  var parts = String(setting('position', 'bottom-left')).split('-');
-  stageEl.classList.remove('v-middle', 'v-bottom', 'h-center', 'h-right');
-  if (parts[0] === 'middle' || parts[0] === 'bottom') stageEl.classList.add('v-' + parts[0]);
-  if (parts[1] === 'center' || parts[1] === 'right') stageEl.classList.add('h-' + parts[1]);
+  // position looks like "bottom-left", "middle-center", "top-right": where the
+  // alert sits when the canvas has room left over after the fit
+  var parts = String(setting('position', 'middle-center')).split('-');
+  stageEl.classList.remove('v-top', 'v-bottom', 'h-left', 'h-right');
+  if (parts[0] === 'top' || parts[0] === 'bottom') stageEl.classList.add('v-' + parts[0]);
+  if (parts[1] === 'left' || parts[1] === 'right') stageEl.classList.add('h-' + parts[1]);
 
   return loadFont(font);
 }
@@ -411,11 +410,45 @@ function playNext() {
   }
 }
 
-function availableWidth() {
-  var cs = getComputedStyle(stageEl);
-  var w = stageEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 2;
-  return Math.max(120, w);
+// Size the alert to fill the canvas. Every size is in em, so measuring once
+// at a known font size gives the font size that makes the pill (and its
+// message) as big as the canvas allows. Returns the open and closed pill
+// widths in em.
+var MEASURE = 100;
+var PAD = 0.5; // #stage padding, in em
+function fit() {
+  document.documentElement.style.setProperty('--size', MEASURE + 'px');
+  pillEl.style.width = 'auto';
+  rowEl.style.width = 'auto';
+  pillEl.style.transform = 'none';
+  var alertBox = alertEl.getBoundingClientRect();
+  var rowBox = rowEl.getBoundingClientRect();
+  var scale = stageEl.getBoundingClientRect().width / (stageEl.offsetWidth || 1) || 1;
+  // A little slack so text never ends up cut off at another size
+  var openEm = (rowBox.width / scale + 2) / MEASURE * 1.01;
+  var circleEm = rowEl.offsetHeight / MEASURE;
+  var msgW = msgEl.textContent ? msgEl.getBoundingClientRect().width / scale / MEASURE : 0;
+  var wEm = Math.max(msgW, openEm) + PAD * 2;
+  var hEm = alertBox.height / scale / MEASURE + PAD * 2;
+  var size = Math.min(stageEl.clientWidth / wEm, stageEl.clientHeight / hEm);
+  if (!(size > 0)) size = 26;
+  pillEl.style.transform = '';
+  document.documentElement.style.setProperty('--size', Math.max(4, size) + 'px');
+  return { open: openEm, circle: circleEm };
 }
+
+// When OBS resizes the source, fit the alert on screen again
+var lastFit = null;
+window.addEventListener('resize', function () {
+  if (!showing || !lastFit) return;
+  var opened = pillEl.classList.contains('open');
+  pillEl.style.transition = 'none';
+  lastFit = fit();
+  rowEl.style.width = lastFit.open + 'em';
+  pillEl.style.width = (opened ? lastFit.open : lastFit.circle) + 'em';
+  void pillEl.offsetWidth;
+  pillEl.style.transition = '';
+});
 
 function showAlert(a) {
   var seconds = Math.max(1, num(setting('duration', 5), 5));
@@ -434,16 +467,11 @@ function showAlert(a) {
   // Reset to the hidden circle and measure the open size
   pillEl.style.transition = 'none';
   pillEl.className = 'pill' + (a.badge ? ' has-badge' : '');
-  pillEl.style.width = 'auto';
-  rowEl.style.width = 'auto';
-  rowEl.style.maxWidth = availableWidth() + 'px';
-  pillEl.style.transform = 'none';
-  var scale = stageEl.getBoundingClientRect().width / (stageEl.offsetWidth || 1) || 1;
-  var fullWidth = Math.ceil(rowEl.getBoundingClientRect().width / scale);
-  var circle = rowEl.offsetHeight;
-  pillEl.style.transform = '';
-  rowEl.style.width = fullWidth + 'px';
-  pillEl.style.width = circle + 'px';
+  var sizes = fit();
+  lastFit = sizes;
+  var fullWidth = sizes.open + 'em';
+  rowEl.style.width = fullWidth;
+  pillEl.style.width = sizes.circle + 'em';
   void pillEl.offsetWidth;
   pillEl.style.transition = '';
 
@@ -454,7 +482,7 @@ function showAlert(a) {
   pillEl.classList.add('pop');
   // 2. Pill opens, text and badge fade in
   later(POP_IN, function () {
-    pillEl.style.width = fullWidth + 'px';
+    pillEl.style.width = (lastFit ? lastFit.open : sizes.open) + 'em';
     pillEl.classList.add('open');
   });
   // 3. Message (if any)
@@ -470,13 +498,13 @@ function hideAlert() {
   hiding = true;
   clearTimers();
 
-  var circle = rowEl.offsetHeight;
+  var circle = lastFit ? lastFit.circle + 'em' : rowEl.offsetHeight + 'px';
   msgEl.classList.remove('show');
   pillEl.classList.add('closing');
   pillEl.classList.remove('open');
 
   later(TEXT_OUT, function () {
-    pillEl.style.width = circle + 'px';
+    pillEl.style.width = circle;
   });
   later(TEXT_OUT + COLLAPSE, function () {
     pillEl.classList.remove('pop');

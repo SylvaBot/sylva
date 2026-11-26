@@ -21,6 +21,11 @@
 //                       'communityGift', 'tip', 'redemption'; 'data', 'top';
 //                       and 'alert' when the widget plays alerts
 //   Sylva.done()        an alert is over: the queue moves on
+//   Sylva.shown()       an alert is on screen now: its sound plays. Only for
+//                       widgets that set Sylva.paced = true, which also means
+//                       they call done() themselves and get one alert at a
+//                       time. Other widgets count as showing an alert the
+//                       moment it arrives.
 // An alert's view has soundUrl and imageUrl when the streamer picked an
 // uploaded sound or image for that alert type; the page plays the sound.
 // StreamElements widgets work too: onWidgetLoad, onEventReceived, SE_API
@@ -42,11 +47,16 @@
   window.Sylva = {
     fields: {},
     data: null,
+    paced: false,
     on(type, fn) { (handlers[type] = handlers[type] || []).push(fn); },
     done(id) {
       const which = id === undefined ? current : id;
       if (which !== null && which !== undefined) send({ type: 'done', id: which });
       if (which === current) current = null;
+    },
+    shown(id) {
+      const which = id === undefined ? current : id;
+      if (which !== null && which !== undefined) send({ type: 'shown', id: which, paced: !!window.Sylva.paced });
     },
   };
   window.SE_API = {
@@ -192,10 +202,11 @@
       emit('alert', { id: f.id, event: f.event, view: f.view });
       const s = seEvent(f.event);
       if (s) dispatch('onEventReceived', s);
+      if (!window.Sylva.paced) window.Sylva.shown(f.id);
       // Nothing says when the alert ends: let the queue go on after the
       // alert's time. StreamElements widgets that call resumeQueue end it
       // themselves; ones that keep their own queue get the next alert then.
-      if (!(handlers.alert || []).length && !(window.__seListens && resumes)) {
+      if (!window.Sylva.paced && !(handlers.alert || []).length && !(window.__seListens && resumes)) {
         const id = f.id;
         setTimeout(() => { if (current === id) window.Sylva.done(id); }, (f.view && f.view.durationMs) || 5000);
       }

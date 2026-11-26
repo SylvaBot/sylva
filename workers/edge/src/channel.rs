@@ -33,7 +33,10 @@ use sylva_core::{Event, StoredEvent};
 use worker::*;
 
 /// How long an overlay may take to acknowledge an alert before the queue moves on.
-pub const ALERT_TIMEOUT_MS: i64 = 30_000;
+/// Overlays answer when an alert has fully left the screen, and the pill alerts
+/// can stay open for 30 seconds plus their animation, so leave room for that.
+/// A dead overlay is noticed by its own heartbeat well before this.
+pub const ALERT_TIMEOUT_MS: i64 = 40_000;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS events (

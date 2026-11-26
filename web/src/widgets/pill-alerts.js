@@ -11,6 +11,24 @@ var ready = false;
 var muted = false;
 var timers = [];
 var recentIds = {};
+var showing = null;
+
+// In Sylva the overlay sends one alert at a time. Say when each one is on
+// screen, so its sound plays with it, and when it is fully gone, so the next
+// one comes only then.
+var sylva = window.Sylva && typeof window.Sylva.on === 'function' ? window.Sylva : null;
+var sylvaId = null;
+if (sylva) {
+  sylva.paced = true;
+  sylva.on('alert', function (a) {
+    sylvaId = a.id;
+    // An alert this widget has no look for never reaches onEventReceived:
+    // hand it straight back so the queue does not wait on it.
+    setTimeout(function () {
+      if (sylvaId === a.id) { sylvaId = null; sylva.done(a.id); }
+    }, 0);
+  });
+}
 
 var stageEl = document.getElementById('stage');
 var pillEl = document.getElementById('pill');
@@ -180,15 +198,22 @@ window.addEventListener('onEventReceived', function (obj) {
   } catch (err) {
     alert = null;
   }
-  if (!alert) return;
+  var fromSylva = sylvaId;
+  sylvaId = null;
 
   // Ignore the same real event delivered twice within a few seconds
-  var id = event.activityId || event._id;
+  var id = alert && (event.activityId || event._id);
   if (id) {
     var now = Date.now();
-    if (recentIds[id] && now - recentIds[id] < 8000) return;
-    recentIds[id] = now;
+    if (recentIds[id] && now - recentIds[id] < 8000) alert = null;
+    else recentIds[id] = now;
   }
+  if (!alert) {
+    // Nothing to show: let Sylva's queue go on right away.
+    if (fromSylva !== null) sylva.done(fromSylva);
+    return;
+  }
+  alert.sylvaId = fromSylva;
 
   var maxQueue = num(setting('maxQueue', 50), 50);
   if (queue.length >= maxQueue) queue.shift();
@@ -396,6 +421,7 @@ function showAlert(a) {
   var seconds = Math.max(1, num(setting('duration', 5), 5));
   hiding = false;
   clearTimers();
+  showing = a;
 
   iconEl.innerHTML = svg(a.icon);
   nameEl.textContent = a.name;
@@ -422,6 +448,7 @@ function showAlert(a) {
   pillEl.style.transition = '';
 
   playSound();
+  if (sylva && a.sylvaId !== null && a.sylvaId !== undefined) sylva.shown(a.sylvaId);
 
   // 1. Circle pops in
   pillEl.classList.add('pop');
@@ -453,6 +480,11 @@ function hideAlert() {
   });
   later(TEXT_OUT + COLLAPSE, function () {
     pillEl.classList.remove('pop');
+  });
+  later(TEXT_OUT + COLLAPSE + POP_OUT, function () {
+    var gone = showing;
+    showing = null;
+    if (sylva && gone && gone.sylvaId !== null && gone.sylvaId !== undefined) sylva.done(gone.sylvaId);
   });
   later(TEXT_OUT + COLLAPSE + POP_OUT + GAP, function () {
     busy = false;

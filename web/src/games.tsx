@@ -10,7 +10,7 @@ import { useChannel } from './channel';
 import { NumberField } from './moderation';
 import { Card } from './pages';
 import { Link } from './router';
-import { errorText, Gate, num, useToast } from './ui';
+import { errorText, Gate, num, SkelCard, useToast } from './ui';
 
 const MAX_BET = 10_000_000;
 type GameKey = 'gamble' | 'roulette' | 'slots' | 'blackjack' | 'duel';
@@ -72,7 +72,7 @@ export function GamesTab() {
   }, [ch.key]);
 
   if (failed && !view) return <Card><div className="card-body"><p className="card-text">Could not load the games. Refresh to try again.</p></div></Card>;
-  if (!view) return <Card><div className="card-body"><p className="card-text">Loading</p></div></Card>;
+  if (!view) return <SkelCard rows={6} tile={false} />;
 
   const s = view.settings;
   const g = s.games;

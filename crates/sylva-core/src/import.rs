@@ -6,7 +6,7 @@
 //! loosely: a missing field gets a sensible default, and anything Sylva
 //! cannot keep is skipped with a reason the dashboard shows.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::bot::{BotSettings, Command, Timer, UserLevel, MAX_COMMANDS, MAX_TIMERS};
@@ -685,4 +685,179 @@ mod tests {
             }
         );
     }
+}
+
+/// StreamElements' public chat stats for a channel: all time, the top 100 of
+/// each list.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeChatStats {
+    pub total: i64,
+    pub unique: i64,
+    /// (login, messages)
+    pub chatters: Vec<(String, i64)>,
+    /// (provider, id, name, uses), provider as Sylva names it.
+    pub emotes: Vec<(String, String, String, i64)>,
+    /// (command without `!`, uses)
+    pub commands: Vec<(String, i64)>,
+    /// (hashtag without `#`, uses)
+    pub hashtags: Vec<(String, i64)>,
+}
+
+/// Reads `GET /chatstats/{login}/stats`.
+pub fn se_chat_stats(v: &Value) -> SeChatStats {
+    let list = |key: &str, name: &str| -> Vec<(String, i64)> {
+        v[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| Some((e[name].as_str()?.trim().to_string(), num(&e["amount"]))))
+            .filter(|(n, a)| !n.is_empty() && n.len() <= 100 && *a > 0)
+            .collect()
+    };
+    let mut emotes = Vec::new();
+    for (key, provider) in [
+        ("twitchEmotes", "twitch"),
+        ("sevenTVEmotes", "7tv"),
+        ("bttvEmotes", "bttv"),
+        ("ffzEmotes", "ffz"),
+    ] {
+        for e in v[key].as_array().into_iter().flatten() {
+            let id = match &e["id"] {
+                Value::Number(n) => n.to_string(),
+                x => x.as_str().unwrap_or_default().to_string(),
+            };
+            let name = e["emote"].as_str().unwrap_or_default().to_string();
+            let ok_id = !id.is_empty()
+                && id.len() <= 64
+                && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+            if ok_id && !name.is_empty() && name.len() <= 100 {
+                emotes.push((provider.to_string(), id, name, num(&e["amount"])));
+            }
+        }
+    }
+    SeChatStats {
+        total: num(&v["totalMessages"]),
+        unique: num(&v["uniqueChatters"]),
+        chatters: list("chatters", "name")
+            .into_iter()
+            .map(|(n, a)| (n.to_lowercase(), a))
+            .collect(),
+        emotes,
+        commands: list("commands", "command")
+            .into_iter()
+            .map(|(n, a)| (n.trim_start_matches('!').to_lowercase(), a))
+            .filter(|(n, _)| !n.is_empty())
+            .collect(),
+        hashtags: list("hashtags", "hashtag")
+            .into_iter()
+            .map(|(n, a)| (n.trim_start_matches('#').to_lowercase(), a))
+            .filter(|(n, _)| !n.is_empty())
+            .collect(),
+    }
+}
+
+/// Add StreamElements counters (`GET /bot/{se}/counters`) as Sylva counters.
+/// A counter or command Sylva already has by that name is left alone.
+pub fn add_counters(settings: &mut BotSettings, list: &Value) -> (usize, Vec<Skipped>) {
+    let mut added = 0;
+    let mut skipped = Vec::new();
+    for c in list.as_array().into_iter().flatten() {
+        let raw = c["id"].as_str().unwrap_or_default();
+        let name: String = raw
+            .trim()
+            .to_lowercase()
+            .chars()
+            .filter(|ch| ch.is_alphanumeric() || *ch == '_')
+            .take(30)
+            .collect();
+        if name.is_empty() {
+            continue;
+        }
+        if settings.counters.iter().any(|x| x.name == name) || settings.find(&name).is_some() {
+            skipped.push(Skipped {
+                what: format!("Counter {raw}"),
+                why: "Sylva already has a counter or command by that name".into(),
+            });
+            continue;
+        }
+        if settings.counters.len() >= crate::community::MAX_COUNTERS {
+            skipped.push(Skipped {
+                what: format!("Counter {raw}"),
+                why: format!("A channel can have up to {} counters", crate::community::MAX_COUNTERS),
+            });
+            continue;
+        }
+        settings.counters.push(crate::community::Counter {
+            name: name.clone(),
+            label: raw.trim().chars().take(40).collect(),
+            value: num(&c["count"]),
+            enabled: true,
+        });
+        added += 1;
+    }
+    (added, skipped)
+}
+
+/// Sylva's points settings from StreamElements' (`GET /loyalty/{se}`).
+/// StreamElements pays `amount` every `interval` minutes; Sylva pays every 5.
+pub fn loyalty_from_se(v: &Value, mut s: crate::loyalty::LoyaltySettings) -> crate::loyalty::LoyaltySettings {
+    let l = &v["loyalty"];
+    if let Some(name) = l["name"].as_str().map(str::trim).filter(|n| !n.is_empty()) {
+        s.name = name.to_lowercase().chars().take(20).collect();
+    }
+    let interval = num(&l["interval"]).max(1);
+    let amount = num(&l["amount"]).max(0);
+    if amount > 0 {
+        s.watch = ((amount * 5 + interval / 2) / interval).clamp(1, 100_000) as u32;
+    }
+    let bonus = |k: &str| num(&l["bonuses"][k]).clamp(0, 1_000_000) as u32;
+    s.follow = bonus("follow");
+    s.sub = bonus("subscriber");
+    s.cheer = bonus("cheer");
+    if l["enabled"].as_bool() == Some(true) {
+        s.enabled = true;
+    }
+    s
+}
+
+/// Add StreamElements store items (`GET /store/{se}/items`) as rewards. An
+/// item Sylva already has by that name is left alone.
+pub fn add_store_items(store: &mut crate::store::StoreSettings, list: &Value) -> (usize, Vec<Skipped>) {
+    let mut added = 0;
+    let mut skipped = Vec::new();
+    for i in list.as_array().into_iter().flatten() {
+        let name: String = i["name"].as_str().unwrap_or_default().trim().chars().take(60).collect();
+        if name.is_empty() {
+            continue;
+        }
+        if store.items.iter().any(|x| x.name.eq_ignore_ascii_case(&name)) {
+            skipped.push(Skipped {
+                what: format!("Reward {name}"),
+                why: "Sylva already has a reward by that name".into(),
+            });
+            continue;
+        }
+        if store.items.len() >= crate::store::MAX_ITEMS {
+            skipped.push(Skipped {
+                what: format!("Reward {name}"),
+                why: format!("A store can have up to {} rewards", crate::store::MAX_ITEMS),
+            });
+            continue;
+        }
+        let total = num(&i["quantity"]["total"]);
+        let user_s = num(&i["cooldown"]["user"]).max(num(&i["cooldown"]["global"])).max(0);
+        store.items.push(crate::store::StoreItem {
+            id: String::new(),
+            name,
+            description: i["description"].as_str().unwrap_or_default().chars().take(200).collect(),
+            cost: num(&i["cost"]).clamp(0, u32::MAX as i64) as u32,
+            enabled: i["enabled"].as_bool().unwrap_or(true),
+            stock: (total >= 0).then_some(total.min(u32::MAX as i64) as u32),
+            cooldown: ((user_s + 59) / 60).min(u32::MAX as i64) as u32,
+            input: i["userInput"].as_array().is_some_and(|a| !a.is_empty()),
+        });
+        added += 1;
+    }
+    (added, skipped)
 }

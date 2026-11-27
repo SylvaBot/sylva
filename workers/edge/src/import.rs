@@ -30,6 +30,17 @@ pub(crate) struct ImportRequest {
     /// Past streams and their follows, subs, bits, raids and tips.
     #[serde(default)]
     history: bool,
+    #[serde(default)]
+    counters: bool,
+    /// Points name, earning rate and bonuses.
+    #[serde(default)]
+    loyalty: bool,
+    /// Store items as rewards.
+    #[serde(default)]
+    store: bool,
+    /// All time chat stats: messages, chatters, emotes, commands, hashtags.
+    #[serde(default)]
+    chatstats: bool,
 }
 
 /// Activity older than this is not asked for (StreamElements began in 2015).
@@ -57,7 +68,12 @@ struct LeaderRow {
 }
 
 #[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ImportResult {
+    counters: usize,
+    rewards: usize,
+    loyalty: bool,
+    chat_messages: i64,
     commands: usize,
     timers: usize,
     points: usize,
@@ -97,7 +113,16 @@ impl ChannelDo {
         if token.is_empty() || token.len() > 4000 || token.contains(char::is_whitespace) {
             return Ok(Err("Paste your StreamElements JWT token".into()));
         }
-        if !(r.commands || r.timers || r.points || r.watchtime || r.history) {
+        if !(r.commands
+            || r.timers
+            || r.points
+            || r.watchtime
+            || r.history
+            || r.counters
+            || r.loyalty
+            || r.store
+            || r.chatstats)
+        {
             return Ok(Err("Choose what to bring over".into()));
         }
         let (status, me) = self.se_get(&token, "/channels/me").await?;
@@ -113,8 +138,19 @@ impl ChannelDo {
             }));
         };
         let mut out = ImportResult::default();
-        if r.commands || r.timers {
+        if r.commands || r.timers || r.counters {
             let mut settings = self.bot_settings()?;
+            if r.counters {
+                let (status, list) = self.se_get(&token, &format!("/bot/{se}/counters")).await?;
+                if status != 200 {
+                    return Ok(Err(format!(
+                        "StreamElements did not send your counters ({status})."
+                    )));
+                }
+                let (n, skipped) = sylva_core::import::add_counters(&mut settings, &list);
+                out.counters = n;
+                out.skipped.extend(skipped);
+            }
             if r.commands {
                 let (status, list) = self.se_get(&token, &format!("/bot/commands/{se}")).await?;
                 if status != 200 {
@@ -187,6 +223,55 @@ impl ChannelDo {
                     why: "Their Twitch name no longer exists, or they already have more watch time in Sylva".into(),
                 });
             }
+        }
+        if r.loyalty {
+            let (status, v) = self.se_get(&token, &format!("/loyalty/{se}")).await?;
+            if status != 200 {
+                return Ok(Err(format!(
+                    "StreamElements did not send your points settings ({status})."
+                )));
+            }
+            let s = sylva_core::import::loyalty_from_se(&v, self.loyalty_settings()?);
+            self.save_loyalty_settings(&s).await?;
+            out.loyalty = true;
+            out.skipped.push(Skipped {
+                what: "The subscriber multiplier and the tip bonus".into(),
+                why: "Sylva pays subs and tips with its own bonuses instead".into(),
+            });
+        }
+        if r.store {
+            let (status, list) = self.se_get(&token, &format!("/store/{se}/items")).await?;
+            if status != 200 {
+                return Ok(Err(format!(
+                    "StreamElements did not send your store items ({status})."
+                )));
+            }
+            let mut store = self.store_settings()?;
+            let (n, skipped) = sylva_core::import::add_store_items(&mut store, &list);
+            out.skipped.extend(skipped);
+            if n > 0 {
+                if let Err(m) = self.save_store_settings(store)? {
+                    return Ok(Err(m));
+                }
+            }
+            out.rewards = n;
+        }
+        if r.chatstats {
+            let login = self
+                .channel_login()?
+                .or_else(|| me["username"].as_str().map(String::from))
+                .unwrap_or_default();
+            let (status, v) = self
+                .se_get(&token, &format!("/chatstats/{}/stats", sylva_core::auth::encode(&login)))
+                .await?;
+            if status != 200 || login.is_empty() {
+                return Ok(Err(format!(
+                    "StreamElements did not send your chat stats ({status})."
+                )));
+            }
+            let stats = sylva_core::import::se_chat_stats(&v);
+            out.chat_messages = stats.total;
+            self.import_chat_stats(&stats).await?;
         }
         if r.history {
             match self.import_history(&token, &se).await? {

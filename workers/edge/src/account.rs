@@ -110,6 +110,13 @@ CREATE TABLE IF NOT EXISTS stripe_accounts (
     account TEXT PRIMARY KEY,
     channel TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_board (
+    channel TEXT PRIMARY KEY,
+    login   TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    total   INTEGER NOT NULL,
+    updated INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS tip_blocks (
     hash       TEXT PRIMARY KEY,
     reason     TEXT NOT NULL,
@@ -773,6 +780,46 @@ impl DurableObject for DirectoryDo {
             "/device/decide" => self.device_decide(req.json().await?),
             "/device/poll" => self.device_poll(req.json().await?),
             "/forget" => self.forget(req.json().await?),
+            "/chat/report" => {
+                #[derive(Deserialize)]
+                struct Report {
+                    channel: String,
+                    login: String,
+                    name: String,
+                    total: f64,
+                }
+                let r: Report = req.json().await?;
+                self.sql.exec(
+                    "INSERT OR REPLACE INTO chat_board (channel, login, name, total, updated)
+                     VALUES (?, ?, ?, ?, ?)",
+                    vec![
+                        r.channel.into(),
+                        r.login.into(),
+                        r.name.into(),
+                        r.total.into(),
+                        (Date::now().as_millis() as f64).into(),
+                    ],
+                )?;
+                Response::ok("ok")
+            }
+            "/chat/top" => {
+                #[derive(Deserialize, Serialize)]
+                struct Row {
+                    channel: String,
+                    login: String,
+                    name: String,
+                    total: f64,
+                }
+                let rows = self
+                    .sql
+                    .exec(
+                        "SELECT channel, login, name, total FROM chat_board
+                         WHERE total > 0 ORDER BY total DESC LIMIT 50",
+                        None,
+                    )?
+                    .to_array::<Row>()?;
+                Response::from_json(&rows)
+            }
             "/team/list" => {
                 let c: ChannelOnly = req.json().await?;
                 Response::from_json(&self.team_list(&c.channel)?)
@@ -1166,6 +1213,12 @@ impl DirectoryDo {
     /// channels it owned are removed. Answers which other accounts lost a
     /// channel, so the Worker can update them.
     fn forget(&self, f: Forget) -> Result<Response> {
+        for channel in &f.channels {
+            self.sql.exec(
+                "DELETE FROM chat_board WHERE channel = ?",
+                vec![channel.clone().into()],
+            )?;
+        }
         self.sql.exec(
             "DELETE FROM team WHERE (platform, platform_user_id) IN
                (SELECT platform, platform_user_id FROM identities WHERE account_id = ?)",

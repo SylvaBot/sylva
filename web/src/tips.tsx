@@ -115,8 +115,21 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
             colorPrimary: cssVar('--primary', '#8b5cf6'),
             colorBackground: cssVar('--surface', light ? '#ffffff' : '#161618'),
             colorText: cssVar('--text', light ? '#111' : '#ededef'),
-            borderRadius: '8px',
+            colorTextSecondary: cssVar('--muted', light ? '#52525a' : '#a39f9b'),
+            colorTextPlaceholder: cssVar('--faint', light ? '#65656c' : '#8a8580'),
+            colorDanger: cssVar('--danger', '#f0686a'),
+            borderRadius: '10px',
             fontFamily: 'Inter, system-ui, sans-serif',
+            fontSizeBase: '14px',
+            spacingUnit: '3px',
+          },
+          rules: {
+            '.Input': { backgroundColor: cssVar('--sunken', light ? '#f4f4f6' : '#0d0c0c'), border: '1px solid transparent', boxShadow: 'none' },
+            '.Input:focus': { border: `1px solid ${cssVar('--focus', '#e9e4df')}`, boxShadow: 'none' },
+            '.Tab': { backgroundColor: cssVar('--sunken', light ? '#f4f4f6' : '#0d0c0c'), border: '1px solid transparent', boxShadow: 'none' },
+            '.Tab:hover': { backgroundColor: cssVar('--surface-2', light ? '#f4f4f6' : '#1b1a19') },
+            '.Tab--selected': { backgroundColor: cssVar('--surface-3', light ? '#ebebee' : '#262422'), border: '1px solid transparent', boxShadow: 'none' },
+            '.Label': { fontSize: '12.5px', fontWeight: '500', color: cssVar('--muted', light ? '#52525a' : '#a39f9b') },
           },
         },
       });
@@ -225,32 +238,38 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
   const other = custom || (!picked && amountText !== '');
   const top = page.top ?? [];
 
+  const best = top[0]?.amount || 1;
+
   return (
     <div className="tip-site" style={siteStyle}>
       <main id="content" className="tip-main">
         <div className="tip-layout">
-          <section className="tip-card">
+          <section className="tip-card" aria-label={`Tip ${page.name}`}>
             {banner ? <div className="tip-banner" style={{ backgroundImage: `url("${banner}")` }} /> : <div className="tip-banner plain" />}
             <div className="tip-who">
               <Avatar name={page.name} url={avatar} large />
-              <h1>{page.name}</h1>
+              <div className="tip-id">
+                <h1>{page.name}</h1>
+                <a href={`https://twitch.tv/${page.login}`} target="_blank" rel="noreferrer"><Icon id="twitch" />{page.login}</a>
+              </div>
             </div>
             {page.note && <p className="tip-note">{page.note}</p>}
 
             {done === 'paid' ? (
               <div className="tip-done">
-                <Icon id="check" />
+                <span className="tip-done-icon"><Icon id="check" /></span>
                 <h2>Thank you</h2>
                 <p>Your tip went through and will show on stream soon.</p>
               </div>
             ) : done === 'pending' ? (
               <div className="tip-done">
+                <span className="tip-spinner" aria-hidden="true" />
                 <h2>Confirming your payment</h2>
                 <p>This can take a moment. Keep this page open.</p>
               </div>
             ) : (
               <form className="tip-form" onSubmit={(e) => { e.preventDefault(); void pay(); }}>
-                {page.testMode && <p className="tip-test">Test mode. Use a Stripe test card, no real money moves.</p>}
+                {page.testMode && <p className="tip-test"><span className="tip-test-dot" />Test mode. Use a Stripe test card, no real money moves.</p>}
                 <div className="tip-section">
                   <div className="tip-label-row">
                     <span className="tip-label">Amount</span>
@@ -266,54 +285,68 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
                   <div className="tip-amounts" role="group" aria-label="Amount">
                     {chips.map((v) => (
                       <button key={v} type="button" className="tip-amount-btn" aria-pressed={picked && amount === v}
-                        onClick={() => { setCustom(false); setAmountText(String(v)); }}>{money(v, currency)}</button>
+                        onClick={() => { setCustom(false); setAmountText(String(v)); }}>{money(v, currency).replace(/\.00$/, '')}</button>
                     ))}
                     <button type="button" className="tip-amount-btn" aria-pressed={other}
                       onClick={() => { setCustom(true); setAmountText(''); }}>Other</button>
                   </div>
                   {other && (
-                    <input className="input tip-other" type="number" inputMode="decimal" autoFocus placeholder={cur ? `${money(cur.min, currency)} to ${money(cur.max, currency)}` : ''}
+                    <input className="tip-input tip-other" type="number" inputMode="decimal" autoFocus placeholder={cur ? `${money(cur.min, currency)} to ${money(cur.max, currency)}` : ''}
                       aria-label="Your amount" min={cur?.min} max={cur?.max} step={cur?.decimals ? 0.01 : 1}
                       value={amountText} onChange={(e) => setAmountText(e.target.value)} required />
                   )}
                 </div>
 
-                <label className="field">Name
-                  <input className="input" maxLength={page.nameMax} value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" required />
+                <label className="tip-field">
+                  <span>Name</span>
+                  <input className="tip-input" maxLength={page.nameMax} value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" placeholder="Shown on stream" required />
                 </label>
-                <label className="field">Message
+                <label className="tip-field">
+                  <span>Message <em>optional</em></span>
                   <span className="tip-message">
-                    <textarea className="input textarea" rows={3} maxLength={page.messageMax} value={message} onChange={(e) => setMessage(e.target.value)} />
+                    <textarea className="tip-input" rows={3} maxLength={page.messageMax} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Say something nice" />
                     <span className="tip-count" aria-hidden="true">{left}</span>
                   </span>
                 </label>
 
                 <div className="tip-pay" ref={mount} />
-                {!ready && <SkelRows n={2} tile={false} />}
+                {!ready && !error && <SkelRows n={2} tile={false} />}
 
                 <label className="tip-agree">
                   <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
                   <span>This tip is a gift and is not refundable.</span>
                 </label>
                 {error && <p className="tip-error" role="alert">{error}</p>}
-                <button className="btn primary tip-submit" type="submit" disabled={busy || !ready}>
-                  {busy ? 'Working' : minor > 0 ? `Tip ${money(amount, currency)}` : 'Tip'}
+                <button className="tip-submit" type="submit" disabled={busy || !ready}>
+                  {busy ? 'Working' : minor > 0 ? `Tip ${money(amount, currency).replace(/\.00$/, '')}` : 'Tip'}
                 </button>
-                <p className="tip-fine">Payments by Stripe, page by <Link href="/">Sylva</Link>.</p>
+                <p className="tip-fine">Secure payment by Stripe · Page by <Link href="/">Sylva</Link></p>
               </form>
             )}
           </section>
 
-          {top.length > 0 && (
-            <aside className="tip-card tip-top" aria-labelledby="tip-top-h">
-              <h2 id="tip-top-h">Top this week</h2>
-              <ol>
+          <aside className="tip-board" aria-labelledby="tip-board-h">
+            <div className="tip-board-head">
+              <h2 id="tip-board-h">Leaderboard</h2>
+              <span>Last 7 days</span>
+            </div>
+            {top.length === 0 ? (
+              <p className="tip-board-empty">No tips this week yet. Yours could be first.</p>
+            ) : (
+              <ol className="tip-board-list">
                 {top.map((t, i) => (
-                  <li key={i}><span className="tip-rank">{i + 1}</span><span className="tip-top-name">{t.name}</span><span className="tip-top-amt">{money(t.amount, page.baseCurrency)}</span></li>
+                  <li key={i} className={i === 0 ? 'first' : undefined} style={{ ['--share' as string]: `${Math.max(6, Math.round((t.amount / best) * 100))}%` }}>
+                    <span className="tip-rank">{i + 1}</span>
+                    <span className="tip-board-who">
+                      <span className="tip-board-name">{t.name}</span>
+                      <span className="tip-board-bar" aria-hidden="true"><i /></span>
+                    </span>
+                    <span className="tip-board-amt">{money(t.amount, page.baseCurrency).replace(/\.00$/, '')}</span>
+                  </li>
                 ))}
               </ol>
-            </aside>
-          )}
+            )}
+          </aside>
         </div>
       </main>
     </div>

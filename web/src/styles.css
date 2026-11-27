@@ -1551,67 +1551,97 @@ div.overlay-thumb { border-radius: var(--r-xl) var(--r-xl) 0 0; }
 .tips-amount { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--tip, var(--text)); }
 .tips-msg { margin: 0; color: var(--text-2); font-size: 14px; overflow-wrap: anywhere; }
 .tips-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; flex-shrink: 0; }
-/* Public tip page: the streamer's card on their own background. */
+/* Public tip page: the streamer's card centred on their own background,
+   the weekly leaderboard in its own panel beside it. Same language as the
+   dashboard: soft fills, no hard borders, filled active states. */
 .tip-site { min-height: 100vh; background-color: var(--bg); display: flex; flex-direction: column; }
-.tip-main { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: 48px 16px; }
-.tip-layout { width: 100%; max-width: 760px; display: grid; grid-template-columns: minmax(0, 480px) 240px; justify-content: center; align-items: start; align-content: start; gap: 16px; }
-.tip-layout:has(> :only-child) { grid-template-columns: minmax(0, 480px); }
-.tip-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-.tip-pad { padding: 24px; }
+.tip-main { flex: 1; padding: 56px 24px; }
+.tip-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 480px) minmax(0, 1fr); column-gap: 24px; align-items: start; }
+.tip-card { grid-column: 2; background: var(--surface); border-radius: 20px; overflow: hidden; box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-2) 70%, transparent), 0 24px 64px -24px rgba(0, 0, 0, .55); }
+.tip-pad { padding: 28px; }
 .tip-banner { aspect-ratio: 3 / 1; background: var(--surface-2) center / cover no-repeat; }
-.tip-banner.plain { aspect-ratio: auto; height: 56px; }
-.tip-who { display: flex; align-items: flex-end; gap: 12px; padding: 0 24px; margin-top: -28px; }
-.tip-who .avatar.lg { width: 64px; height: 64px; font-size: 24px; border: 3px solid var(--surface); flex: none; }
-.tip-who h1 { margin: 0 0 4px; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.25; min-width: 0; overflow-wrap: anywhere; }
-.tip-note { margin: 12px 24px 0; font-size: 14px; color: var(--text-2); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-line; }
-.tip-form { display: flex; flex-direction: column; gap: 16px; padding: 20px 24px 24px; }
-.tip-test { margin: 0; font-size: 13px; color: var(--warn); }
-.tip-section { display: flex; flex-direction: column; gap: 8px; }
+.tip-banner.plain { aspect-ratio: auto; height: 64px; background: linear-gradient(180deg, var(--surface-2), var(--surface)); }
+.tip-who { display: flex; align-items: flex-start; gap: 14px; padding: 0 28px; margin-top: -36px; }
+.tip-who .avatar.lg { width: 76px; height: 76px; font-size: 28px; border: 4px solid var(--surface); flex: none; background: var(--surface-3); }
+.tip-id { min-width: 0; margin-top: 44px; }
+.tip-id h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; overflow-wrap: anywhere; }
+.tip-id a { display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; font-size: 12.5px; color: var(--faint); text-decoration: none; }
+.tip-id a svg { width: 13px; height: 13px; }
+.tip-id a:hover { color: var(--text); }
+.tip-note { margin: 14px 28px 0; font-size: 14px; color: var(--text-2); line-height: 1.55; overflow-wrap: anywhere; white-space: pre-line; }
+.tip-form { display: flex; flex-direction: column; gap: 18px; padding: 22px 28px 26px; }
+.tip-test { display: flex; align-items: center; gap: 8px; margin: 0; padding: 9px 12px; border-radius: 10px; font-size: 12.5px; color: color-mix(in srgb, var(--warn) 80%, var(--text)); background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.tip-test-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: none; }
+.tip-section { display: flex; flex-direction: column; gap: 10px; }
 .tip-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.tip-label { font-size: 12.5px; font-weight: 500; color: var(--muted); }
-.tip-currency { height: 28px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.tip-label, .tip-field > span:first-child { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.tip-field > span:first-child em { font-style: normal; font-weight: 400; color: var(--faint); margin-left: 4px; }
+.tip-currency { height: 30px; padding: 0 26px 0 10px; border-radius: 9px; border: 0; background-color: var(--sunken); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--faint) 50%), linear-gradient(135deg, var(--faint) 50%, transparent 50%); background-position: calc(100% - 13px) 13px, calc(100% - 9px) 13px; background-size: 4px 4px; background-repeat: no-repeat; }
 .tip-currency:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.tip-amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.tip-amount-btn { height: 40px; border-radius: 8px; border: 1px solid var(--border-2); background: transparent; color: var(--text); font: inherit; font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; cursor: pointer; }
-.tip-amount-btn:hover { background: var(--surface-2); }
-.tip-amount-btn[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
+.tip-amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 4px; border-radius: 14px; background: var(--sunken); }
+.tip-amount-btn { height: 42px; border-radius: 10px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer; transition: background .15s, color .15s; }
+.tip-amount-btn:hover { background: var(--surface-2); color: var(--text); }
+.tip-amount-btn[aria-pressed="true"] { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-3); }
 .tip-amount-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.tip-other { height: 40px; font-size: 15px; }
-.tip-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tip-field { display: flex; flex-direction: column; gap: 7px; }
+.tip-input { width: 100%; height: 42px; padding: 0 13px; border-radius: 10px; border: 1px solid transparent; background: var(--sunken); color: var(--text); font: inherit; font-size: 14px; transition: border-color .15s; }
+.tip-input::placeholder { color: var(--faint); }
+.tip-input:hover { border-color: var(--border-2); }
+.tip-input:focus { outline: 0; border-color: var(--focus); }
+textarea.tip-input { height: auto; min-height: 88px; padding: 11px 13px 24px; resize: vertical; line-height: 1.5; display: block; }
+.tip-other { font-size: 16px; font-weight: 600; -moz-appearance: textfield; }
+.tip-other::-webkit-outer-spin-button, .tip-other::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .tip-message { position: relative; display: block; }
-.tip-message textarea { width: 100%; resize: vertical; min-height: 80px; padding-bottom: 22px; }
-.tip-count { position: absolute; right: 10px; bottom: 8px; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; pointer-events: none; }
+.tip-count { position: absolute; right: 11px; bottom: 8px; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; pointer-events: none; }
 .tip-pay { min-height: 1px; }
-.tip-agree { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-2); cursor: pointer; }
-.tip-agree input { margin: 0; accent-color: var(--text); }
-.tip-error { margin: 0; color: var(--danger); font-size: 13.5px; }
-.tip-submit { height: 44px; font-size: 15px; font-weight: 600; width: 100%; justify-content: center; border-radius: 8px; }
-.tip-fine { margin: -4px 0 0; text-align: center; font-size: 12px; color: var(--faint); }
+.tip-agree { display: flex; gap: 10px; align-items: center; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.tip-agree input { width: 16px; height: 16px; margin: 0; accent-color: var(--text); flex: none; }
+.tip-error { margin: 0; padding: 9px 12px; border-radius: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); font-size: 13px; }
+.tip-submit { height: 48px; width: 100%; border: 0; border-radius: 12px; background: var(--primary); color: var(--on-primary); font: inherit; font-size: 15px; font-weight: 650; cursor: pointer; transition: background .15s, opacity .15s; font-variant-numeric: tabular-nums; }
+.tip-submit:hover:not(:disabled) { background: var(--primary-hover); }
+.tip-submit:disabled { opacity: .45; cursor: default; }
+.tip-submit:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.tip-fine { margin: -6px 0 0; text-align: center; font-size: 12px; color: var(--faint); }
 .tip-fine a { color: inherit; }
-.tip-done { text-align: center; padding: 28px 24px 32px; }
-.tip-done svg { width: 28px; height: 28px; color: var(--ok); }
-.tip-done h1, .tip-done h2 { margin: 6px 0; font-size: 18px; font-weight: 650; }
-.tip-done p { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.5; }
-.tip-top { padding: 16px; }
-.tip-top h2 { margin: 0 0 12px; font-size: 13px; font-weight: 600; }
-.tip-top ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.tip-top li { display: flex; align-items: baseline; gap: 10px; font-size: 13.5px; min-width: 0; }
-.tip-rank { width: 12px; flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
-.tip-top-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tip-top-amt { color: var(--text-2); font-variant-numeric: tabular-nums; }
-.tip-color { display: flex; gap: 8px; align-items: center; }
-.tip-color input[type="color"] { width: 36px; height: 36px; padding: 0; border: 1px solid var(--border-2); border-radius: 8px; background: none; cursor: pointer; flex: none; }
-.tip-color .input { flex: 1; min-width: 0; }
-.tip-bg-preview { height: 140px; border-radius: 10px; border: 1px solid var(--border); background-color: var(--bg); }
-@media (max-width: 800px) {
-  .tip-layout, .tip-layout:has(> :only-child) { grid-template-columns: minmax(0, 480px); }
-  .tip-main { padding: 24px 16px; }
+.tip-fine a:hover { color: var(--text); }
+.tip-done { text-align: center; padding: 36px 28px 40px; }
+.tip-done-icon { display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.tip-done-icon svg { width: 24px; height: 24px; }
+.tip-spinner { display: inline-block; width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--surface-3); border-top-color: var(--text); animation: tip-spin .9s linear infinite; }
+@keyframes tip-spin { to { transform: rotate(360deg); } }
+.tip-done h1, .tip-done h2 { margin: 12px 0 6px; font-size: 19px; font-weight: 700; letter-spacing: -0.015em; }
+.tip-done p { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.55; }
+
+.tip-board { grid-column: 3; justify-self: start; width: 100%; max-width: 280px; padding: 18px; border-radius: 20px; background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-2) 70%, transparent), 0 24px 64px -24px rgba(0, 0, 0, .55); backdrop-filter: blur(10px); }
+.tip-board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.tip-board-head h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.tip-board-head span { font-size: 12px; color: var(--faint); }
+.tip-board-empty { margin: 0; padding: 18px 12px; border-radius: 12px; background: var(--sunken); text-align: center; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.tip-board-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tip-board-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; min-width: 0; }
+.tip-board-list li.first { background: color-mix(in srgb, var(--tip) 10%, transparent); }
+.tip-rank { width: 24px; height: 24px; border-radius: 8px; flex: none; display: grid; place-items: center; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); background: var(--sunken); }
+.tip-board-list li.first .tip-rank { color: var(--on-primary); background: var(--tip); }
+.tip-board-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.tip-board-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tip-board-bar { display: block; height: 3px; border-radius: 2px; background: var(--sunken); overflow: hidden; }
+.tip-board-bar i { display: block; height: 100%; width: var(--share); border-radius: inherit; background: var(--border-3); }
+.tip-board-list li.first .tip-board-bar i { background: var(--tip); }
+.tip-board-amt { font-size: 13.5px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.tip-board-list li.first .tip-board-amt { color: var(--tip); }
+
+@media (max-width: 1080px) {
+  .tip-layout { grid-template-columns: minmax(0, 480px); justify-content: center; row-gap: 16px; }
+  .tip-card, .tip-board { grid-column: 1; }
+  .tip-board { max-width: none; justify-self: stretch; }
 }
-@media (max-width: 480px) {
-  .tip-main { padding: 16px; }
-  .tip-who, .tip-form { padding-left: 16px; padding-right: 16px; }
-  .tip-note { margin-left: 16px; margin-right: 16px; }
-  .tip-fields { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 520px) {
+  .tip-main { padding: 16px 12px 24px; }
+  .tip-who, .tip-form { padding-left: 18px; padding-right: 18px; }
+  .tip-note { margin-left: 18px; margin-right: 18px; }
+  .tip-who .avatar.lg { width: 64px; height: 64px; font-size: 24px; }
+  .tip-who { margin-top: -30px; }
+  .tip-id { margin-top: 36px; }
 }
 @media (max-width: 640px) { .tips-row { flex-direction: column; } .tips-actions { justify-content: flex-start; } }
 
@@ -1743,14 +1773,14 @@ div.overlay-thumb { border-radius: var(--r-xl) var(--r-xl) 0 0; }
 .tp-body { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px 18px; pointer-events: none; }
 .tp-row { display: flex; justify-content: space-between; align-items: center; font-size: 9.5px; color: var(--muted); }
 .tp-chip { padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border-2); font-size: 9px; color: var(--text); }
-.tp-amounts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-.tp-amt { height: 28px; display: grid; place-items: center; border-radius: 6px; border: 1px solid var(--border-2); font-size: 10.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.tp-amt.on { background: var(--text); border-color: var(--text); color: var(--bg); }
-.tp-field { height: 28px; padding: 0 8px; display: flex; align-items: center; border-radius: 6px; background: var(--sunken); border: 1px solid var(--border-2); font-size: 9.5px; color: var(--faint); }
+.tp-amounts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 9px; background: var(--sunken); }
+.tp-amt { height: 28px; display: grid; place-items: center; border-radius: 7px; font-size: 10.5px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tp-amt.on { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-3); }
+.tp-field { height: 28px; padding: 0 8px; display: flex; align-items: center; border-radius: 6px; background: var(--sunken); font-size: 9.5px; color: var(--faint); }
 .tp-field.tall { height: 48px; align-items: flex-start; padding-top: 7px; }
 .tp-pay { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; border: 1px dashed var(--border-3); font-size: 9.5px; color: var(--faint); }
 .tp-pay svg { width: 12px; height: 12px; }
-.tp-submit { height: 32px; display: grid; place-items: center; border-radius: 6px; background: var(--primary); color: var(--on-primary); font-size: 11px; font-weight: 600; }
+.tp-submit { height: 32px; display: grid; place-items: center; border-radius: 8px; background: var(--primary); color: var(--on-primary); font-size: 11px; font-weight: 600; }
 
 /* Image picker menu */
 .ta-menu { position: fixed; z-index: 70; width: 280px; max-height: min(420px, calc(100vh - 24px)); overflow-y: auto; padding: 6px; border-radius: 14px; background: var(--pop); box-shadow: 0 16px 48px rgba(0, 0, 0, .45), 0 0 0 1px var(--border-2); animation: pop .12s var(--ease); }

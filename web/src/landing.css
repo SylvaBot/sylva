@@ -1,0 +1,75 @@
+/* The public home page (Landing.tsx). Dark only, scoped under .lp so the
+ * dashboard's styles and theme never reach it. */
+@font-face { font-family: "Geist"; src: url("/fonts/geist-wght.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/fonts/geist-mono-wght.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+
+:where(.lp) a{color:#d6efc2;text-decoration:none}:where(.lp) a:hover{color:#ffffff}
+.lp{font-family:Geist,system-ui,sans-serif;color:#fff;background:#0a0a0a;-webkit-font-smoothing:antialiased}
+.lp *{box-sizing:border-box}
+.lp-mono{font-family:"Geist Mono",ui-monospace,monospace}
+.lp .lp-wrap{width:100%;max-width:1120px;margin:0 auto;padding:0 24px}
+.lp-tag{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:6px;border:1px solid rgba(255,255,255,.14);font-family:"Geist Mono",monospace;font-size:13px;color:#e6e6e2;background:rgba(255,255,255,.03)}
+.lp-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 18px;border-radius:8px;font-size:14px;font-weight:500;transition:transform .2s ease,background .2s ease}
+.lp-btn:hover{transform:translateY(-1px)}
+.lp-btn-sage{background:#d6efc2;color:#11160e}.lp-btn-sage:hover{color:#11160e;background:#e3f6d4}
+.lp-btn-dark{background:#0a0a0a;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}.lp-btn-dark:hover{color:#fff;background:#151514}
+.lp-card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:12px}
+.lp-muted{color:#a3a39e}.lp-faint{color:#8a8a84}
+.lp .lp-ico{width:18px;height:18px;flex:none}
+.lp-g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.lp-g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.lp-g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.lp-bento > div{border-color:rgba(255,255,255,.08);border-style:solid;border-width:0 1px 1px 0}
+.lp-bento > div:nth-child(2n){border-right-width:0}
+.lp-bento > div:nth-last-child(-n+2){border-bottom-width:0}
+.lp-blob{position:absolute;border-radius:50%;filter:blur(70px)}
+.lp-b1{animation:drift1 28s ease-in-out infinite alternate}
+.lp-b2{animation:drift2 34s ease-in-out infinite alternate}
+.lp-b3{animation:drift3 40s ease-in-out infinite alternate}
+.lp-b4{animation:drift2 22s ease-in-out infinite alternate-reverse}
+@keyframes drift1{from{transform:translate(0,0) scale(1)}to{transform:translate(120px,-40px) scale(1.15)}}
+@keyframes drift2{from{transform:translate(0,0) scale(1.05)}to{transform:translate(-140px,30px) scale(.92)}}
+@keyframes drift3{from{transform:translate(-60px,0) scale(1)}to{transform:translate(80px,-30px) scale(1.1)}}
+.lp-float{animation:float 7s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-8px)}}
+.lp-shimmer{animation:shimmer 6s ease-in-out infinite}
+@keyframes shimmer{50%{opacity:.55}}
+.lp-navlink{padding:7px 12px;border-radius:999px;color:#d4d4cf;font-size:14px;font-weight:500}
+.lp-navlink:hover{background:rgba(255,255,255,.07);color:#fff}
+.lp-feed-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px}
+.lp-tile{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none}
+.lp-faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 22px;font-size:16px;font-weight:500}
+.lp-faq summary::-webkit-details-marker{display:none}
+.lp-faq details[open] summary svg{transform:rotate(45deg)}
+.lp-faq details p{margin:0;padding:0 22px 20px;color:#a3a39e;font-size:15px;line-height:1.6}
+@media (prefers-reduced-motion: reduce){.lp-b1,.lp-b2,.lp-b3,.lp-b4,.lp-float,.lp-shimmer{animation:none}}
+@media (max-width: 900px){.lp-g4{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-g3{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-hide-t{display:none}}
+@media (max-width: 760px){
+.lp-g2,.lp-g3{grid-template-columns:minmax(0,1fr)}
+.lp .lp-wrap{padding:0 16px}
+.lp-bento > div{border-right-width:0 !important;border-bottom-width:1px !important}
+.lp-bento > div:last-child{border-bottom-width:0 !important}
+.lp-hide-m{display:none !important}
+.lp-stack-m{flex-direction:column;align-items:stretch !important}
+.lp-stack-m .lp-btn{width:100%}
+.lp-h1{font-size:40px !important;line-height:46px !important}
+.lp-h2{font-size:30px !important;line-height:36px !important}
+.lp-sec{padding-top:64px !important;padding-bottom:64px !important}
+.lp-wordmark{font-size:120px !important}
+}
+
+.lp{min-height:100vh}
+.lp h1,.lp h2,.lp h3,.lp p{margin:0}
+.lp-glow{position:absolute;inset:0;width:100%;height:100%;opacity:0;transition:opacity 1.2s ease}
+.lp-glow.on{opacity:1}
+.lp-alert,.lp-note{margin-top:16px;padding:10px 14px;border-radius:10px;font-size:14px;max-width:520px}
+.lp-alert{color:#f59496;background:rgba(240,104,106,.1);border:1px solid rgba(240,104,106,.3)}
+.lp-note{color:#d6efc2;background:rgba(214,239,194,.08);border:1px solid rgba(214,239,194,.25)}
+.lp a:focus-visible,.lp summary:focus-visible{outline:2px solid #d6efc2;outline-offset:3px}
+@keyframes lp-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@supports (animation-timeline: view()){
+@media (prefers-reduced-motion: no-preference){.lp-sec > .lp-wrap{animation:lp-rise linear both;animation-timeline:view();animation-range:entry 0% entry 35%}}
+}
+html:has(.lp){scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html:has(.lp){scroll-behavior:auto}}
+@media (max-width: 760px){.lp .lp-blank-hero{height:220px !important}.lp .lp-blank-desk{height:240px !important}}

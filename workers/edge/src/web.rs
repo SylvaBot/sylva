@@ -70,6 +70,21 @@ pub fn serve(path: &str, versioned: bool) -> Result<Response> {
             "text/plain; charset=utf-8",
             "public, max-age=86400",
         ),
+        "/fonts/geist-wght.woff2" => (
+            web_file!("fonts/geist-wght.woff2"),
+            "font/woff2",
+            "public, max-age=31536000, immutable",
+        ),
+        "/fonts/geist-mono-wght.woff2" => (
+            web_file!("fonts/geist-mono-wght.woff2"),
+            "font/woff2",
+            "public, max-age=31536000, immutable",
+        ),
+        "/fonts/LICENSE-Geist.txt" => (
+            web_file!("fonts/LICENSE-Geist.txt"),
+            "text/plain; charset=utf-8",
+            "public, max-age=86400",
+        ),
         "/LICENSE-Lucide.txt" => (
             web_file!("LICENSE-Lucide.txt"),
             "text/plain; charset=utf-8",

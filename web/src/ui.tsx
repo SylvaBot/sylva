@@ -1,5 +1,5 @@
 // Small shared pieces: icons from the sprite, avatars, toasts and formatting.
-// Behavior matches Cortex's ui/app.js helpers.
+// Behavior matches Sylva Desktop's ui/app.js helpers.
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 

@@ -1,6 +1,6 @@
 // The dashboard's live connection to its channel. It connects as a feed,
 // asks for everything after the last event it has seen, and reconnects on its
-// own with backoff. Like Cortex, it never interrupts the streamer for a
+// own with backoff. Like Sylva Desktop, it never interrupts the streamer for a
 // reconnect: the dashboard only shows a quiet line while it is down.
 
 import { api, type AlertState, type SylvaEvent } from './api';

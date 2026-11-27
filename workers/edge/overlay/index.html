@@ -552,7 +552,7 @@
         heard = Date.now();
         let f;
         try { f = JSON.parse(m.data); } catch (x) { return; }
-        // Reload overlays (from Cortex or the dashboard): load the page again.
+        // Reload overlays (from Sylva Desktop or the dashboard): load the page again.
         if (f && f.type === 'reload') { location.reload(); return; }
         if (f && f.type !== 'pong') onFrame(f);
       };

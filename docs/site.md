@@ -11,7 +11,7 @@ What Sylva is, what it does, and three steps to start, with Continue with Twitch
 ## Other public pages
 
 * `/privacy`: what Sylva keeps, why, who can see it, where it is stored, and how to delete it. Linked from every public page's footer and from Delete account.
-* `/device`: where a streamer approves an app such as Cortex (see [api.md](api.md)).
+* `/device`: where a streamer approves an app such as Sylva Desktop (see [api.md](api.md)).
 
 ## Deleting an account
 
@@ -50,7 +50,7 @@ A slim icon rail with the pages (a label shows on hover) and Settings at the bot
 
 ## Design
 
-The look matches Cortex: a near-black page with a warm glow at the top, translucent softly rounded card modules without hard borders, white pill buttons for the main action, grouped pill controls, and one color per kind of event used everywhere that kind appears. Inter with tabular numbers; numbers on the Stats tiles animate with NumberFlow, and page search uses cmdk. Dark is the default. The light theme uses the same tokens with lighter values, and the choice is applied before the page paints, so it never flashes.
+The look matches Sylva Desktop: a near-black page with a warm glow at the top, translucent softly rounded card modules without hard borders, white pill buttons for the main action, grouped pill controls, and one color per kind of event used everywhere that kind appears. Inter with tabular numbers; numbers on the Stats tiles animate with NumberFlow, and page search uses cmdk. Dark is the default. The light theme uses the same tokens with lighter values, and the choice is applied before the page paints, so it never flashes.
 
 ## How it was checked
 

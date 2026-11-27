@@ -1,4 +1,4 @@
-//! Frames on the realtime websocket that overlays, the dashboard and Cortex use.
+//! Frames on the realtime websocket that overlays, the dashboard and Sylva Desktop use.
 //!
 //! Every frame is one JSON object with a `type` field.
 //!
@@ -35,7 +35,7 @@ pub const PING: &str = r#"{"type":"ping"}"#;
 pub const PONG: &str = r#"{"type":"pong"}"#;
 
 /// What kind of client is connected. Overlays receive `play` frames and their
-/// acks drive the alert queue; feeds (dashboard, Cortex) only watch; widgets
+/// acks drive the alert queue; feeds (dashboard, Sylva Desktop) only watch; widgets
 /// (event list, labels, goal, chat box) watch and get `widgets` frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +71,7 @@ pub enum ClientFrame {
     Ping,
 }
 
-/// Readable alert queue state. This is what Cortex could never get from SE.
+/// Readable alert queue state. This is what Sylva Desktop could never get from SE.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlertState {
@@ -114,7 +114,7 @@ pub enum ServerFrame {
     Top {
         top: Vec<crate::scene::TopEntry>,
     },
-    /// Tips waiting for approval changed (sent to the dashboard and Cortex,
+    /// Tips waiting for approval changed (sent to the dashboard and Sylva Desktop,
     /// which then read `GET tips/held`).
     Tips {
         held: u32,
@@ -125,7 +125,7 @@ pub enum ServerFrame {
     },
 }
 
-/// Commands from the dashboard or Cortex (`POST /v1/channels/{key}/alerts/{action}`).
+/// Commands from the dashboard or Sylva Desktop (`POST /v1/channels/{key}/alerts/{action}`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AlertAction {

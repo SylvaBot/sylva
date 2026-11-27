@@ -1452,7 +1452,7 @@ if (!fake || !usesFake) {
 
   const json = (body) => ({ 'Content-Type': 'application/json', ...body });
   const startDevice = async () => {
-    const res = await fetch(`${BASE}/v1/device/code`, { method: 'POST', headers: json({}), body: JSON.stringify({ clientName: 'Cortex' }) });
+    const res = await fetch(`${BASE}/v1/device/code`, { method: 'POST', headers: json({}), body: JSON.stringify({ clientName: 'Sylva Desktop' }) });
     assert.equal(res.status, 200);
     return res.json();
   };
@@ -1486,7 +1486,7 @@ if (!fake || !usesFake) {
     const lookup = `${BASE}/v1/device?code=${d.user_code.toLowerCase().replace('-', ' ')}`;
     assert.equal((await fetch(lookup)).status, 401, 'needs the browser session');
     const found = await (await fetch(lookup, { headers: asOwner() })).json();
-    assert.deepEqual(found, { userCode: d.user_code, appName: 'Cortex' });
+    assert.deepEqual(found, { userCode: d.user_code, appName: 'Sylva Desktop' });
     assert.equal((await fetch(`${BASE}/v1/device?code=NOPE`, { headers: asOwner() })).status, 400);
 
     const approve = (code, yes, origin = BASE) => fetch(`${BASE}/v1/device`, {
@@ -1542,7 +1542,7 @@ if (!fake || !usesFake) {
     // A local test database may hold apps from earlier runs: use the newest.
     const apps = await (await fetch(`${BASE}/v1/apps`, { headers: asOwner() })).json();
     const app = apps[0];
-    assert.equal(app.name, 'Cortex');
+    assert.equal(app.name, 'Sylva Desktop');
     assert.ok(app.lastUsedAt > 0, 'last use is recorded');
     assert.ok(!JSON.stringify(apps).includes(apiToken.split('.')[1]), 'the secret is never listed');
     const revoke = (origin) => fetch(`${BASE}/v1/apps/${app.id}/revoke`, { method: 'POST', headers: asOwner({ Origin: origin }) });

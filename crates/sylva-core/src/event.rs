@@ -1,7 +1,7 @@
 //! The normalized event model.
 //!
 //! Every platform adapter turns its own payloads into [`Event`]. The shape follows
-//! Cortex's `Activity` (same kind names, same optional fields) so Cortex can read
+//! Sylva Desktop's `Activity` (same kind names, same optional fields) so Sylva Desktop can read
 //! Sylva events with almost no mapping, and adds what Sylva needs on top: the
 //! platform, a dedupe id, an actor and the original payload.
 
@@ -29,7 +29,7 @@ impl Platform {
     }
 }
 
-/// The feed categories. Names match Cortex's `ActivityKind`, plus `Chat`.
+/// The feed categories. Names match Sylva Desktop's `ActivityKind`, plus `Chat`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum EventKind {

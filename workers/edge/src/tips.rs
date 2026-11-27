@@ -188,6 +188,8 @@ pub(crate) struct PublicChannel {
     pub avatar: String,
     /// The Twitch offline image, the closest thing Twitch's API has to a banner.
     pub banner: String,
+    /// The Twitch bio.
+    pub description: String,
 }
 
 /// `GET /v1/public/{login}/tip`: what the tip page needs.
@@ -507,10 +509,10 @@ struct ConnectBody {
 /// The streamer's Stripe account, as Sylva last saw it.
 #[derive(Serialize, Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase", default)]
-struct AccountState {
+pub(crate) struct AccountState {
     id: String,
     country: String,
-    charges_enabled: bool,
+    pub(crate) charges_enabled: bool,
     details_submitted: bool,
     /// Things Stripe still needs before payouts or payments work.
     due: u32,
@@ -537,7 +539,7 @@ impl ChannelDo {
             .unwrap_or_default())
     }
 
-    fn stripe_account(&self) -> Result<Option<AccountState>> {
+    pub(crate) fn stripe_account(&self) -> Result<Option<AccountState>> {
         Ok(self
             .config("stripe_account")?
             .and_then(|s| serde_json::from_str::<AccountState>(&s).ok())

@@ -26,7 +26,7 @@ fn content_security_policy(tip_page: bool) -> String {
     }
     format!(
         "default-src 'self'; script-src 'self' {SCRIPT_HASHES}; style-src 'self' 'unsafe-inline'; \
-         img-src 'self' data: https://static-cdn.jtvnw.net; font-src 'self'; connect-src 'self'; \
+         img-src 'self' data: https://static-cdn.jtvnw.net https://cdn.7tv.app https://cdn.betterttv.net https://cdn.frankerfacez.com; font-src 'self'; connect-src 'self'; \
          object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
     )
 }

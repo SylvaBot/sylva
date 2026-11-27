@@ -296,6 +296,18 @@ export interface PublicCommand {
 export interface PublicCommands {
   channel: string; login: string; commands: PublicCommand[]; counters: BotCounter[];
 }
+export interface PublicProfile {
+  login: string; name: string; avatar: string; banner: string; description: string;
+  bot: boolean; points: boolean; tips: boolean; live: boolean;
+}
+export interface ChatEmote { id: string; name: string; uses: number; url: string }
+export interface ChatStats {
+  channel: { login: string; name: string; avatar: string; banner: string };
+  since: number | null; total: number; perSecond: number | null; live: boolean;
+  chatters: { login: string; name: string; messages: number }[];
+  emotes: { twitch: ChatEmote[]; '7tv': ChatEmote[]; bttv: ChatEmote[]; ffz: ChatEmote[] };
+  commands: { name: string; uses: number }[];
+}
 export interface PublicViewer { name: string; balance: number; rank: number }
 export interface PublicStore {
   channel: string; pointsName: string; storeOn: boolean;
@@ -439,6 +451,8 @@ export const api = {
     request<{ id: string; status: string; clientSecret?: string }>('POST', `/v1/public/${encodeURIComponent(login)}/tip`, body),
   tipStatus: (login: string, id: string) =>
     request<{ status: 'pending' | 'paid' | 'failed' | 'closed'; note?: string }>('GET', `/v1/public/${encodeURIComponent(login)}/tip/${encodeURIComponent(id)}`),
+  publicProfile: (login: string) => request<PublicProfile>('GET', `/v1/public/${encodeURIComponent(login)}/profile`),
+  chatStats: (login: string) => request<ChatStats>('GET', `/v1/public/${encodeURIComponent(login)}/chatstats`),
   publicCommands: (login: string) => request<PublicCommands>('GET', `/v1/public/${encodeURIComponent(login)}/commands`),
   publicStore: (login: string, viewer?: string) =>
     request<PublicStore>('GET', `/v1/public/${encodeURIComponent(login)}${viewer ? `?viewer=${encodeURIComponent(viewer)}` : ''}`),

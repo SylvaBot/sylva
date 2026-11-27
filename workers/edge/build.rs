@@ -21,6 +21,9 @@ const FILES: &[&str] = &[
     "LICENSE-Lucide.txt",
     "fonts/inter-latin-wght.woff2",
     "fonts/LICENSE-Inter.txt",
+    "fonts/geist-wght.woff2",
+    "fonts/geist-mono-wght.woff2",
+    "fonts/LICENSE-Geist.txt",
 ];
 
 /// Files that `index.html` links with a version, so browsers can keep them

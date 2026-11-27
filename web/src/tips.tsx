@@ -155,7 +155,9 @@ export function TipsPage() {
               )}
               {acct && !acct.chargesEnabled && (
                 <div className="notice">
-                  <span>{acct.detailsSubmitted ? 'Stripe is checking your details. Tips open as soon as it is done.' : 'Finish your Stripe setup to start taking tips.'}</span>
+                  <span>{acct.detailsSubmitted ? 'Stripe is checking your details. Tips open as soon as it is done.' : 'Finish your Stripe setup to start taking tips.'}
+                    {acct.stripeStatus && <span className="field-hint"> Stripe says card payments are {acct.stripeStatus}{acct.reasons?.length ? ` (${acct.reasons.join(', ').replace(/_/g, ' ')})` : ''}.</span>}
+                  </span>
                   {ch.can.own && <button className="btn primary sm" type="button" disabled={busy} onClick={() => void connect()}>{acct.detailsSubmitted ? 'Check with Stripe' : 'Finish setup'}</button>}
                 </div>
               )}

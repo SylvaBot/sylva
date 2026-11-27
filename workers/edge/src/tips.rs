@@ -82,6 +82,15 @@ fn now() -> i64 {
 }
 
 /// Whether whoever runs Sylva has set up the Stripe platform account.
+/// Sylva runs on Stripe test keys (a sandbox): every tip is a test.
+pub(crate) fn test_mode(env: &Env) -> bool {
+    env.secret("STRIPE_SECRET_KEY")
+        .is_ok_and(|v| {
+            let k = v.to_string();
+            k.starts_with("sk_test_") || k.starts_with("rk_test_")
+        })
+}
+
 pub(crate) fn platform_ready(env: &Env) -> bool {
     [
         "STRIPE_SECRET_KEY",
@@ -193,6 +202,7 @@ pub(crate) async fn public_config(req: &Request, env: &Env, ch: PublicChannel) -
     v["avatar"] = json!(ch.avatar);
     let ready = platform_ready(env);
     v["open"] = json!(ready && v["open"].as_bool().unwrap_or(false));
+    v["testMode"] = json!(test_mode(env));
     if ready {
         v["publishableKey"] = json!(env.secret("STRIPE_PUBLISHABLE_KEY")?.to_string());
     }
@@ -399,6 +409,8 @@ pub(crate) struct TipView {
     evidence_sent: bool,
     blocked: bool,
     note: Option<String>,
+    /// Paid with Stripe test keys.
+    test: bool,
 }
 
 impl TipRow {
@@ -434,6 +446,7 @@ impl TipRow {
             evidence_sent: self.evidence_at.is_some(),
             blocked: self.blocked > 0.0,
             note: self.note.clone(),
+            test: self.id.starts_with("tip_test_"),
         }
     }
     /// Everything that identifies the tipper, for blocklists.
@@ -499,6 +512,8 @@ struct AccountState {
     stripe_status: String,
     /// Stripe's reason codes when card payments are not active yet.
     reasons: Vec<String>,
+    /// What Stripe still wants, in its own words (requirement names).
+    needs: Vec<String>,
 }
 
 fn error(message: &str, status: u16) -> Result<Response> {
@@ -785,7 +800,11 @@ impl ChannelDo {
             "DELETE FROM tips WHERE status IN ('pending', 'failed') AND created_at < ?",
             vec![((now - 3 * 86_400_000) as f64).into()],
         )?;
-        let id = format!("tip_{}", random_hex(12)?);
+        let id = if test_mode(&self.env) {
+            format!("tip_test_{}", random_hex(12)?)
+        } else {
+            format!("tip_{}", random_hex(12)?)
+        };
         self.sql.exec(
             "INSERT INTO tips (id, amount, currency, base, name, message, email_hash, email_hint,
                 ip, ip_hash, ip_country, card_country, card_hash, method, status, created_at, agreed_at)
@@ -1164,7 +1183,12 @@ impl ChannelDo {
             .collect::<String>()
             .to_lowercase();
         let event = Event {
-            id: format!("stripe:{}", t.id),
+            // Test tips use the test event id, so they stay out of stats.
+            id: if t.id.starts_with("tip_test_") {
+                format!("sylva:test:stripe:{}", t.id)
+            } else {
+                format!("stripe:{}", t.id)
+            },
             channel: self.key().unwrap_or_default(),
             platform: Platform::Stripe,
             kind: EventKind::Tip,
@@ -1257,7 +1281,10 @@ impl ChannelDo {
         if event.platform != Platform::Stripe || event.kind != EventKind::Tip {
             return None;
         }
-        let id = event.id.strip_prefix("stripe:")?;
+        let id = event
+            .id
+            .strip_prefix("sylva:test:stripe:")
+            .or_else(|| event.id.strip_prefix("stripe:"))?;
         let rows = self
             .sql
             .exec("SELECT ms AS value FROM tts WHERE id = ?", vec![id.into()])
@@ -1460,13 +1487,30 @@ impl ChannelDo {
                         .collect()
                 })
                 .unwrap_or_default();
-            let entries = obj["requirements"]["entries"].as_array().map_or(0, |e| {
-                e.iter()
-                    .filter(|x| {
-                        x["minimum_deadline"]["status"].as_str() != Some("eventually_due")
-                    })
-                    .count() as u32
-            });
+            let open: Vec<&Value> = obj["requirements"]["entries"]
+                .as_array()
+                .map(|e| {
+                    e.iter()
+                        .filter(|x| {
+                            x["minimum_deadline"]["status"].as_str() != Some("eventually_due")
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let entries = open.len() as u32;
+            a.needs = open
+                .iter()
+                .map(|x| {
+                    let mut n = x["description"].as_str().unwrap_or("unknown").to_string();
+                    if x["awaiting_action_from"].as_str() == Some("stripe") {
+                        n.push_str(" (Stripe is reviewing)");
+                    }
+                    if let Some(e) = x["errors"].as_array().and_then(|e| e.first()) {
+                        n.push_str(&format!(": {}", e["description"].as_str().unwrap_or("")));
+                    }
+                    n
+                })
+                .collect();
             a.due = if a.charges_enabled {
                 entries
             } else {
@@ -1509,6 +1553,11 @@ impl ChannelDo {
             let req = &v["requirements"];
             let count = |k: &str| req[k].as_array().map_or(0, |x| x.len());
             a.due = (count("currently_due") + count("past_due")) as u32;
+            a.needs = ["past_due", "currently_due"]
+                .iter()
+                .flat_map(|k| req[*k].as_array().cloned().unwrap_or_default())
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect();
             a.reasons = req["disabled_reason"]
                 .as_str()
                 .map(|r| vec![r.to_string()])
@@ -1518,11 +1567,12 @@ impl ChannelDo {
             }
         }
         console_log!(
-            "Stripe account {}: card payments {}, due {}, reasons {:?}",
+            "Stripe account {}: card payments {}, due {}, reasons {:?}, needs {:?}",
             a.id,
             a.stripe_status,
             a.due,
-            a.reasons
+            a.reasons,
+            a.needs
         );
         self.save_account(a)?;
         Ok(())
@@ -1585,6 +1635,7 @@ impl ChannelDo {
         let login = self.config("channel_login")?.unwrap_or_default();
         Ok(json!({
             "platformReady": ready,
+            "testMode": test_mode(&self.env),
             "account": account,
             "settings": self.tip_settings()?,
             "tips": tips,
@@ -1684,6 +1735,8 @@ impl ChannelDo {
                 "account_onboarding": {
                     "refresh_url": format!("{origin}/app/tips?stripe=again"),
                     "return_url": format!("{origin}/app/tips?stripe=back"),
+                    // Collect everything Stripe will ever ask for in one pass.
+                    "collection_options": { "fields": "eventually_due", "future_requirements": "include" },
                 }
             }
         });

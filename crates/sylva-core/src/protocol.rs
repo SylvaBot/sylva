@@ -114,6 +114,11 @@ pub enum ServerFrame {
     Top {
         top: Vec<crate::scene::TopEntry>,
     },
+    /// Tips waiting for approval changed (sent to the dashboard and Cortex,
+    /// which then read `GET tips/held`).
+    Tips {
+        held: u32,
+    },
     #[serde(rename_all = "camelCase")]
     Error {
         message: String,

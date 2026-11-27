@@ -223,6 +223,7 @@ impl AlertSettings {
             sound: k.sound,
             image: k.image,
             volume: k.volume,
+            tts: None,
         }
     }
 }
@@ -244,6 +245,10 @@ pub struct AlertView {
     pub image: Option<String>,
     #[serde(default = "loud")]
     pub volume: u8,
+    /// A tip's message read aloud, served at `/tts/{channel}/{id}`. Plays
+    /// after the alert's sound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts: Option<String>,
 }
 
 fn amount_text(n: f64) -> String {

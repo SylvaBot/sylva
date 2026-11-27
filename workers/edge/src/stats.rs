@@ -161,7 +161,7 @@ impl ChannelDo {
             .sql
             .exec(
                 &format!("SELECT CAST((received_at - ?1) / 86400000 AS INTEGER) AS d,
-                        kind, COUNT(*) AS n, COALESCE(SUM(json_extract(body, '$.amount')), 0) AS amount
+                        kind, COUNT(*) AS n, COALESCE(SUM(COALESCE(json_extract(body, '$.raw.sylvaBase'), json_extract(body, '$.amount'))), 0) AS amount
                  FROM {REAL_EVENTS} WHERE received_at >= ?1 AND received_at < ?2
                    AND kind IN ('follow', 'subscriber', 'communityGift', 'cheer', 'raid', 'tip', 'redemption', 'chat')
                  GROUP BY d, kind"),
@@ -222,7 +222,7 @@ impl ChannelDo {
         let range = || vec![(from as f64).into(), (to as f64).into()];
         let ranked = |kind: &str, sum: bool, limit: u32| -> Result<Vec<Ranked>> {
             let what = if sum {
-                "SUM(json_extract(body, '$.amount'))"
+                "SUM(COALESCE(json_extract(body, '$.raw.sylvaBase'), json_extract(body, '$.amount')))"
             } else {
                 "COUNT(*)"
             };

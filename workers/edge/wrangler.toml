@@ -29,11 +29,18 @@ new_sqlite_classes = ["ChannelDo"]
 tag = "v2"
 new_sqlite_classes = ["AccountDo", "DirectoryDo"]
 
+# Workers AI: reads tip messages aloud (MeloTTS).
+[ai]
+binding = "AI"
+
 # Secrets (set with `wrangler secret put`, or in .dev.vars locally):
 #   TWITCH_CLIENT_SECRET    the Twitch application secret (set in the Cloudflare dashboard)
 #   TWITCH_EVENTSUB_SECRET  the secret given to Twitch when creating the conduit shard
 #   SYLVA_TOKEN_KEY         64 hex characters: encrypts Twitch tokens at rest
 #   SYLVA_ADMIN_TOKEN       bearer token for /admin routes and test scripts
+#   STRIPE_SECRET_KEY       Sylva's Stripe platform secret key (tips)
+#   STRIPE_PUBLISHABLE_KEY  its publishable key (secret only so deploys keep it)
+#   STRIPE_WEBHOOK_SECRET   signing secret of the Connect webhook at /stripe/webhook
 
 [vars]
 # Not secret: the public client id of the "sylva dev" Twitch application.

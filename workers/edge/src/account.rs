@@ -106,6 +106,15 @@ CREATE TABLE IF NOT EXISTS team (
     PRIMARY KEY (channel, platform, platform_user_id)
 );
 CREATE INDEX IF NOT EXISTS team_member ON team (platform, platform_user_id);
+CREATE TABLE IF NOT EXISTS stripe_accounts (
+    account TEXT PRIMARY KEY,
+    channel TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tip_blocks (
+    hash       TEXT PRIMARY KEY,
+    reason     TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
 ";
 
 fn apply_schema(sql: &SqlStorage, schema: &str) {
@@ -771,9 +780,82 @@ impl DurableObject for DirectoryDo {
             "/team/put" => self.team_put(req.json().await?),
             "/team/remove" => self.team_remove(req.json().await?),
             "/team/sign-in" => self.team_sign_in(req.json().await?),
+            "/stripe/link" => {
+                let l: StripeLink = req.json().await?;
+                self.sql.exec(
+                    "INSERT OR REPLACE INTO stripe_accounts (account, channel) VALUES (?, ?)",
+                    vec![l.account.into(), l.channel.into()],
+                )?;
+                Response::ok("ok")
+            }
+            "/stripe/unlink" => {
+                let l: StripeLink = req.json().await?;
+                self.sql.exec(
+                    "DELETE FROM stripe_accounts WHERE account = ? AND channel = ?",
+                    vec![l.account.into(), l.channel.into()],
+                )?;
+                Response::ok("ok")
+            }
+            "/stripe/channel" => {
+                let l: StripeLink = req.json().await?;
+                let found = self
+                    .sql
+                    .exec(
+                        "SELECT channel AS value FROM stripe_accounts WHERE account = ?",
+                        vec![l.account.into()],
+                    )?
+                    .to_array::<TextRow>()?
+                    .into_iter()
+                    .next();
+                match found {
+                    Some(row) => Response::from_json(&serde_json::json!({ "channel": row.value })),
+                    None => Response::error("No channel", 404),
+                }
+            }
+            // The Sylva-wide tip blocklist: whoever disputed a tip anywhere.
+            "/tips/blocked" => {
+                let b: TipBlock = req.json().await?;
+                let mut blocked = false;
+                for h in b.hashes.iter().take(8) {
+                    let n = self
+                        .sql
+                        .exec(
+                            "SELECT hash AS value FROM tip_blocks WHERE hash = ?",
+                            vec![h.as_str().into()],
+                        )?
+                        .to_array::<TextRow>()?
+                        .len();
+                    blocked |= n > 0;
+                }
+                Response::from_json(&serde_json::json!({ "blocked": blocked }))
+            }
+            "/tips/block" => {
+                let b: TipBlock = req.json().await?;
+                for h in b.hashes.iter().take(8) {
+                    self.sql.exec(
+                        "INSERT OR IGNORE INTO tip_blocks (hash, reason, created_at) VALUES (?, ?, ?)",
+                        vec![h.as_str().into(), b.reason.as_str().into(), (now_ms() as f64).into()],
+                    )?;
+                }
+                Response::ok("ok")
+            }
             _ => Response::error("Not found", 404),
         }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct StripeLink {
+    pub account: String,
+    #[serde(default)]
+    pub channel: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TipBlock {
+    pub hashes: Vec<String>,
+    #[serde(default)]
+    pub reason: String,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -11,8 +11,19 @@ macro_rules! web_file {
 /// Hashes of the page's inline scripts, for its Content-Security-Policy.
 const SCRIPT_HASHES: &str = include_str!(concat!(env!("OUT_DIR"), "/web/script-hashes.txt"));
 
-/// Twitch profile pictures are the only images from elsewhere.
-fn content_security_policy() -> String {
+/// Twitch profile pictures are the only images from elsewhere. Tip pages
+/// also load Stripe.js, which draws the payment form in Stripe's own frames.
+fn content_security_policy(tip_page: bool) -> String {
+    if tip_page {
+        return format!(
+            "default-src 'self'; script-src 'self' {SCRIPT_HASHES} https://js.stripe.com; \
+             style-src 'self' 'unsafe-inline'; \
+             img-src 'self' data: https://static-cdn.jtvnw.net https://*.stripe.com; font-src 'self'; \
+             connect-src 'self' https://api.stripe.com https://merchant-ui-api.stripe.com https://*.stripe.com; \
+             frame-src https://js.stripe.com https://hooks.stripe.com https://*.stripe.com; \
+             object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        );
+    }
     format!(
         "default-src 'self'; script-src 'self' {SCRIPT_HASHES}; style-src 'self' 'unsafe-inline'; \
          img-src 'self' data: https://static-cdn.jtvnw.net; font-src 'self'; connect-src 'self'; \
@@ -73,12 +84,19 @@ pub fn serve(path: &str, versioned: bool) -> Result<Response> {
     h.set("Cache-Control", cache)?;
     h.set("X-Content-Type-Options", "nosniff")?;
     if kind.starts_with("text/html") {
-        h.set("Content-Security-Policy", &content_security_policy())?;
+        h.set(
+            "Content-Security-Policy",
+            &content_security_policy(path.starts_with("/tip/")),
+        )?;
         h.set("X-Frame-Options", "DENY")?;
         h.set("Referrer-Policy", "same-origin")?;
         h.set(
             "Permissions-Policy",
-            "camera=(), microphone=(), geolocation=()",
+            if path.starts_with("/tip/") {
+                "camera=(), microphone=(), geolocation=(), payment=(self \"https://js.stripe.com\")"
+            } else {
+                "camera=(), microphone=(), geolocation=()"
+            },
         )?;
     }
     Ok(res)

@@ -55,6 +55,7 @@ mod store;
 mod stats;
 mod streams;
 mod team;
+mod tips;
 mod twitch_admin;
 mod twitch_api;
 mod util;
@@ -173,6 +174,40 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             }
         }
         (Method::Get, ["v1", "public", login]) => public_store(&req, &env, login).await,
+        (Method::Get, ["v1", "public", login, "tip"]) => match public_channel(&env, login).await? {
+            Ok(ch) => tips::public_config(&req, &env, ch).await,
+            Err(res) => Ok(res),
+        },
+        (Method::Post, ["v1", "public", login, "tip"]) => match public_channel(&env, login).await? {
+            Ok(ch) => tips::public_create(req, &env, &ch.key).await,
+            Err(res) => Ok(res),
+        },
+        (Method::Get, ["v1", "public", login, "tip", id]) => match public_channel(&env, login).await? {
+            Ok(ch) if id.starts_with("tip_") && id.len() <= 40 => {
+                let mut res = stub(&env, &ch.key)?
+                    .fetch_with_str(&format!("https://channel/public/tips/{id}"))
+                    .await?;
+                let body = res.text().await?;
+                let mut out = Response::ok(body)?.with_status(res.status_code());
+                out.headers_mut().set("Content-Type", "application/json")?;
+                out.headers_mut().set("Cache-Control", "no-store")?;
+                Ok(out)
+            }
+            Ok(_) => Response::error("No such tip", 404),
+            Err(res) => Ok(res),
+        },
+        (Method::Post, ["stripe", "webhook"]) => tips::webhook(req, &env).await,
+        (Method::Get, [".well-known", "apple-developer-merchantid-domain-association"]) => {
+            tips::apple_pay_file().await
+        }
+        (Method::Get, ["tts", key, id]) => {
+            if !valid_key(key) {
+                return Response::error("Not found", 404);
+            }
+            stub(&env, key)?
+                .fetch_with_str(&format!("https://channel/public/tts/{id}"))
+                .await
+        }
         (Method::Get, ["v1", "public", login, "commands"]) => public_commands(&env, login).await,
         (Method::Get, ["v1", "chat-assets", key]) => {
             if !valid_key(key) {
@@ -295,6 +330,9 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["overlays"])
                 | (Method::Post, ["scene", ..])
                 | (Method::Post, ["import", "streamelements"])
+                | (Method::Get, ["tips"])
+                | (Method::Get, ["tips", "held"])
+                | (Method::Post, ["tips", ..])
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,
                 _ => Response::error("Not found", 404),
             }
@@ -302,7 +340,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         (Method::Get | Method::Head, [first, ..])
             if !matches!(
                 *first,
-                "v1" | "auth" | "twitch" | "admin" | "overlay" | "media"
+                "v1" | "auth" | "twitch" | "admin" | "overlay" | "media" | "tts" | "stripe"
             ) =>
         {
             let versioned = req.url()?.query_pairs().any(|(k, _)| k == "v");
@@ -420,6 +458,14 @@ async fn overlay_link(req: &Request, env: &Env, key: &str, rotate: bool) -> Resu
 /// response to send when there is none. Only channels with a Sylva account
 /// count, so a lookup never makes a new object.
 async fn public_key(env: &Env, login: &str) -> Result<std::result::Result<String, Response>> {
+    Ok(public_channel(env, login).await?.map(|c| c.key))
+}
+
+/// Like [`public_key`], with the streamer's name and picture from Twitch.
+async fn public_channel(
+    env: &Env,
+    login: &str,
+) -> Result<std::result::Result<tips::PublicChannel, Response>> {
     let Some(login) = sylva_core::loyalty::login_arg(login).filter(|l| l.len() <= 25) else {
         return Ok(Err(Response::error("No such channel", 404)?));
     };
@@ -450,7 +496,14 @@ async fn public_key(env: &Env, login: &str) -> Result<std::result::Result<String
             404,
         )?));
     }
-    Ok(Ok(key))
+    let user = &v["data"][0];
+    let text = |k: &str| user[k].as_str().unwrap_or_default().to_string();
+    Ok(Ok(tips::PublicChannel {
+        key,
+        login: text("login"),
+        name: text("display_name"),
+        avatar: text("profile_image_url"),
+    }))
 }
 
 /// The public commands page's data, for anyone: what `!commands` links to.

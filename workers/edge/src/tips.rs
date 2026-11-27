@@ -709,6 +709,7 @@ impl ChannelDo {
             "baseCurrency": base.code,
             "currencies": currencies,
             "excluded": rules::EXCLUDED_METHODS,
+            "allowed": rules::ALLOWED_METHODS,
             "order": rules::METHOD_ORDER,
             "messageMax": rules::MESSAGE_MAX,
             "nameMax": rules::NAME_MAX,

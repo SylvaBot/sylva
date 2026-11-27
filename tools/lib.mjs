@@ -1,5 +1,5 @@
 // Shared helpers for the test scripts. They talk to a running Worker
-// (local `npm run dev` by default) exactly as Twitch, OBS and Cortex would.
+// (local `npm run dev` by default) exactly as Twitch, OBS and Sylva Desktop would.
 import { createHmac, randomUUID } from 'node:crypto';
 
 export const BASE = process.env.SYLVA_URL || 'http://localhost:8787';

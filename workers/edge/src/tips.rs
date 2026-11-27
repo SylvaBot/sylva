@@ -391,7 +391,7 @@ pub(crate) struct TipRow {
     note: Option<String>,
 }
 
-/// A tip as the dashboard and Cortex see it. No IP address or email.
+/// A tip as the dashboard and Sylva Desktop see it. No IP address or email.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TipView {
@@ -642,7 +642,7 @@ impl ChannelDo {
         )
     }
 
-    /// Tell the dashboard and Cortex the held tips changed.
+    /// Tell the dashboard and Sylva Desktop the held tips changed.
     fn tips_changed(&self) -> Result<()> {
         let text = serde_json::to_string(&ServerFrame::Tips {
             held: self.held_count()?,

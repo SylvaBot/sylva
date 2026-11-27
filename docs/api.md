@@ -1,4 +1,4 @@
-# The Sylva API for apps such as Cortex
+# The Sylva API for apps such as Sylva Desktop
 
 Apps sign in to a streamer's Sylva with a device code, then call the same API the dashboard uses with an API token. All bodies are JSON.
 
@@ -6,7 +6,7 @@ Apps sign in to a streamer's Sylva with a device code, then call the same API th
 
 The flow follows OAuth's device authorization grant (RFC 8628).
 
-1. **Start.** `POST /v1/device/code` with `{"clientName": "Cortex"}`. The reply:
+1. **Start.** `POST /v1/device/code` with `{"clientName": "Sylva Desktop"}`. The reply:
 
    ```json
    {

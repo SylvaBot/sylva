@@ -507,7 +507,7 @@ function ConnectedApps() {
   };
 
   return (
-    <Card id="apps" title="Connected apps" desc="Apps such as Cortex that you allowed to use your Sylva.">
+    <Card id="apps" title="Connected apps" desc="Apps such as Sylva Desktop that you allowed to use your Sylva.">
       {apps === null && <div className="card-body"><SkelRows n={1} tile={false} /></div>}
       {apps && apps.length === 0 && (
         <div className="card-body">

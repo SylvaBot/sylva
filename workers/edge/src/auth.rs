@@ -19,7 +19,7 @@
 //! kept as a separate grant (see `account::Grant`), so a later plain sign in
 //! does not take the feature away.
 //!
-//! Apps such as Cortex authenticate with an API token instead of the cookie
+//! Apps such as Sylva Desktop authenticate with an API token instead of the cookie
 //! (`Authorization: Bearer sylva_...`, see `sylva_core::apps`).
 
 use serde_json::json;

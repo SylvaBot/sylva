@@ -1,4 +1,4 @@
-//! Signing apps such as Cortex in to Sylva with a device code, and the API
+//! Signing apps such as Sylva Desktop in to Sylva with a device code, and the API
 //! tokens they get.
 //!
 //! The flow follows OAuth's device authorization grant (RFC 8628):
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn app_names_are_cleaned() {
-        assert_eq!(clean_app_name(Some("  Cortex  ")), "Cortex");
+        assert_eq!(clean_app_name(Some("  Sylva Desktop  ")), "Sylva Desktop");
         assert_eq!(clean_app_name(Some("a\u{0}b")), "ab");
         assert_eq!(clean_app_name(None), "An app");
         assert_eq!(clean_app_name(Some(&"x".repeat(100))).len(), MAX_APP_NAME);

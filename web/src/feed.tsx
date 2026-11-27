@@ -1,4 +1,4 @@
-// The activity feed, after Cortex's: one color per kind of event, a mix bar
+// The activity feed, after Sylva Desktop's: one color per kind of event, a mix bar
 // for the last 24 hours, filter chips, and one plain sentence per event with
 // small pills for the details.
 

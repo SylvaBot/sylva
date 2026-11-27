@@ -7,7 +7,7 @@
 }
 
 /*
- * Sylva's design system. It takes Cortex's ideas (neutral grays, one color per
+ * Sylva's design system. It takes Sylva Desktop's ideas (neutral grays, one color per
  * kind of event, flat surfaces with 1px borders, Inter with tabular numbers,
  * a white primary button, short calm motion) and lays them out as a website:
  * a landing page, and a dashboard with an icon rail and separate pages.
@@ -456,7 +456,7 @@ h1, h2, h3, p { margin: 0; }
 .filter[aria-pressed="true"] { background: var(--surface-3); border-color: var(--border-3); color: var(--text); }
 .filter[aria-pressed="true"] .count { color: var(--text-2); }
 
-/* Activity rows, the same as Cortex's Recent activity: a clean row with a
+/* Activity rows, the same as Sylva Desktop's Recent activity: a clean row with a
    solid tile in the kind's color, a bold name, round pills, and a soft
    highlight on hover. */
 .feed { list-style: none; margin: 0; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 2px; }
@@ -1184,7 +1184,7 @@ fieldset.gate { border: 0; margin: 0; padding: 0; min-width: 0; }
 }
 
 /* ================================================================
- * Cortex look (2026-11-26): near-black with a warm glow at the top,
+ * Sylva Desktop look (2026-11-26): near-black with a warm glow at the top,
  * translucent rounded card modules without hard borders, white pill
  * buttons, grouped pill controls, and a slim icon rail instead of the
  * sidebar. This block is the source of truth for shared components.

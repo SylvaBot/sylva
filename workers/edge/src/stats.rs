@@ -69,6 +69,11 @@ struct CountRow {
 }
 
 #[derive(Deserialize)]
+struct FirstAt {
+    at: Option<f64>,
+}
+
+#[derive(Deserialize)]
 struct CellRow {
     w: f64,
     h: f64,
@@ -148,14 +153,36 @@ impl ChannelDo {
 
     /// `GET .../stats?days=30&tz=300`. `tz` is the browser's
     /// `getTimezoneOffset()`, so days and hours follow the streamer's clock.
-    pub(crate) fn stats(&self, days: i64, tz: i64) -> Result<serde_json::Value> {
-        let days = days.clamp(1, 365);
+    /// `end` is how many days before today the range stops (0 is up to
+    /// now), for custom ranges such as last month.
+    pub(crate) fn stats(&self, days: i64, tz: i64, end: i64) -> Result<serde_json::Value> {
+        let end = end.clamp(0, 3660);
         let tz_ms = tz.clamp(-24 * 60, 24 * 60) * 60_000;
         let now = Date::now().as_millis() as i64;
         let today = (now - tz_ms).div_euclid(DAY) * DAY + tz_ms;
-        let from = today - (days - 1) * DAY;
+        // 0 days means all time: from the first day anything happened.
+        let days = if days <= 0 {
+            let first: Vec<FirstAt> = self
+                .sql
+                .exec(
+                    &format!(
+                        "SELECT MIN(at) AS at FROM (SELECT MIN(received_at) AS at FROM {REAL_EVENTS}
+                         UNION ALL SELECT MIN(at) AS at FROM history_events)"
+                    ),
+                    None,
+                )?
+                .to_array()?;
+            first
+                .first()
+                .and_then(|f| f.at)
+                .map_or(1, |at| (today - ((at as i64 - tz_ms).div_euclid(DAY) * DAY + tz_ms)) / DAY + 1)
+        } else {
+            days
+        }
+        .clamp(1, 3660);
+        let from = today - (end + days - 1) * DAY;
         let prev = from - days * DAY;
-        let to = now + 1;
+        let to = if end == 0 { now + 1 } else { today - (end - 1) * DAY };
 
         // Day by day, counted from the start of the period before: days
         // 0..days are the period before, days..2*days this one.
@@ -350,14 +377,14 @@ impl ChannelDo {
         let mut streams: Vec<Recap> = self
             .sql
             .exec(
-                "SELECT body FROM stream_recaps WHERE started_at >= ? ORDER BY started_at DESC LIMIT 500",
-                vec![(from as f64).into()],
+                "SELECT body FROM stream_recaps WHERE started_at >= ? AND started_at < ? ORDER BY started_at DESC LIMIT 500",
+                range(),
             )?
             .to_array::<BodyRow>()?
             .into_iter()
             .filter_map(|b| serde_json::from_str(&b.body).ok())
             .collect();
-        if let Some(ms) = self.uptime_ms()? {
+        if let Some(ms) = self.uptime_ms()?.filter(|_| end == 0) {
             streams.insert(0, self.recap(now - ms, None)?);
         }
         for s in streams.iter_mut().filter(|s| s.peak_viewers.is_none()) {
@@ -366,6 +393,7 @@ impl ChannelDo {
 
         Ok(serde_json::json!({
             "days": days,
+            "end": end,
             "from": from,
             "series": series,
             "totals": totals,

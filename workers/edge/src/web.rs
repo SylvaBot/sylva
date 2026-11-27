@@ -60,6 +60,11 @@ pub fn serve(path: &str, versioned: bool) -> Result<Response> {
             "image/svg+xml",
             "public, max-age=86400",
         ),
+        "/mod-badge.png" => (
+            web_file!("mod-badge.png"),
+            "image/png",
+            "public, max-age=86400",
+        ),
         "/fonts/inter-latin-wght.woff2" => (
             web_file!("fonts/inter-latin-wght.woff2"),
             "font/woff2",
@@ -85,8 +90,8 @@ pub fn serve(path: &str, versioned: bool) -> Result<Response> {
             "text/plain; charset=utf-8",
             "public, max-age=86400",
         ),
-        "/LICENSE-Lucide.txt" => (
-            web_file!("LICENSE-Lucide.txt"),
+        "/LICENSE-Phosphor.txt" => (
+            web_file!("LICENSE-Phosphor.txt"),
             "text/plain; charset=utf-8",
             "public, max-age=86400",
         ),

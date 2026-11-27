@@ -1,22 +1,21 @@
-// The dashboard's pages. Each reads the live channel from useChannel().
+// Shared page pieces (the page head and sections), the Activity page and the
+// page for an address that does not exist.
 
-import { StreamRecaps } from './streams';
-import { Kpi, useStats } from './stats';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { api, ApiError, type AlertState, type AppToken, type FeatureStatus, type Kind, type SylvaEvent } from './api';
-import { AlertTypes } from './alertTypes';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { api, type Kind, type Redemption, type SylvaEvent } from './api';
 import { PAGE, useChannel } from './channel';
-import { FeedList, Filters, lastDay, matchesShown, MixBar, useShown, useTick } from './feed';
-import { Link } from './router';
-import { ImportCard } from './import';
-import { TeamCard } from './team';
-import { getTheme, setTheme, type Theme } from './theme';
-import { ago, Avatar, errorText, Gate, Icon, num, PageSkel, SkelRows, useToast } from './ui';
+import { FeedRow, groupOf, GROUPS, matchesShown, useTick } from './feed';
+import { Link, usePath } from './router';
+import { errorText, Icon, num, Skel, SkelRows, timeOf, useToast } from './ui';
 
-export function PageHead({ title, desc, children }: { title: string; desc?: ReactNode; children?: ReactNode }) {
+/** The top of every page: a mono tag with the page's address, its name, a line about it, and actions. */
+export function PageHead({ title, desc, children, tag, big }: { title: ReactNode; desc?: ReactNode; children?: ReactNode; tag?: string; big?: boolean }) {
+  const path = usePath();
+  const shown = tag ?? ('/' + (path.replace(/^\/app\/?/, '').replace(/\/+$/, '') || 'home'));
   return (
-    <div className="page-head">
+    <div className={'page-head' + (big ? ' big' : '')}>
       <div>
+        <span className="tag">{shown}</span>
         <h1>{title}</h1>
         {desc && <p>{desc}</p>}
       </div>
@@ -25,22 +24,20 @@ export function PageHead({ title, desc, children }: { title: string; desc?: Reac
   );
 }
 
+/** A section with a small label over a filled box. `className` styles the box. */
 export function Card({ title, desc, action, children, className, id }: {
-  title?: string; desc?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; id?: string;
+  title?: ReactNode; desc?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; id?: string;
 }) {
   const hid = id ? id + '-title' : undefined;
+  const box = <div className={'card' + (className ? ' ' + className : '')}>{children}</div>;
+  if (!title && !action) return <section className="sect" id={id}>{box}</section>;
   return (
-    <section className={'card' + (className ? ' ' + className : '')} aria-labelledby={hid}>
-      {title && (
-        <div className="card-head">
-          <div>
-            <h2 id={hid}>{title}</h2>
-            {desc && <p>{desc}</p>}
-          </div>
-          {action}
-        </div>
-      )}
-      {children}
+    <section className="sect" aria-labelledby={title ? hid : undefined} id={id}>
+      <div className="sect-head">
+        <div>{title && <h2 id={hid}>{title}</h2>}{desc && <p>{desc}</p>}</div>
+        {action && <div className="page-actions">{action}</div>}
+      </div>
+      {box}
     </section>
   );
 }
@@ -52,276 +49,68 @@ export function remember(key: string) {
   try { localStorage.setItem(key, '1'); } catch { /* private window */ }
 }
 
-/* ---------------------------------------------------------------- Overview */
-
-export function OverviewPage() {
-  const ch = useChannel();
-  useTick();
-  const c = ch.summary?.counts || {};
-  const s = ch.summary;
-  const { counts, total } = lastDay(ch.events);
-  const first = ch.you.split(/\s+/)[0];
-  const week = useStats(7).data;
-  const spark = (k: 'follows' | 'subs' | 'bits' | 'raids') => week?.series.map((d) => (k === 'subs' ? d.subs + d.gifted : d[k]));
-  // Until the first events arrive the whole page is a skeleton, so the setup
-  // card and the lists appear together instead of pushing each other down.
-  if (!ch.loaded) return <PageSkel />;
-
-  return (
-    <div className="page">
-      <PageHead title={`Welcome back, ${first}`} desc={ch.role === 'owner' ? 'Here is your channel over the last 24 hours.' : `Here is ${ch.name}'s channel over the last 24 hours.`}>
-        <Link className="btn" href="/app/stats"><Icon id="chart" />All stats</Link>
-      </PageHead>
-      <div className="kpis four" role="group" aria-label="Last 24 hours">
-        <Kpi c="c-follow" label="New followers" value={s ? c.follow || 0 : null} spark={spark('follows')} note="24 hours, 7 day trend" />
-        <Kpi c="c-sub" label="Subs" value={s ? (c.subscriber || 0) + (c.giftedSub || 0) : null} spark={spark('subs')} note="24 hours, 7 day trend" />
-        <Kpi c="c-bits" label="Bits" value={s ? s.bits : null} spark={spark('bits')} note="24 hours, 7 day trend" />
-        <Kpi c="c-raid" label="Raids" value={s ? c.raid || 0 : null} spark={spark('raids')} note="24 hours, 7 day trend" />
-      </div>
-      <GetStarted />
-      <StreamRecaps />
-      <div className="grid-main">
-        <Card
-          id="recent"
-          title="Recent activity"
-          desc={total === 1 ? '1 event in the last 24 hours' : `${num(total)} events in the last 24 hours`}
-          action={<Link className="btn sm" href="/app/activity">View all<Icon id="chevron" /></Link>}
-        >
-          <MixBar counts={counts} total={total} />
-          <FeedList
-            events={ch.events.slice(0, 8)}
-            freshFrom={ch.freshFrom}
-            onReplay={ch.can.moderate ? ch.replay : undefined}
-            empty="No activity yet. Follows, subs, cheers and raids appear here the moment they happen."
-          />
-        </Card>
-        <div className="stack">
-          <Card id="alerts" title="Alerts" action={<Link className="btn sm ghost" href="/app/alerts">Manage</Link>}>
-            <div className="card-body"><AlertControls /></div>
-          </Card>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function GetStarted() {
-  const ch = useChannel();
-  const [hidden, setHidden] = useState(() => read('sylva.setupHidden'));
-  const overlayDone = (ch.alerts?.overlaysConnected ?? 0) > 0 || read('sylva.overlayCopied');
-  const testDone = ch.events.some((e) => e.platform === 'sylva');
-  if (!ch.can.edit || hidden || !ch.loaded || (overlayDone && testDone)) return null;
-  return (
-    <section className="card setup" aria-labelledby="setup-title">
-      <div className="setup-head">
-        <div>
-          <h2 id="setup-title">Get set up</h2>
-          <p>Two more steps and your alerts are on stream.</p>
-        </div>
-        <button className="icon-btn" type="button" aria-label="Hide setup" title="Hide" onClick={() => { remember('sylva.setupHidden'); setHidden(true); }}>
-          <Icon id="x" />
-        </button>
-      </div>
-      <ol>
-        <li className="done">
-          <span className="check"><Icon id="tick" /></span>
-          <div><b>Sign in with Twitch</b><span>Your events reach Sylva live.</span></div>
-        </li>
-        <li className={overlayDone ? 'done' : undefined}>
-          <span className="check">{overlayDone ? <Icon id="tick" /> : 2}</span>
-          <div>
-            <b>Add your overlay to OBS</b>
-            <span>One Browser Source shows every alert.</span>
-            {!overlayDone && <Link className="btn sm" href="/app/overlay">Get the link</Link>}
-          </div>
-        </li>
-        <li className={testDone ? 'done' : undefined}>
-          <span className="check">{testDone ? <Icon id="tick" /> : 3}</span>
-          <div>
-            <b>Send a test alert</b>
-            <span>See it play on your overlay.</span>
-            {!testDone && <Link className="btn sm" href="/app/alerts">Try one</Link>}
-          </div>
-        </li>
-      </ol>
-    </section>
-  );
-}
-
-/* ---------------------------------------------------------------- Alerts */
-
-function stateNote(s: AlertState | null): string {
-  if (!s) return 'Connecting';
-  if (s.overlaysConnected === 0) {
-    return s.queued ? `No overlay connected. ${num(s.queued)} waiting until one is.` : 'No overlay connected';
-  }
-  const parts = [s.playing !== null ? 'Playing an alert' : 'Nothing playing'];
-  if (s.queued) parts.push(`${num(s.queued)} waiting`);
-  parts.push(s.overlaysConnected === 1 ? '1 overlay connected' : `${num(s.overlaysConnected)} overlays connected`);
-  return parts.join(' · ');
-}
-
-function AlertControls({ wide }: { wide?: boolean }) {
-  const ch = useChannel();
-  const toast = useToast();
-  const [busy, setBusy] = useState<string | null>(null);
-  const s = ch.alerts;
-
-  const run = async (id: string, fn: () => Promise<AlertState>, ok: string) => {
-    setBusy(id);
-    try {
-      ch.setAlerts(await fn());
-      toast(ok);
-    } catch (x) {
-      toast(errorText(x), true);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <Gate on={ch.can.moderate}>
-      <p className="state-line" aria-live="polite">{stateNote(s)}</p>
-      <div className={'qa-grid' + (wide ? ' four' : '')}>
-        <button
-          className="qa-btn"
-          type="button"
-          aria-pressed={!!s?.muted}
-          disabled={!s || busy === 'mute'}
-          onClick={() => run('mute', () => api.alert(ch.key, s?.muted ? 'unmute' : 'mute'), s?.muted ? 'Alerts unmuted' : 'Alerts muted')}
-        >
-          <Icon id={s?.muted ? 'volx' : 'vol'} /><span>{s?.muted ? 'Unmute' : 'Mute'}</span>
-        </button>
-        <button
-          className="qa-btn"
-          type="button"
-          aria-pressed={!!s?.paused}
-          disabled={!s || busy === 'pause'}
-          onClick={() => run('pause', () => api.alert(ch.key, s?.paused ? 'resume' : 'pause'), s?.paused ? 'Alerts resumed' : 'Alerts paused')}
-        >
-          <Icon id={s?.paused ? 'play' : 'pause'} /><span>{s?.paused ? 'Resume' : 'Pause'}</span>
-        </button>
-        <button
-          className="qa-btn"
-          type="button"
-          disabled={!s || s.playing === null || busy === 'skip'}
-          onClick={() => run('skip', () => api.alert(ch.key, 'skip'), 'Skipped the alert on screen')}
-        >
-          <Icon id="skip" /><span>Skip</span>
-        </button>
-        <TestButton />
-      </div>
-    </Gate>
-  );
-}
-
-export const TESTS: { kind: Kind; label: string; c: string; icon: string; name: string; amount?: number; message?: string }[] = [
-  { kind: 'follow', label: 'Follow', c: 'c-follow', icon: 'heart', name: 'Maple' },
-  { kind: 'subscriber', label: 'Sub', c: 'c-sub', icon: 'star', name: 'Juniper', amount: 6 },
-  { kind: 'communityGift', label: 'Gifted subs', c: 'c-gift', icon: 'gift', name: 'Aspen', amount: 5 },
-  { kind: 'cheer', label: 'Cheer', c: 'c-bits', icon: 'gem', name: 'Rowan', amount: 500, message: 'Testing, testing' },
-  { kind: 'raid', label: 'Raid', c: 'c-raid', icon: 'swords', name: 'Hazel', amount: 42 },
+/** Test alerts, one per kind that plays on stream. */
+export const TESTS: { kind: Kind; label: string; icon: string; name: string; amount?: number; message?: string }[] = [
+  { kind: 'follow', label: 'Follow', icon: 'heart', name: 'Maple' },
+  { kind: 'subscriber', label: 'Sub', icon: 'star', name: 'Juniper', amount: 6, message: 'Six months already, love this place' },
+  { kind: 'communityGift', label: 'Gifted subs', icon: 'gift', name: 'Aspen', amount: 5 },
+  { kind: 'cheer', label: 'Bits', icon: 'zap', name: 'Rowan', amount: 500, message: 'Testing, testing' },
+  { kind: 'raid', label: 'Raid', icon: 'raid', name: 'Hazel', amount: 42 },
+  { kind: 'tip', label: 'Tip', icon: 'tip', name: 'Willow', amount: 10, message: 'That clutch was unreal' },
+  { kind: 'redemption', label: 'Points redemption', icon: 'gem', name: 'Birch' },
 ];
 
 export function sendTest(key: string, t: (typeof TESTS)[number]) {
   return api.testEvent(key, { kind: t.kind, name: t.name, amount: t.amount, message: t.message });
 }
 
-function TestButton() {
-  const ch = useChannel();
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  return (
-    <button
-      className="qa-btn"
-      type="button"
-      disabled={busy || !ch.can.edit}
-      onClick={async () => {
-        setBusy(true);
-        try {
-          const r = await sendTest(ch.key, TESTS[Math.floor(Math.random() * TESTS.length)]);
-          toast(r.alert ? 'Test alert sent' : 'That kind of alert is off, so the test only went to your activity');
-        } catch (x) {
-          toast(errorText(x), true);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <Icon id="zap" /><span>Test</span>
-    </button>
-  );
-}
-
-export function AlertsPage() {
-  const ch = useChannel();
-  const toast = useToast();
-  const [busy, setBusy] = useState<string | null>(null);
-  const recent = ch.events.filter((e) => e.kind !== 'giftedSub' && e.kind !== 'other').slice(0, 6);
-
-  return (
-    <div className="page">
-      <PageHead title="Alerts" desc="What plays on your overlay, one alert at a time." />
-      <div className="stack">
-        <Card id="controls" title="Controls" desc="Changes apply to every connected overlay at once.">
-          <div className="card-body"><AlertControls wide /></div>
-        </Card>
-        <AlertTypes />
-        <Card id="tests" title="Send a test alert" desc="Test alerts play like real ones and are marked Test in your activity.">
-          <Gate on={ch.can.edit} className="card-body">
-            <div className="try-grid">
-              {TESTS.map((t) => (
-                <button
-                  key={t.kind}
-                  className={'try ' + t.c}
-                  type="button"
-                  disabled={busy === t.kind}
-                  onClick={async () => {
-                    setBusy(t.kind);
-                    try {
-                      const r = await sendTest(ch.key, t);
-                      toast(r.alert
-                        ? `Test ${t.label.toLowerCase()} sent`
-                        : `${t.label} alerts are off${t.amount ? ' or need a higher amount' : ''}, so the test only went to your activity`);
-                    } catch (x) {
-                      toast(errorText(x), true);
-                    } finally {
-                      setBusy(null);
-                    }
-                  }}
-                >
-                  <span className="tile"><Icon id={t.icon} /></span>{t.label}
-                </button>
-              ))}
-            </div>
-          </Gate>
-        </Card>
-        <Card id="replay" title="Replay a recent alert" desc="Replays go to the front of the queue.">
-          <FeedList
-            events={recent}
-            freshFrom={ch.freshFrom}
-            onReplay={ch.can.moderate ? ch.replay : undefined}
-            empty="Alerts you can replay show up here."
-            loading={!ch.loaded}
-          />
-        </Card>
-      </div>
-    </div>
-  );
-}
-
 /* ---------------------------------------------------------------- Activity */
+
+const SHOW_KEY = 'sylva.activityShow';
+const CHIPS = [{ id: 'all', label: 'All' }, ...GROUPS.filter((g) => g.id !== 'other').map((g) => ({ id: g.id, label: g.label }))];
+
+function savedShow(): string {
+  try {
+    const v = localStorage.getItem(SHOW_KEY) || 'all';
+    return CHIPS.some((c) => c.id === v) ? v : 'all';
+  } catch { return 'all'; }
+}
+
+type Line = { at: number; key: string; ev?: SylvaEvent; red?: Redemption };
+
+const DAY = 86_400_000;
+function dayName(at: number): string {
+  const d = new Date(at);
+  const today = new Date();
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const d0 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (d0 === t0) return 'Today';
+  if (Math.round((t0 - d0) / DAY) === 1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) });
+}
+
+function csvCell(v: unknown): string {
+  const s = v === undefined || v === null ? '' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 
 export function ActivityPage() {
   const ch = useChannel();
   const toast = useToast();
   useTick();
-  const [shown, toggle] = useShown();
+  const [show, setShowState] = useState(savedShow);
   const [query, setQuery] = useState('');
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SylvaEvent[] | null>(null);
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [reds, setReds] = useState<Redemption[]>([]);
+  const [settling, setSettling] = useState<number | null>(null);
+
+  const setShow = (v: string) => {
+    setShowState(v);
+    try { localStorage.setItem(SHOW_KEY, v); } catch { /* private window */ }
+  };
 
   // Search on the server, a moment after typing stops.
   useEffect(() => {
@@ -330,10 +119,7 @@ export function ActivityPage() {
   }, [query]);
 
   useEffect(() => {
-    if (!q) {
-      setResults(null);
-      return;
-    }
+    if (!q) { setResults(null); return; }
     let cancelled = false;
     setLoading(true);
     api.history(ch.key, 'alerts', PAGE, undefined, q)
@@ -346,6 +132,33 @@ export function ActivityPage() {
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
   }, [q, ch.key, toast]);
+
+  // Rewards viewers bought with points: waiting ones get Done and Refund.
+  useEffect(() => {
+    let live = true;
+    const load = () => Promise.all([api.redemptions(ch.key, 'pending'), api.redemptions(ch.key, 'done')])
+      .then(([p, d]) => live && setReds([...p.redemptions, ...d.redemptions]))
+      .catch(() => { /* no rewards, or no access: the list simply has none */ });
+    void load();
+    const t = setInterval(load, 20_000);
+    return () => { live = false; clearInterval(t); };
+  }, [ch.key]);
+
+  const settle = async (r: Redemption, action: 'done' | 'refund') => {
+    setSettling(r.id);
+    try {
+      const next = await api.settle(ch.key, r.id, action);
+      setReds((list) => list.map((x) => (x.id === r.id ? next : x)));
+      toast(action === 'done' ? `${r.itemName} for ${r.name} is done` : `${r.name} got ${num(r.cost)} points back`, false, {
+        label: 'Undo',
+        run: () => void api.settle(ch.key, r.id, 'reopen').then((back) => setReds((list) => list.map((x) => (x.id === r.id ? back : x)))).catch((x) => toast(errorText(x), true)),
+      });
+    } catch (x) {
+      toast(errorText(x), true);
+    } finally {
+      setSettling(null);
+    }
+  };
 
   const searchMore = async () => {
     if (!results?.length) return;
@@ -361,300 +174,132 @@ export function ActivityPage() {
     }
   };
 
-  const { counts, total } = lastDay(ch.events);
   const source = results ?? ch.events;
-  const visible = source.filter(matchesShown(shown));
   const hasMore = results ? more : ch.hasMore;
   const busy = results ? loading : ch.loadingMore;
+  const events = source.filter(matchesShown(show));
+  const oldest = source.length ? Date.parse(source[source.length - 1].createdAt) : 0;
+  const needle = q.toLowerCase();
+  const lines: Line[] = useMemo(() => {
+    const list: Line[] = events.map((e) => ({ at: Date.parse(e.createdAt), key: 'e' + e.seq, ev: e }));
+    if (show === 'all' || show === 'redemption') {
+      for (const r of reds) {
+        if (hasMore && r.at < oldest) continue;
+        if (needle && !`${r.name} ${r.login} ${r.itemName} ${r.input}`.toLowerCase().includes(needle)) continue;
+        list.push({ at: r.at, key: 'r' + r.id, red: r });
+      }
+    }
+    return list.sort((a, b) => b.at - a.at);
+  }, [events, reds, show, hasMore, oldest, needle]);
+
+  const days: { name: string; lines: Line[] }[] = [];
+  for (const l of lines) {
+    const name = dayName(l.at);
+    const last = days[days.length - 1];
+    if (last && last.name === name) last.lines.push(l);
+    else days.push({ name, lines: [l] });
+  }
+
+  const exportCsv = () => {
+    const rows = [['date', 'time', 'kind', 'name', 'amount', 'currency', 'message', 'test'].join(',')];
+    for (const l of lines) {
+      const d = new Date(l.at);
+      const date = d.toLocaleDateString('en-CA');
+      const time = d.toTimeString().slice(0, 8);
+      if (l.ev) {
+        const e = l.ev;
+        rows.push([date, time, groupOf(e.kind).label, e.actor?.displayName ?? '', e.amount ?? '', e.currency ?? '', e.message ?? '', e.platform === 'sylva' ? 'yes' : ''].map(csvCell).join(','));
+      } else if (l.red) {
+        const r = l.red;
+        rows.push([date, time, 'Reward: ' + r.itemName, r.name, r.cost, 'points', r.input, ''].map(csvCell).join(','));
+      }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([rows.join('\n') + '\n'], { type: 'text/csv' }));
+    a.download = `sylva-activity-${new Date().toLocaleDateString('en-CA')}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
 
   let empty: string;
   if (q && loading) empty = 'Searching';
-  else if (q) empty = `Nothing matches "${q}"${shown.size ? ' with these filters' : ''}.`;
-  else if (ch.events.length) empty = 'Nothing here for these filters yet.';
-  else empty = 'No activity yet. Follows, subs, cheers and raids appear here the moment they happen.';
+  else if (q) empty = `Nothing matches "${q}"${show !== 'all' ? ' with this filter' : ''}.`;
+  else if (ch.events.length) empty = 'Nothing here for this filter yet.';
+  else empty = 'No activity yet. Follows, subs, bits, raids and tips appear here the moment they happen.';
+  const firstLoad = !ch.loaded || (!!q && loading && !results);
 
   return (
-    <div className="page">
-      <PageHead title="Activity" desc="Every follow, sub, gift, cheer and raid, newest first." />
-      <Card id="activity" title="All activity" desc={total === 1 ? '1 event in the last 24 hours' : `${num(total)} events in the last 24 hours`}>
-        <MixBar counts={counts} total={total} />
-        <div className="feed-tools">
-          <label className="search">
-            <Icon id="search" />
-            <span className="sr-only">Search activity</span>
-            <input
-              className="input"
-              type="search"
-              placeholder="Search names and messages"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-          <Filters shown={shown} toggle={toggle} counts={counts} total={total} />
-        </div>
-        <FeedList events={visible} freshFrom={ch.freshFrom} onReplay={ch.can.moderate ? ch.replay : undefined} empty={empty} loading={!ch.loaded || (!!q && loading && !results)} />
-        {hasMore && visible.length > 0 && (
-          <div className="feed-more">
-            <button className="btn" type="button" disabled={busy} onClick={results ? searchMore : ch.loadMore}>
-              {busy ? 'Loading' : 'Show older'}
-            </button>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-
-/* ---------------------------------------------------------------- Settings */
-
-const FEATURE_LABELS: Record<string, string> = {
-  follows: 'Follows', subs: 'Subs', cheers: 'Cheers', chat: 'Chat', raids: 'Raids', stream: 'Going live', chatAlerts: 'Chat alerts',
-};
-
-function TwitchEvents() {
-  const ch = useChannel();
-  const toast = useToast();
-  const [features, setFeatures] = useState<FeatureStatus[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [needsSignIn, setNeedsSignIn] = useState(false);
-
-  useEffect(() => {
-    api.twitch(ch.key).then((r) => setFeatures(r.features)).catch(() => setFailed(true));
-  }, [ch.key]);
-
-  const turnOn = async () => {
-    setBusy(true);
-    try {
-      const r = await api.twitchSubscribe(ch.key);
-      setFeatures(r.features);
-      setFailed(false);
-      toast('Twitch events are on');
-    } catch (x) {
-      if (x instanceof ApiError && x.status === 409 && (x.body as { needsSignIn?: boolean })?.needsSignIn) {
-        setNeedsSignIn(true);
-      } else {
-        toast(errorText(x), true);
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const off = features?.filter((f) => !f.on) || [];
-  return (
-    <Card
-      id="twitch"
-      title="Twitch events"
-      desc={features ? (off.length ? `${off.length} not reaching Sylva` : 'All events reach Sylva') : failed ? undefined : 'Checking with Twitch'}
-    >
-      <div className="card-body stack">
-        {failed && !features && <p className="card-text">Could not check with Twitch right now. Events still arrive.</p>}
-        {features && (
-          <div className="status-grid">
-            {features.map((f) => (
-              <div key={f.feature} className={'status ' + (f.on ? 'on' : 'off')} title={f.problems.join('\n') || undefined}>
-                <span className="dot" />{FEATURE_LABELS[f.feature] || f.feature}<span className="state">{f.on ? 'On' : 'Off'}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {(off.length > 0 || failed) && !ch.can.edit && (
-          <p className="card-text">Some events are not reaching Sylva. The owner or an editor can turn them back on here.</p>
-        )}
-        {(off.length > 0 || failed) && ch.can.edit && (
-          <div className="notice">
-            <span>
-              {needsSignIn
-                ? ch.can.own
-                  ? 'Twitch says Sylva no longer has permission. Sign in again to turn these back on.'
-                  : `Twitch says Sylva no longer has permission. ${ch.name} needs to sign in to Sylva again to turn these back on.`
-                : 'Some events are not reaching Sylva.'}
-            </span>
-            {needsSignIn && !ch.can.own ? null : needsSignIn
-              ? <a className="btn primary sm" href="/auth/twitch/start"><Icon id="twitch" />Sign in again</a>
-              : <button className="btn sm" type="button" disabled={busy} onClick={turnOn}>{busy ? 'Turning on' : 'Turn on again'}</button>}
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function ConnectedApps() {
-  const toast = useToast();
-  const [apps, setApps] = useState<AppToken[] | null>(null);
-  const [armed, setArmed] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.apps().then(setApps).catch(() => setApps([]));
-  }, []);
-
-  const revoke = async (a: AppToken) => {
-    if (armed !== a.id) {
-      setArmed(a.id);
-      return;
-    }
-    setArmed(null);
-    try {
-      await api.revokeApp(a.id);
-      setApps((list) => (list || []).filter((x) => x.id !== a.id));
-      toast(`${a.name} can no longer use your Sylva`);
-    } catch (x) {
-      toast(errorText(x), true);
-    }
-  };
-
-  return (
-    <Card id="apps" title="Connected apps" desc="Apps such as Sylva Desktop that you allowed to use your Sylva.">
-      {apps === null && <div className="card-body"><SkelRows n={1} tile={false} /></div>}
-      {apps && apps.length === 0 && (
-        <div className="card-body">
-          <p className="card-text">No apps yet. To connect one, sign in to Sylva from the app and enter its code at <Link href="/device">{location.host}/device</Link>.</p>
-        </div>
-      )}
-      {apps && apps.length > 0 && (
-        <ul className="apps-list">
-          {apps.map((a) => (
-            <li key={a.id}>
-              <div>
-                <b>{a.name}</b>
-                <span>
-                  Connected {new Date(a.createdAt).toLocaleDateString()}
-                  {a.lastUsedAt ? `, last used ${ago(new Date(a.lastUsedAt).toISOString())}` : ', not used yet'}
-                </span>
-              </div>
-              <button className={'btn sm' + (armed === a.id ? ' armed' : ' danger')} type="button" onClick={() => revoke(a)} onBlur={() => setArmed(null)}>
-                {armed === a.id ? 'Click again to remove' : 'Remove'}
-              </button>
-            </li>
+    <div className="page activity">
+      <PageHead title="Activity" desc="Everything that happened on your channel, newest first.">
+        <button className="btn" type="button" onClick={exportCsv} disabled={!lines.length}><Icon id="download" />Export CSV</button>
+      </PageHead>
+      <div className="act-tools">
+        <label className="search act-search">
+          <Icon id="search" />
+          <span className="sr-only">Search activity</span>
+          <input className="input" type="search" placeholder="Search names and messages" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </label>
+        <div className="act-chips" role="group" aria-label="Show">
+          {CHIPS.map((c) => (
+            <button key={c.id} type="button" className="btn sm" aria-pressed={show === c.id} onClick={() => setShow(c.id)}>{c.label}</button>
           ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-function DeleteAccount() {
-  const ch = useChannel();
-  const login = ch.twitch?.login ?? '';
-  const [open, setOpen] = useState(false);
-  const [typed, setTyped] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const matches = login !== '' && typed.trim().toLowerCase() === login.toLowerCase();
-
-  const remove = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!matches) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.deleteAccount(typed.trim());
-      // A full load, so nothing of the old account stays in memory.
-      location.assign('/?deleted=1');
-    } catch (x) {
-      setError(errorText(x));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card id="delete" title="Delete account" className="danger-zone" desc="Removes your Sylva account and everything in it, at once. This cannot be undone.">
-      <div className="card-body">
-        {!open ? (
-          <div className="setting flush">
-            <p className="card-text">
-              Your activity and chat history, alert and widget settings, goal, overlay links and connected apps are
-              deleted, and Twitch stops sending Sylva your events. <Link href="/privacy">What Sylva keeps</Link>
-            </p>
-            <button className="btn danger" type="button" onClick={() => setOpen(true)}>Delete account</button>
-          </div>
-        ) : (
-          <form className="delete-form" onSubmit={remove}>
-            <label className="field">
-              <span>Type <b className="mono">{login}</b> to confirm</span>
-              <input
-                className="input"
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                autoFocus
-              />
-            </label>
-            {error && <p className="form-error" role="alert">{error}</p>}
-            <div className="goal-actions">
-              <button className="btn ghost" type="button" disabled={busy} onClick={() => { setOpen(false); setTyped(''); setError(null); }}>Cancel</button>
-              <button className="btn solid-danger" type="submit" disabled={busy || !matches}>
-                {busy ? 'Deleting' : 'Delete everything'}
-              </button>
-            </div>
-          </form>
-        )}
+        </div>
       </div>
-    </Card>
-  );
-}
 
-export function SettingsPage() {
-  const ch = useChannel();
-  const [theme, set] = useState<Theme>(getTheme);
-  const [signingOut, setSigningOut] = useState(false);
-  const choose = (t: Theme) => { setTheme(t); set(t); };
-  const themes: { id: Theme; label: string; icon: string }[] = useMemo(() => [
-    { id: 'dark', label: 'Dark', icon: 'moon' },
-    { id: 'light', label: 'Light', icon: 'sun' },
-    { id: 'system', label: 'System', icon: 'monitor' },
-  ], []);
-
-  return (
-    <div className="page">
-      <PageHead title="Settings" desc={ch.can.own ? 'Your account, your team, how Sylva looks, and your connection to Twitch.' : 'Your account, how Sylva looks, and this channel\'s connection to Twitch.'} />
-      <div className="stack">
-        <Card id="account" title="Account">
-          <div className="setting">
-            <div className="account">
-              <Avatar name={ch.you} url={ch.twitch?.avatar} large />
-              <div>
-                <b>{ch.you}</b>
-                <span>Signed in with Twitch as {ch.twitch?.login}</span>
-              </div>
-            </div>
-            <button
-              className="btn danger"
-              type="button"
-              disabled={signingOut}
-              onClick={() => { setSigningOut(true); void ch.signOut(); }}
-            >
-              <Icon id="logout" />{signingOut ? 'Signing out' : 'Sign out'}
-            </button>
-          </div>
-        </Card>
-        {ch.can.own && <TeamCard />}
-        {ch.can.own && <ImportCard />}
-        <Card id="appearance" title="Appearance">
-          <div className="setting">
-            <div>
-              <h3>Theme</h3>
-              <p>Saved in this browser.</p>
-            </div>
-            <div className="segmented" role="group" aria-label="Theme">
-              {themes.map((t) => (
-                <button key={t.id} type="button" aria-pressed={theme === t.id} onClick={() => choose(t.id)}>
-                  <Icon id={t.icon} />{t.label}
-                </button>
+      {firstLoad ? (
+        <section className="sect act-day">
+          <div className="sect-head"><div><Skel w={60} h={12} /></div></div>
+          <div className="grp"><SkelRows n={6} /></div>
+        </section>
+      ) : days.length === 0 ? (
+        <section className="sect act-day"><div className="grp"><div className="empty"><Icon id="activity" />{empty}</div></div></section>
+      ) : days.map((d) => (
+        <section key={d.name} className="sect act-day" aria-label={d.name}>
+          <div className="sect-head"><div><h2>{d.name}</h2></div></div>
+          <div className="grp">
+            <ol className="feed">
+              {d.lines.map((l) => l.ev ? (
+                <FeedRow key={l.key} e={l.ev} fresh={l.ev.seq > ch.freshFrom} onReplay={ch.can.moderate ? ch.replay : undefined} clock />
+              ) : (
+                <RewardRow key={l.key} r={l.red!} busy={settling === l.red!.id} can={ch.can.moderate} onSettle={settle} />
               ))}
-            </div>
+            </ol>
           </div>
-        </Card>
-        <ConnectedApps />
-        <TwitchEvents />
-        <DeleteAccount />
-      </div>
+        </section>
+      ))}
+
+      {hasMore && lines.length > 0 && (
+        <div className="act-more">
+          <button className="btn" type="button" disabled={busy} onClick={results ? searchMore : ch.loadMore}>
+            {busy ? 'Loading' : 'Show older'}
+          </button>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** A reward bought with points: Done and Refund while it waits. */
+function RewardRow({ r, busy, can, onSettle }: { r: Redemption; busy: boolean; can: boolean; onSettle(r: Redemption, a: 'done' | 'refund'): void }) {
+  return (
+    <li className="item">
+      <span className="tile" aria-hidden="true"><Icon id="gem" /></span>
+      <div className="item-main">
+        <div className="item-title"><b>{r.name}</b> redeemed <b>{r.itemName}</b></div>
+        <p className="item-msg">{r.input ? `"${r.input}"` : `${num(r.cost)} points`}</p>
+      </div>
+      {r.status === 'pending' ? (
+        can && (
+          <div className="acts">
+            <button className="btn sm" type="button" disabled={busy} onClick={() => onSettle(r, 'refund')}>Refund</button>
+            <button className="btn sm primary" type="button" disabled={busy} onClick={() => onSettle(r, 'done')}>Done</button>
+          </div>
+        )
+      ) : (
+        <span className="done-note">{r.status === 'refunded' ? 'Refunded' : 'Done'}</span>
+      )}
+      <time dateTime={new Date(r.at).toISOString()} title={new Date(r.at).toLocaleString()}>{timeOf(r.at)}</time>
+    </li>
   );
 }
 
@@ -663,11 +308,9 @@ export function SettingsPage() {
 export function NotFoundPage() {
   return (
     <div className="page">
-      <div className="not-found">
-        <h1>Page not found</h1>
-        <p>That page does not exist in your dashboard.</p>
-        <Link className="btn primary" href="/app">Go to Overview</Link>
-      </div>
+      <PageHead tag="/404" title="Page not found" desc="That page does not exist in your dashboard.">
+        <Link className="btn primary" href="/app">Go to Home</Link>
+      </PageHead>
     </div>
   );
 }

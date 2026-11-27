@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CustomCode } from './api';
-import { Icon } from './ui';
+import { Icon, Switch } from './ui';
 
 export const STARTER: CustomCode = {
   name: 'My widget',
@@ -28,6 +28,8 @@ export const sampleEvent = (kind: string) => {
     case 'communityGift': return { ...base, actor: actor('Aspen', '3'), amount: 5 };
     case 'cheer': return { ...base, actor: actor('Rowan', '4'), amount: 500, message: 'Cheer500 great stream' };
     case 'raid': return { ...base, actor: actor('Hazel', '5'), amount: 42 };
+    case 'tip': return { ...base, actor: actor('Willow', '6'), amount: 10, currency: 'USD', message: 'That clutch was unreal' };
+    case 'redemption': return { ...base, actor: actor('Birch', '7'), redemption: 'Hydrate' };
     default: {
       const [who, message] = SAMPLE_LINES[seq % SAMPLE_LINES.length];
       return { ...base, kind: 'chat', actor: actor(who, String(10 + (seq % SAMPLE_LINES.length))), message };
@@ -47,6 +49,8 @@ const VIEW: Record<string, { label: string; name: string; detail: string }> = {
   communityGift: { label: 'Gifted subs', name: 'Aspen', detail: 'gave 5 subs' },
   cheer: { label: 'Cheer', name: 'Rowan', detail: '500 bits' },
   raid: { label: 'Raid', name: 'Hazel', detail: 'with 42 viewers' },
+  tip: { label: 'Tip', name: 'Willow', detail: '$10.00' },
+  redemption: { label: 'Reward', name: 'Birch', detail: 'Hydrate' },
 };
 
 export type Send = (m: Record<string, unknown>) => void;
@@ -220,7 +224,7 @@ export function CodeDialog({ initial, width, height, canPlayAlerts, onSave, onCl
                   ? 'Use Sylva.on(\'alert\', fn) and call Sylva.done() when each one ends. StreamElements code can call SE_API.resumeQueue().'
                   : 'The canvas already has an alert box or another widget that plays alerts.'}</small>
               </span>
-              <input type="checkbox" checked={code.alerts} disabled={!canPlayAlerts && !code.alerts} onChange={(e) => setCode({ ...code, alerts: e.target.checked })} />
+              <Switch label="Plays alerts in place of the alert box" on={code.alerts} disabled={!canPlayAlerts && !code.alerts} onChange={(v) => setCode({ ...code, alerts: v })} />
             </label>
             {Object.keys(fields).length > 0 && (
               <div className="code-fields">
@@ -257,10 +261,10 @@ export function FieldInput({ id, f, value, onChange, onPress }: {
       return <button className="btn sm" type="button" onClick={onPress}>{label}</button>;
     case 'checkbox':
       return (
-        <label className="field inline" htmlFor={htmlId}>
-          <span>{label}</span>
-          <input id={htmlId} type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />
-        </label>
+        <div className="field inline">
+          <span id={htmlId}>{label}</span>
+          <Switch label={label} on={!!value} onChange={onChange} />
+        </div>
       );
     case 'dropdown':
       return (

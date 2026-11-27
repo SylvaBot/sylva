@@ -1,15 +1,15 @@
-// The Moderation page: pick how strict chat should be, see exactly what each
-// rule catches, try a message, and read what Sylva did. The rules match
+// The Moderation page: pick how strict chat should be, tune each filter,
+// and read what Sylva did. Saves as you go. The rules match
 // crates/sylva-core/src/moderation.rs, which checks every save again.
 
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  api, type ModEntry, type ModPreset, type ModRule, type ModRules, type ModSettings, type ModTry, type ModView,
+  api, type ModEntry, type ModPreset, type ModRule, type ModRules, type ModSettings, type ModView,
   type UserLevel,
 } from './api';
 import { useChannel } from './channel';
 import { Card, PageHead } from './pages';
-import { errorText, Gate, Icon, SkelCard, SkelRows, useToast } from './ui';
+import { errorText, Gate, Icon, SaveState, Seg, Skel, SkelRows, Switch, useAutosave, useToast } from './ui';
 
 const PRESETS: { id: ModPreset; label: string; what: string }[] = [
   { id: 'off', label: 'Off', what: 'Sylva leaves your chat alone. Twitch AutoMod and your moderators still work as usual.' },
@@ -61,128 +61,120 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 export function ModerationPage() {
   const ch = useChannel();
-  const toast = useToast();
   const [view, setView] = useState<ModView | null>(null);
   const [failed, setFailed] = useState(false);
-  const [draft, setDraft] = useState<ModSettings | null>(null);
+  const mod = useAutosave<ModSettings>((v) => api.saveModeration(ch.key, v).then((r) => { setView(r); return r.settings; }));
   const [words, setWords] = useState('');
   const [sites, setSites] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const adopt = useCallback((v: ModView) => {
-    setView(v);
-    setDraft(v.settings);
-    setWords(v.settings.words.join('\n'));
-    setSites(v.settings.allowedLinks.join('\n'));
-  }, []);
 
   useEffect(() => {
-    api.moderation(ch.key).then(adopt).catch(() => setFailed(true));
-  }, [ch.key, adopt]);
+    setFailed(false);
+    api.moderation(ch.key).then((v) => {
+      setView(v);
+      mod.reset(v.settings);
+      setWords(v.settings.words.join('\n'));
+      setSites(v.settings.allowedLinks.join('\n'));
+    }).catch(() => setFailed(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ch.key]);
 
-  const next = useMemo<ModSettings | null>(
-    () => draft && { ...draft, words: lines(words), allowedLinks: lines(sites) },
-    [draft, words, sites],
-  );
-  const changed = !!view && !!next && !same(next, view.settings);
-
+  const draft = mod.value;
+  // The lists follow the settings (after an undo, say) unless you are typing in them.
+  const listKey = draft ? JSON.stringify([draft.words, draft.allowedLinks]) : '';
+  useEffect(() => {
+    if (!draft) return;
+    const typing = document.activeElement?.id === 'mod-words' || document.activeElement?.id === 'mod-sites';
+    if (!typing) { setWords(draft.words.join('\n')); setSites(draft.allowedLinks.join('\n')); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listKey]);
   const presetInfo = (p: ModPreset) => view?.presets.find(([id]) => id === p)?.[1];
   const pick = (p: ModPreset) => {
     if (!draft) return;
     const info = presetInfo(p);
-    setDraft(info ? { ...draft, preset: p, ...info } : { ...draft, preset: p });
+    mod.set(info ? { ...draft, preset: p, ...info } : { ...draft, preset: p }, true);
   };
   // Changing any rule by hand makes it Custom.
-  const tune = (patch: Partial<ModSettings>) => draft && setDraft({ ...draft, ...patch, preset: 'custom' });
+  const tune = (patch: Partial<ModSettings>, now = true) => draft && mod.set({ ...draft, ...patch, preset: 'custom' }, now);
   const rule = <K extends keyof ModRules>(k: K, v: ModRules[K]) => draft && tune({ rules: { ...draft.rules, [k]: v } });
-
-  const save = async () => {
-    if (!next) return;
-    setBusy(true);
-    try {
-      adopt(await api.saveModeration(ch.key, next));
-      toast(next.preset === 'off' ? 'Moderation is off' : 'Moderation saved');
-    } catch (x) {
-      toast(errorText(x), true);
-    } finally {
-      setBusy(false);
-    }
+  const commitLists = () => {
+    if (!draft) return;
+    const w = lines(words);
+    const a = lines(sites);
+    if (!same(w, draft.words) || !same(a, draft.allowedLinks)) mod.set({ ...draft, words: w, allowedLinks: a }, true);
   };
 
   const off = draft?.preset === 'off';
   const what = PRESETS.find((p) => p.id === draft?.preset)?.what;
+  const steps = ['First time', 'Second time', 'Third time and after'] as const;
 
   return (
-    <div className="page">
-      <PageHead title="Moderation" desc="Rules that keep spam out of your chat. Sylva removes the message first, and times out chatters who keep going." />
-      {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load moderation. Refresh to try again.</p></div></Card>}
-      {!view && !failed && <SkelCard rows={4} />}
-      {view && draft && next && (
-        <div className="stack">
-          {view.permission === 'notMod' && (
-            <div className="notice">
-              <span>
-                Sylva moderates as <b>Sylva_Bot</b>, so deletes, timeouts and bans never show as {ch.can.own ? 'you' : ch.name}.
-                Make it a moderator first: type <code>/mod sylva_bot</code> in {ch.can.own ? 'your' : `${ch.name}'s`} chat.
-              </span>
-            </div>
-          )}
-          {view.permission === 'botMissing' && (view.operator && ch.can.own ? (
-            <div className="notice">
-              <span>
-                Your rules are paused because Sylva_Bot has not given Sylva permission to moderate yet.
-                Sign in to Twitch as <b>sylva_bot</b> (a private window is easiest), then open Set up Sylva_Bot and choose Authorize.
-                After that, type <code>/mod sylva_bot</code> in your chat if you have not already.
-              </span>
-              <a className="btn primary sm" href="/auth/twitch/bot" target="_blank" rel="noopener"><Icon id="twitch" />Set up Sylva_Bot</a>
-            </div>
-          ) : (
-            <div className="notice">
-              <span>Sylva_Bot is not set up to moderate yet, so your rules are paused. Sylva is fixing this, and nothing is needed from you.</span>
-            </div>
-          ))}
-          {(view.permission === 'missing' || view.permission === 'expired') && (
-            <div className="notice">
-              <span>
-                {!ch.can.own
-                  ? `Sylva cannot moderate ${ch.name}'s chat until ${ch.name} allows it on this page.`
-                  : view.permission === 'expired'
-                    ? 'Twitch no longer accepts Sylva’s permission to moderate. Allow it again to keep your rules working.'
-                    : 'Sylva needs your permission to remove messages and time out chatters in your chat.'}
-              </span>
-              {ch.can.own && <a className="btn primary sm" href={ALLOW_URL}><Icon id="twitch" />Allow moderation</a>}
-            </div>
-          )}
+    <div className="page moderation-page">
+      <PageHead title="Moderation" desc="Sylva cleans up chat for you. It removes the message first, and times out chatters who keep going.">
+        <SaveState saving={mod.saving} savedAt={mod.savedAt} canUndo={mod.canUndo} onUndo={mod.undo} />
+      </PageHead>
+      {failed && !view && <div className="notice">Could not load moderation. Refresh to try again.</div>}
+      {view?.permission === 'notMod' && (
+        <div className="notice">
+          <span>
+            Sylva moderates as <b>Sylva_Bot</b>, so deletes, timeouts and bans never show as {ch.can.own ? 'you' : ch.name}.
+            Make it a moderator first: type <code>/mod sylva_bot</code> in {ch.can.own ? 'your' : `${ch.name}'s`} chat.
+          </span>
+        </div>
+      )}
+      {view?.permission === 'botMissing' && (view.operator && ch.can.own ? (
+        <div className="notice">
+          <span>
+            Your rules are paused because Sylva_Bot has not given Sylva permission to moderate yet.
+            Sign in to Twitch as <b>sylva_bot</b> (a private window is easiest), then open Set up Sylva_Bot and choose Authorize.
+          </span>
+          <a className="btn primary sm" href="/auth/twitch/bot" target="_blank" rel="noopener"><Icon id="twitch" />Set up Sylva_Bot</a>
+        </div>
+      ) : (
+        <div className="notice"><span>Sylva_Bot is not set up to moderate yet, so your rules are paused. Sylva is fixing this, and nothing is needed from you.</span></div>
+      ))}
+      {(view?.permission === 'missing' || view?.permission === 'expired') && (
+        <div className="notice">
+          <span>
+            {!ch.can.own
+              ? `Sylva cannot moderate ${ch.name}'s chat until ${ch.name} allows it on this page.`
+              : view.permission === 'expired'
+                ? 'Twitch no longer accepts Sylva’s permission to moderate. Allow it again to keep your rules working.'
+                : 'Sylva needs your permission to remove messages and time out chatters in your chat.'}
+          </span>
+          {ch.can.own && <a className="btn primary sm" href={ALLOW_URL}><Icon id="twitch" />Allow moderation</a>}
+        </div>
+      )}
 
-          <Gate on={ch.can.edit}>
-            <Card id="mod-level" title="How strict" desc={what}>
-              <div className="card-body mod-presets">
-                <div className="segmented" role="group" aria-label="How strict">
-                  {PRESETS.map((p) => (
-                    <button key={p.id} type="button" aria-pressed={draft.preset === p.id} onClick={() => pick(p.id)}>{p.label}</button>
-                  ))}
+      <div className="mod-cols">
+        <div className="stack">
+          <Gate on={ch.can.edit} className="stack">
+            <section className="sect" aria-labelledby="mod-filters">
+              <div className="sect-head">
+                <div><h2 id="mod-filters">Filters</h2>{what && <p>{what}</p>}</div>
+                <div className="page-actions">
+                  {draft ? <Seg label="How strict" small options={PRESETS.map((p) => ({ id: p.id, label: p.label }))} value={draft.preset} onChange={pick} /> : <Skel w={300} h={32} round />}
                 </div>
               </div>
-              <fieldset className="mod-rules" disabled={off}>
-                <legend className="sr-only">Rules</legend>
-                <ul className="types">
-                  <RuleRow name="Links" desc="Any website that is not on your allowed list below." on={draft.rules.links} onToggle={(v) => rule('links', v)} />
-                  <RuleRow name="Capital letters" on={draft.rules.caps.on} onToggle={(v) => rule('caps', { ...draft.rules.caps, on: v })}>
+              {!draft ? <div className="grp"><SkelRows n={7} tile={false} /></div> : (
+                <fieldset className="grp mod-rules" disabled={off}>
+                  <legend className="sr-only">Filters</legend>
+                  <RuleRow name="Links" desc="Any website that is not on your allowed list" on={draft.rules.links} onToggle={(v) => rule('links', v)} />
+                  <RuleRow name="All caps" on={draft.rules.caps.on} onToggle={(v) => rule('caps', { ...draft.rules.caps, on: v })}>
                     <NumberField label="Percent capitals" value={draft.rules.caps.percent} min={10} max={100} onChange={(n) => rule('caps', { ...draft.rules.caps, percent: n })} />
-                    <span>% or more, in messages with at least</span>
+                    <span>% or more, from</span>
                     <NumberField label="Letters" value={draft.rules.caps.min} min={1} max={500} onChange={(n) => rule('caps', { ...draft.rules.caps, min: n })} />
                     <span>letters</span>
                   </RuleRow>
                   <RuleRow name="Symbols" on={draft.rules.symbols.on} onToggle={(v) => rule('symbols', { ...draft.rules.symbols, on: v })}>
                     <NumberField label="Percent symbols" value={draft.rules.symbols.percent} min={10} max={100} onChange={(n) => rule('symbols', { ...draft.rules.symbols, percent: n })} />
-                    <span>% or more, in messages with at least</span>
+                    <span>% or more, from</span>
                     <NumberField label="Characters" value={draft.rules.symbols.min} min={1} max={500} onChange={(n) => rule('symbols', { ...draft.rules.symbols, min: n })} />
                     <span>characters</span>
                   </RuleRow>
-                  <RuleRow name="Emotes" on={draft.rules.emotes.on} onToggle={(v) => rule('emotes', { ...draft.rules.emotes, on: v })}>
+                  <RuleRow name="Emote spam" on={draft.rules.emotes.on} onToggle={(v) => rule('emotes', { ...draft.rules.emotes, on: v })}>
                     <span>More than</span>
                     <NumberField label="Most emotes" value={draft.rules.emotes.max} min={1} max={100} onChange={(n) => rule('emotes', { ...draft.rules.emotes, max: n })} />
-                    <span>in one message</span>
+                    <span>emotes</span>
                   </RuleRow>
                   <RuleRow name="Long messages" on={draft.rules.length.on} onToggle={(v) => rule('length', { ...draft.rules.length, on: v })}>
                     <span>More than</span>
@@ -194,75 +186,65 @@ export function ModerationPage() {
                     <NumberField label="Most in a row" value={draft.rules.repeats.max} min={3} max={100} onChange={(n) => rule('repeats', { ...draft.rules.repeats, max: n })} />
                     <span>of one character in a row</span>
                   </RuleRow>
-                  <RuleRow name="Glitched text" desc="Letters with stacked marks, often used to cover up chat." on={draft.rules.zalgo} onToggle={(v) => rule('zalgo', v)} />
-                </ul>
-                <div className="card-body mod-steps">
-                  <div className="mod-step-grid">
-                    {(['First time', 'Second time', 'Third time and after'] as const).map((label, i) => (
-                      <label key={label} className="field" htmlFor={`mod-step-${i}`}>
-                        {label}
-                        <select
-                          id={`mod-step-${i}`}
-                          className="select"
-                          value={draft.steps[i]}
-                          onChange={(e) => {
-                            const steps = [...draft.steps] as ModSettings['steps'];
-                            steps[i] = Number(e.target.value);
-                            tune({ steps });
-                          }}
-                        >
-                          {(STEP_CHOICES.includes(draft.steps[i]) ? STEP_CHOICES : [...STEP_CHOICES, draft.steps[i]].sort((a, b) => a - b)).map((s) => (
-                            <option key={s} value={s}>{timeoutText(s)}</option>
+                  <RuleRow name="Glitched text" desc="Letters with stacked marks, often used to cover up chat" on={draft.rules.zalgo} onToggle={(v) => rule('zalgo', v)} />
+                </fieldset>
+              )}
+            </section>
+
+            <section className="sect" aria-labelledby="mod-steps">
+              <div className="sect-head"><div><h2 id="mod-steps">Timeouts</h2></div></div>
+              {!draft ? <div className="grp"><SkelRows n={4} tile={false} /></div> : (
+                <fieldset className="grp" disabled={off}>
+                  <legend className="sr-only">Timeouts</legend>
+                  {steps.map((label, i) => (
+                    <div className="gr" key={label}>
+                      <div className="gr-main"><label className="t1" htmlFor={`mod-step-${i}`}>{label}</label></div>
+                      <div className="gr-ctl">
+                        <select id={`mod-step-${i}`} className="select sm" value={draft.steps[i]}
+                          onChange={(e) => { const next = [...draft.steps] as ModSettings['steps']; next[i] = Number(e.target.value); tune({ steps: next }); }}>
+                          {(STEP_CHOICES.includes(draft.steps[i]) ? STEP_CHOICES : [...STEP_CHOICES, draft.steps[i]].sort((a, b) => a - b)).map((x) => (
+                            <option key={x} value={x}>{timeoutText(x)}</option>
                           ))}
                         </select>
-                      </label>
-                    ))}
-                    <label className="field" htmlFor="mod-exempt">
-                      Never moderated
-                      <select id="mod-exempt" className="select" value={draft.exempt} onChange={(e) => tune({ exempt: e.target.value as UserLevel })}>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="gr">
+                    <div className="gr-main"><label className="t1" htmlFor="mod-exempt">Never moderated</label><div className="t2">You and your moderators never are</div></div>
+                    <div className="gr-ctl">
+                      <select id="mod-exempt" className="select sm" value={draft.exempt} onChange={(e) => tune({ exempt: e.target.value as UserLevel })}>
                         {EXEMPT.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
                       </select>
-                    </label>
+                    </div>
                   </div>
-                  <p className="field-hint">Strikes are forgotten after an hour without one. You and your moderators are never moderated.</p>
-                </div>
-              </fieldset>
-            </Card>
-          </Gate>
+                  <div className="gr">
+                    <div className="gr-main"><div className="t1">Say why in chat</div><div className="t2">Such as &ldquo;@Maple, links are not allowed here (message removed)&rdquo;</div></div>
+                    <div className="gr-ctl"><Switch label="Say why in chat" on={draft.notice} onChange={(v) => mod.set({ ...draft, notice: v }, true)} /></div>
+                  </div>
+                </fieldset>
+              )}
+              <p className="sect-foot">Strikes are forgotten after an hour without one.</p>
+            </section>
 
-          <Gate on={ch.can.edit}>
-            <Card id="mod-lists" title="Words and sites" desc="One per line. Banned words apply whatever the preset, and match whole words, ignoring capitals.">
-              <fieldset className="card-body mod-lists" disabled={off}>
+            <section className="sect" aria-labelledby="mod-lists">
+              <div className="sect-head"><div><h2 id="mod-lists">Words and sites</h2><p>One per line. Banned words apply whatever the filters, and match whole words, ignoring capitals.</p></div></div>
+              <fieldset className="grp mod-lists" disabled={!draft || off}>
                 <legend className="sr-only">Words and sites</legend>
                 <label className="field" htmlFor="mod-words">
                   <span className="field-row">Banned words and phrases<span className="field-hint">{lines(words).length} / 200</span></span>
-                  <textarea id="mod-words" className="input textarea" rows={6} value={words} placeholder={'one word\nor a whole phrase'} onChange={(e) => setWords(e.target.value)} />
+                  <textarea id="mod-words" className="input" rows={6} value={words} placeholder={'one word\nor a whole phrase'} onChange={(e) => setWords(e.target.value)} onBlur={commitLists} />
                 </label>
                 <label className="field" htmlFor="mod-sites">
                   <span className="field-row">Allowed sites<span className="field-hint">Their subdomains count too</span></span>
-                  <textarea id="mod-sites" className="input textarea" rows={6} value={sites} placeholder="clips.twitch.tv" onChange={(e) => setSites(e.target.value)} />
+                  <textarea id="mod-sites" className="input" rows={6} value={sites} placeholder="clips.twitch.tv" onChange={(e) => setSites(e.target.value)} onBlur={commitLists} />
                 </label>
-                <div className="field inline wide">
-                  <span>Say why in chat, such as &ldquo;@Maple, links are not allowed here (message removed).&rdquo;</span>
-                  <button className="switch" type="button" role="switch" aria-checked={draft.notice} aria-label="Say why in chat"
-                    onClick={() => setDraft({ ...draft, notice: !draft.notice })} />
-                </div>
               </fieldset>
-            </Card>
+              <p className="sect-foot">Lists save when you click away from them.</p>
+            </section>
           </Gate>
-
-          {changed && (
-            <div className="save-bar" role="region" aria-label="Unsaved changes">
-              <span>You have changes that are not saved yet.</span>
-              <button className="btn ghost" type="button" disabled={busy} onClick={() => adopt(view)}>Discard</button>
-              <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>{busy ? 'Saving' : 'Save changes'}</button>
-            </div>
-          )}
-
-          <Gate on={ch.can.moderate}><TryMessage settings={next} /></Gate>
-          <ActionLog permission={view.permission} />
         </div>
-      )}
+        <ActionLog permission={view?.permission ?? 'ok'} />
+      </div>
     </div>
   );
 }
@@ -271,15 +253,13 @@ function RuleRow({ name, desc, on, onToggle, children }: {
   name: string; desc?: string; on: boolean; onToggle(v: boolean): void; children?: ReactNode;
 }) {
   return (
-    <li className={'type mod-rule' + (on ? '' : ' off')}>
-      <div className="type-row">
-        <div className="type-main">
-          <b>{name}</b>
-          {desc ? <span>{desc}</span> : <div className="mod-limits">{children}</div>}
-        </div>
-        <button className="switch" type="button" role="switch" aria-checked={on} aria-label={name} onClick={() => onToggle(!on)} />
+    <div className={'gr mod-rule' + (on ? '' : ' off')}>
+      <div className="gr-main">
+        <div className="t1">{name}</div>
+        {desc ? <div className="t2">{desc}</div> : <div className="mod-limits">{children}</div>}
       </div>
-    </li>
+      <div className="gr-ctl"><Switch label={name} on={on} onChange={onToggle} /></div>
+    </div>
   );
 }
 
@@ -307,64 +287,6 @@ export function NumberField({ label, value, min, max, onChange }: {
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
     />
-  );
-}
-
-function TryMessage({ settings }: { settings: ModSettings }) {
-  const ch = useChannel();
-  const [text, setText] = useState('');
-  const [level, setLevel] = useState<UserLevel>('everyone');
-  const [result, setResult] = useState<{ text: string; r: ModTry } | { text: string; error: string } | null>(null);
-
-  const run = async () => {
-    const t = text.trim();
-    if (!t) return;
-    try {
-      setResult({ text: t, r: await api.tryModeration(ch.key, t, level, settings) });
-    } catch (x) {
-      setResult({ text: t, error: errorText(x) });
-    }
-  };
-
-  let answer: ReactNode = null;
-  if (result && 'error' in result) answer = <p className="bubble bad">{result.error}</p>;
-  else if (result) {
-    const { r } = result;
-    if (settings.preset === 'off') answer = <p className="bubble muted">Moderation is off, so this message stays.</p>;
-    else if (r.skipped) answer = <p className="bubble muted">This chatter is never moderated, so the message stays.</p>;
-    else if (!r.rule) answer = <p className="bubble ok">This message is fine. It stays in chat.</p>;
-    else {
-      answer = (
-        <div className="bubble">
-          <p><b className="bad-text">Caught by {RULE_NAMES[r.rule]}.</b></p>
-          <ol className="mod-ladder">
-            {r.steps.map((s, i) => (
-              <li key={i}><span>{['First time', 'Second time', 'Third time and after'][i]}</span>{timeoutText(s)}</li>
-            ))}
-          </ol>
-        </div>
-      );
-    }
-  }
-
-  return (
-    <Card id="mod-try" title="Try a message" desc="See what your rules, saved or not, would do with a message. Nothing goes to Twitch.">
-      <form className="test-form" onSubmit={(e) => { e.preventDefault(); void run(); }}>
-        <label className="sr-only" htmlFor="mod-try-level">Send as</label>
-        <select id="mod-try-level" className="select" value={level} onChange={(e) => setLevel(e.target.value as UserLevel)}>
-          <option value="everyone">As a viewer</option>
-          <option value="subscriber">As a subscriber</option>
-          <option value="vip">As a VIP</option>
-          <option value="moderator">As a moderator</option>
-        </select>
-        <label className="sr-only" htmlFor="mod-try-text">Message</label>
-        <input id="mod-try-text" className="input" placeholder="FREE FOLLOWERS at cheap.xyz" value={text} maxLength={500} onChange={(e) => setText(e.target.value)} />
-        <button className="btn primary" type="submit" disabled={!text.trim()}>Check</button>
-      </form>
-      <div className="mod-answer" aria-live="polite">
-        {result ? <><p className="mod-quote">{result.text}</p>{answer}</> : <p className="bubble muted">Try a link, a line in capitals, or a word from your list.</p>}
-      </div>
-    </Card>
   );
 }
 
@@ -431,8 +353,7 @@ function ActionLog({ permission }: { permission: ModView['permission'] }) {
   return (
     <Card
       id="mod-log"
-      title="What Sylva did"
-      desc="Every message Sylva removed and every timeout. A timeout can be lifted while it lasts; Twitch cannot bring back a removed message."
+      title="Recent actions"
       action={<button className="btn sm ghost" type="button" onClick={() => void load()}><Icon id="refresh" />Refresh</button>}
     >
       {entries === null && <SkelRows n={4} tile={false} />}

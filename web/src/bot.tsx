@@ -1,35 +1,43 @@
-// The Chat bot page: turn the bot on, edit its commands, and try them in a
-// test chat that never reaches Twitch. The rules match
-// crates/sylva-core/src/bot.rs, which checks every save again.
+// The Commands page: the chat bot's commands, the built-in ones, timers,
+// counters and quotes. A side panel edits one at a time, with a preview of
+// how it looks in Twitch chat. The rules match crates/sylva-core/src/bot.rs,
+// which checks every save again.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, type Builtin, type BuiltinGroup, type BuiltinSetting, type TimerStatus, type UserLevel } from './api';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, type Builtin, type BuiltinSetting, type TimerStatus, type UserLevel } from './api';
 import { useChannel } from './channel';
 import { Counters, Quotes } from './community';
-import { GamesTab } from './games';
-import { Card, PageHead } from './pages';
-import { Link } from './router';
-import { errorText, Gate, Icon, num, SkelCard, useToast } from './ui';
+import { PageHead } from './pages';
+import { Link, navigate, useSearch } from './router';
+import { ArmedButton, Drawer, errorText, Gate, Icon, MOD_BADGE, num, Seg, Skel, Switch, Tile, useToast } from './ui';
 
-export const LEVELS: { id: UserLevel; label: string; who: string }[] = [
-  { id: 'everyone', label: 'Everyone', who: 'everyone' },
-  { id: 'subscriber', label: 'Subscribers and up', who: 'subscribers' },
-  { id: 'vip', label: 'VIPs and up', who: 'VIPs' },
-  { id: 'moderator', label: 'Moderators', who: 'moderators' },
-  { id: 'broadcaster', label: 'Only you', who: 'you' },
+export const LEVELS: { id: UserLevel; label: string; short: string }[] = [
+  { id: 'everyone', label: 'Everyone', short: 'Everyone' },
+  { id: 'subscriber', label: 'Subscribers and up', short: 'Subs' },
+  { id: 'vip', label: 'VIPs and up', short: 'VIPs' },
+  { id: 'moderator', label: 'Moderators', short: 'Mods' },
+  { id: 'broadcaster', label: 'Only you', short: 'Only you' },
 ];
 const levelOf = (id: UserLevel) => LEVELS.find((l) => l.id === id) ?? LEVELS[0];
+const LEVEL_ORDER: UserLevel[] = ['everyone', 'subscriber', 'vip', 'moderator', 'broadcaster'];
 
-const COOLDOWNS = [0, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
+const COOLDOWNS = [0, 5, 10, 30, 60, 300];
+/** A cooldown in a few characters: 30s, 1m, 1h. */
+export function short(n: number): string {
+  if (n === 0) return 'None';
+  if (n < 60) return `${n}s`;
+  if (n < 3600) return n % 60 === 0 ? `${n / 60}m` : `${Math.round(n / 60)}m`;
+  return n % 3600 === 0 ? `${n / 3600}h` : `${Math.round(n / 60)}m`;
+}
 export function seconds(n: number): string {
   if (n === 0) return 'None';
   if (n < 60) return `${n} seconds`;
   if (n < 3600) return n % 60 === 0 ? `${n / 60} minute${n === 60 ? '' : 's'}` : `${Math.round(n / 60)} minutes`;
   return '1 hour';
 }
+const withValue = (list: number[], n: number) => (list.includes(n) ? list : [...list, n].sort((a, b) => a - b));
 
 const MAX_REPLY = 500;
-
 const VARIABLES: { v: string; what: string }[] = [
   { v: '${user}', what: 'The viewer who used the command' },
   { v: '${touser}', what: 'The name after the command, or the viewer' },
@@ -41,379 +49,268 @@ const VARIABLES: { v: string; what: string }[] = [
   { v: '${random.1-100}', what: 'A random number in that range' },
   { v: '${commands}', what: 'Every command anyone can use' },
 ];
+const blank = (): BotCommand => ({ name: '', aliases: [], reply: '', level: 'everyone', cooldown: 0, userCooldown: 0, enabled: true, count: 0 });
 
-const blank = (): BotCommand => ({
-  name: '', aliases: [], reply: '', level: 'everyone', cooldown: 0, userCooldown: 0, enabled: true, count: 0,
-});
-
-type BotTab = 'commands' | 'builtins' | 'games' | 'timers' | 'counters' | 'quotes' | 'test';
-const BOT_TABS: { id: BotTab; label: string }[] = [
-  { id: 'commands', label: 'Your commands' },
-  { id: 'builtins', label: 'Built-in' },
-  { id: 'games', label: 'Games' },
-  { id: 'timers', label: 'Timers' },
-  { id: 'counters', label: 'Counters' },
-  { id: 'quotes', label: 'Quotes' },
-  { id: 'test', label: 'Test chat' },
+type Tab = 'commands' | 'timers' | 'counters' | 'quotes';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'commands', label: 'Commands' }, { id: 'timers', label: 'Timers' }, { id: 'counters', label: 'Counters' }, { id: 'quotes', label: 'Quotes' },
 ];
-/** Commands shown before Show all. */
-const PAGE_SIZE = 12;
+const ALLOW_COMMANDS_URL = '/auth/twitch/start?scopes=commands&next=/app/commands';
+type Save = (next: BotSettings, done?: string, undo?: BotSettings) => Promise<boolean>;
 
-export function BotPage() {
+function tabOf(search: string): Tab {
+  const t = new URLSearchParams(search).get('tab') ?? location.hash.slice(1);
+  return TABS.some((x) => x.id === t) ? (t as Tab) : 'commands';
+}
+
+export function CommandsPage() {
   const ch = useChannel();
   const toast = useToast();
+  const search = useSearch();
+  const tab = tabOf(search);
   const [view, setView] = useState<BotView | null>(null);
   const [failed, setFailed] = useState(false);
-  const [open, setOpen] = useState<number | 'new' | null>(null);
-  const [tab, setTabState] = useState<BotTab>(() => {
-    const h = location.hash.slice(1) as BotTab;
-    return BOT_TABS.some((t) => t.id === h) ? h : 'commands';
-  });
-  const setTab = (t: BotTab) => { setTabState(t); history.replaceState(history.state, '', '#' + t); };
-  const [query, setQuery] = useState('');
-  const [more, setMore] = useState(false);
 
   useEffect(() => {
+    setFailed(false);
     api.bot(ch.key).then(setView).catch(() => setFailed(true));
   }, [ch.key]);
 
-  const save = async (next: BotSettings, done?: string, undo?: BotSettings) => {
+  const save: Save = async (next, done, undo) => {
     try {
       setView(await api.saveBot(ch.key, next));
-      if (done) {
-        toast(done, false, undo && {
-          label: 'Undo',
-          run: () => { void save(undo, 'Brought back'); },
-        });
-      }
+      if (done) toast(done, false, undo && { label: 'Undo', run: () => { void save(undo, 'Brought back'); } });
       return true;
     } catch (x) {
       toast(errorText(x), true);
       return false;
     }
   };
-
+  const go = (t: Tab) => navigate('/app/commands' + (t === 'commands' ? '' : '?tab=' + t));
   const settings = view?.settings;
-  const who = view?.sender.kind === 'sylva'
-    ? <>Sylva&apos;s bot, <b>{view.sender.login || 'the shared bot account'}</b></>
-    : ch.can.own
-      ? <>your own account, <b>{ch.name}</b>, with Twitch&apos;s Chat Bot badge</>
-      : <><b>{ch.name}</b>&apos;s own account, with Twitch&apos;s Chat Bot badge</>;
+  const sender = view?.sender.kind === 'streamer' ? ch.name : 'Sylva_Bot';
 
   return (
-    <div className="page">
-      <PageHead title="Chat bot" desc="Commands, timers, counters and quotes for your chat. Try them here before your viewers do." />
-      {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load your bot. Refresh to try again.</p></div></Card>}
-      {!view && !failed && <SkelCard rows={5} />}
-      {settings && (
-        <div className="stack">
-          <Card id="bot-on">
-            <Gate on={ch.can.edit} className="bot-status">
-              <span className={'tile ' + (settings.enabled ? 'c-follow' : '')}><Icon id="bot" /></span>
-              <div className="type-main">
-                <b>{settings.enabled ? 'The bot is on' : 'The bot is off'}</b>
-                <span>{settings.enabled ? <>It answers commands in {ch.can.own ? 'your' : 'the'} chat as {who}.</> : <>Turn it on to answer commands in {ch.can.own ? 'your' : 'the'} chat. Replies come from {who}.</>}</span>
-              </div>
-              <button
-                className="switch"
-                type="button"
-                role="switch"
-                aria-checked={settings.enabled}
-                aria-label="Chat bot"
-                onClick={() => save({ ...settings, enabled: !settings.enabled }, settings.enabled ? 'The bot is off' : 'The bot is on')}
-              />
-            </Gate>
-          </Card>
+    <div className="page commands-page">
+      <PageHead title="Commands" desc="Words viewers type in chat, and what Sylva replies with.">
+        <Seg label="Show" options={TABS} value={tab} onChange={go} />
+      </PageHead>
 
-          <div className="tabs" role="tablist" aria-label="Bot sections">
-            {BOT_TABS.map((t) => (
-              <button key={t.id} role="tab" id={'bot-tab-' + t.id} aria-selected={tab === t.id} type="button" onClick={() => setTab(t.id)}>
-                {t.label}{t.id === 'commands' && settings.commands.length > 0 && <span className="tab-count">{settings.commands.length}</span>}
-              </button>
-            ))}
+      <div className="grp link-card">
+        <Tile icon="bot" />
+        <div className="gr-main">
+          <div className="t1">Chat bot</div>
+          <div className="t2">
+            {!settings ? ' ' : settings.enabled
+              ? `On. Replies come from ${sender}${view?.sender.kind === 'streamer' ? ' with Twitch’s Chat Bot badge' : ''}`
+              : 'Off. Nothing on this page answers in chat until it is on'}
           </div>
-
-          {tab === 'commands' && <Card
-            id="commands"
-            title="Commands"
-            desc="A viewer types the command in chat and the bot replies. Moderators skip cooldowns."
-            action={
-              <button className="btn sm" type="button" onClick={() => setOpen('new')} disabled={!ch.can.edit || open === 'new' || settings.commands.length >= 100}>
-                <Icon id="plus" />New command
-              </button>
-            }
-          >
-            {settings.commands.length > 8 && (
-              <div className="feed-tools">
-                <label className="search">
-                  <Icon id="search" />
-                  <span className="sr-only">Find a command</span>
-                  <input className="input" type="search" placeholder="Find a command or reply" value={query} onChange={(e) => setQuery(e.target.value)} />
-                </label>
-              </div>
-            )}
-            <ul className="types">
-              {open === 'new' && (
-                <li className="type open">
-                  <CommandEditor
-                    command={blank()}
-                    isNew
-                    settings={settings}
-                    onCancel={() => setOpen(null)}
-                    onSave={async (c) => {
-                      if (await save({ ...settings, commands: [...settings.commands, c] }, `!${c.name.replace(/^!/, '').toLowerCase()} added`)) setOpen(null);
-                    }}
-                  />
-                </li>
-              )}
-              {settings.commands.length === 0 && open !== 'new' && (
-                <li className="empty">No commands yet. Add one, such as !discord with a link to your server.</li>
-              )}
-              {settings.commands.map((c, i) => ({ c, i })).filter(({ c, i }) => {
-                const q = query.trim().toLowerCase().replace(/^!/, '');
-                return open === i || !q || c.name.toLowerCase().includes(q) || c.aliases.some((a) => a.toLowerCase().includes(q)) || c.reply.toLowerCase().includes(q);
-              }).filter((_, n, all) => more || query || all.length <= PAGE_SIZE + 3 || n < PAGE_SIZE).map(({ c, i }) => {
-                const isOpen = open === i;
-                const meta = [levelOf(c.level).label];
-                if (c.cooldown) meta.push(`${seconds(c.cooldown)} cooldown`);
-                if (c.userCooldown) meta.push(`${seconds(c.userCooldown)} per viewer`);
-                meta.push(c.count === 1 ? 'used once' : `used ${num(c.count)} times`);
-                return (
-                  <li key={c.name} className={'type cmd' + (isOpen ? ' open' : '') + (c.enabled ? '' : ' off')}>
-                    <div className="type-row">
-                      <div className="type-main">
-                        <b className="cmd-name">!{c.name}{c.aliases.length > 0 && <span className="cmd-alias"> {c.aliases.map((a) => '!' + a).join(' ')}</span>}</b>
-                        <span className="cmd-reply">{c.reply}</span>
-                        <span className="cmd-meta">{meta.join(' · ')}</span>
-                      </div>
-                      <button
-                        className="btn sm ghost"
-                        type="button"
-                        aria-expanded={isOpen}
-                        aria-controls={`cmd-edit-${i}`}
-                        onClick={() => setOpen(isOpen ? null : i)}
-                      >
-                        {isOpen ? 'Close' : ch.can.edit ? 'Edit' : 'View'}
-                      </button>
-                      <button
-                        className="switch"
-                        type="button"
-                        role="switch"
-                        aria-checked={c.enabled}
-                        aria-label={`!${c.name}`}
-                        disabled={!ch.can.edit}
-                        onClick={() => save(
-                          { ...settings, commands: settings.commands.map((x, j) => (j === i ? { ...x, enabled: !x.enabled } : x)) },
-                          `!${c.name} ${c.enabled ? 'off' : 'on'}`,
-                        )}
-                      />
-                    </div>
-                    {isOpen && (
-                      <Gate on={ch.can.edit}>
-                        <CommandEditor
-                          id={`cmd-edit-${i}`}
-                          command={c}
-                          settings={settings}
-                          index={i}
-                          onCancel={() => setOpen(null)}
-                          onDelete={async () => {
-                            const next = { ...settings, commands: settings.commands.filter((_, j) => j !== i) };
-                            if (await save(next, `!${c.name} deleted`, settings)) setOpen(null);
-                          }}
-                          onSave={async (next) => {
-                            if (await save({ ...settings, commands: settings.commands.map((x, j) => (j === i ? next : x)) }, `!${c.name} saved`)) setOpen(null);
-                          }}
-                        />
-                      </Gate>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            {!query && settings.commands.length > PAGE_SIZE + 3 && (
-              <div className="card-foot">
-                <span className="card-text">{more ? `All ${settings.commands.length} commands` : `${PAGE_SIZE} of ${settings.commands.length} commands`}</span>
-                <button className="btn sm" type="button" onClick={() => setMore(!more)}>{more ? 'Show fewer' : 'Show all'}</button>
-              </div>
-            )}
-          </Card>}
-
-          {tab === 'builtins' && <Builtins view={view!} onSave={save} />}
-
-          {tab === 'games' && <GamesTab />}
-
-          {tab === 'timers' && <Gate on={ch.can.edit}><Timers view={view!} onSave={save} onView={setView} /></Gate>}
-
-          {tab === 'counters' && <Counters view={view!} onSave={save} onView={setView} />}
-
-          {tab === 'quotes' && <Quotes view={view!} onSave={save} />}
-
-          {tab === 'test' && <Gate on={ch.can.moderate}><TestChat settings={settings} /></Gate>}
         </div>
-      )}
+        <div className="link-ctl">
+          {settings ? <Switch label="Chat bot" on={settings.enabled} disabled={!ch.can.edit}
+            onChange={(v) => void save({ ...settings, enabled: v }, v ? 'The bot is on' : 'The bot is off')} /> : <Skel w={40} h={22} round />}
+        </div>
+      </div>
+
+      {failed && !view && <div className="notice">Could not load your commands. Refresh to try again.</div>}
+      {tab === 'commands' && <CommandsTab view={view} save={save} sender={sender} />}
+      {tab === 'timers' && (view ? <Gate on={ch.can.edit}><Timers view={view} onSave={save} onView={setView} /></Gate> : <TableSkel cols="tm-cols" />)}
+      {tab === 'counters' && (view ? <Counters view={view} onSave={save} onView={setView} /> : <TableSkel cols="tm-cols" />)}
+      {tab === 'quotes' && (view ? <Quotes view={view} onSave={save} /> : <TableSkel cols="tm-cols" />)}
     </div>
   );
 }
 
-const GROUPS: { id: BuiltinGroup; label: string }[] = [
-  { id: 'info', label: 'Stream info' },
-  { id: 'fun', label: 'Fun' },
-  { id: 'commands', label: 'Commands and counters' },
-  { id: 'quotes', label: 'Quotes' },
-  { id: 'stream', label: 'Your stream' },
-  { id: 'moderation', label: 'Moderation' },
-];
-const LEVEL_ORDER: UserLevel[] = ['everyone', 'subscriber', 'vip', 'moderator', 'broadcaster'];
-const ALLOW_COMMANDS_URL = '/auth/twitch/start?scopes=commands&next=/app/bot';
-
-/** Commands every channel has, each with a switch, who may use it and a cooldown. */
-function Builtins({ view, onSave }: {
-  view: BotView;
-  onSave(next: BotSettings, done?: string): Promise<boolean>;
-}) {
-  const ch = useChannel();
-  const [open, setOpen] = useState<string | null>(null);
-  const { settings, builtins, permissions } = view;
-  const mine = (b: Builtin) => settings.builtins.find((s) => s.name === b.name) ?? { name: b.name, enabled: b.on, level: b.level, cooldown: b.cooldown };
-  const replaced = (b: Builtin) => settings.commands.some((c) => c.name === b.name || c.aliases.includes(b.name))
-    || settings.counters.some((c) => c.name === b.name);
-  const set = (b: Builtin, patch: Partial<BuiltinSetting>, done: string) => onSave({
-    ...settings,
-    builtins: builtins.map((x) => (x.name === b.name ? { ...mine(x), ...patch } : mine(x))),
-  }, done);
-  const waiting = (needs: 'commands' | 'moderation') => permissions[needs] !== 'ok'
-    && builtins.some((b) => b.needs === needs && mine(b).enabled && !replaced(b));
-  const names = (needs: 'commands' | 'moderation') => builtins.filter((b) => b.needs === needs && mine(b).enabled).map((b) => '!' + b.name);
-  const list = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
-
+function TableSkel({ cols, n = 4 }: { cols: string; n?: number }) {
   return (
-    <Card
-      id="builtins"
-      title="Built-in commands"
-      desc="Ready in every channel. Turn each one on or off and choose who can use it. A command of yours with the same name replaces the built-in one."
-    >
-      {(waiting('commands') || waiting('moderation')) && (
-        <div className="card-body builtin-notes">
-          {waiting('commands') && (
-            <div className="notice">
-              <span>
-                {list(names('commands'))} {names('commands').length === 1 ? 'needs' : 'need'} {ch.can.own ? 'your' : `${ch.name}'s`} permission
-                {permissions.commands === 'expired' ? ' again, because Twitch no longer accepts the old one.' : ' to make clips, change the title and category, and see followers.'}
-                {!ch.can.own && ` Only ${ch.name} can allow it.`}
-              </span>
-              {ch.can.own && <a className="btn primary sm" href={ALLOW_COMMANDS_URL}><Icon id="twitch" />Allow</a>}
-            </div>
-          )}
-          {waiting('moderation') && (
-            <div className="notice">
-              <span>
-                {list(names('moderation'))} {names('moderation').length === 1 ? 'needs' : 'need'}
-                {permissions.moderation === 'notMod'
-                  ? ' Sylva_Bot to be a moderator. Type /mod sylva_bot in chat.'
-                  : permissions.moderation === 'botMissing'
-                    ? ' Sylva_Bot, which is not set up to moderate yet.'
-                    : ch.can.own ? ' Sylva to be allowed to moderate. You can allow it on the Moderation page.' : ` Sylva to be allowed to moderate. Only ${ch.name} can allow it, on the Moderation page.`}
-              </span>
-              <Link className="btn sm" href="/app/moderation">Open Moderation</Link>
-            </div>
-          )}
-        </div>
-      )}
-      {GROUPS.map((g) => {
-        const items = builtins.filter((b) => b.group === g.id);
-        if (!items.length) return null;
-        return (
-          <section key={g.id} className="builtin-group" aria-labelledby={`builtin-${g.id}`}>
-            <h3 id={`builtin-${g.id}`} className="builtin-head">{g.label}</h3>
-            <ul className="types">
-              {items.map((b) => {
-                const s = mine(b);
-                const over = replaced(b);
-                const quotesOff = b.group === 'quotes' && !settings.quotes.enabled;
-                const isOpen = open === b.name;
-                const meta = [levelOf(s.level).label];
-                if (s.cooldown) meta.push(`${seconds(s.cooldown)} cooldown`);
-                const levels = LEVELS.filter((l) => LEVEL_ORDER.indexOf(l.id) >= LEVEL_ORDER.indexOf(b.min));
-                return (
-                  <li key={b.name} className={'type cmd' + (isOpen ? ' open' : '') + (s.enabled && !over && !quotesOff ? '' : ' off')}>
-                    <div className="type-row">
-                      <div className="type-main">
-                        <b className="cmd-name">!{b.name}{b.aliases.length > 0 && <span className="cmd-alias"> {b.aliases.map((a) => '!' + a).join(' ')}</span>}</b>
-                        <span className="cmd-reply">{b.about}</span>
-                        <span className="cmd-meta">
-                          {over ? `Replaced by your own !${b.name}` : quotesOff ? 'Quotes are off in chat' : meta.join(' · ')}
-                        </span>
-                      </div>
-                      <button
-                        className="btn sm ghost"
-                        type="button"
-                        aria-expanded={isOpen}
-                        aria-controls={`builtin-edit-${b.name}`}
-                        aria-label={`${isOpen ? 'Close' : ch.can.edit ? 'Edit' : 'View'} !${b.name}`}
-                        onClick={() => setOpen(isOpen ? null : b.name)}
-                      >
-                        {isOpen ? 'Close' : ch.can.edit ? 'Edit' : 'View'}
-                      </button>
-                      <button
-                        className="switch"
-                        type="button"
-                        role="switch"
-                        aria-checked={s.enabled}
-                        aria-label={`!${b.name}`}
-                        disabled={!ch.can.edit}
-                        onClick={() => void set(b, { enabled: !s.enabled }, `!${b.name} ${s.enabled ? 'off' : 'on'}`)}
-                      />
-                    </div>
-                    {isOpen && (
-                      <Gate on={ch.can.edit}>
-                        <div className="builtin-edit" id={`builtin-edit-${b.name}`}>
-                          <p className="builtin-usage">Type <code>{b.usage}</code></p>
-                          <label className="field" htmlFor={`builtin-${b.name}-level`}>
-                            Who can use it
-                            <select id={`builtin-${b.name}-level`} className="select" value={s.level}
-                              onChange={(e) => void set(b, { level: e.target.value as UserLevel }, `Saved !${b.name}`)}>
-                              {levels.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-                            </select>
-                          </label>
-                          <label className="field" htmlFor={`builtin-${b.name}-cooldown`}>
-                            Cooldown
-                            <select id={`builtin-${b.name}-cooldown`} className="select" value={s.cooldown}
-                              onChange={(e) => void set(b, { cooldown: Number(e.target.value) }, `Saved !${b.name}`)}>
-                              {(COOLDOWNS.includes(s.cooldown) ? COOLDOWNS : [...COOLDOWNS, s.cooldown].sort((x, y) => x - y)).map((n) => <option key={n} value={n}>{seconds(n)}</option>)}
-                            </select>
-                          </label>
-                        </div>
-                      </Gate>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        );
-      })}
-    </Card>
+    <section className="sect">
+      <div className="sect-head"><div><Skel w={110} h={13} /></div></div>
+      <div className="grp">
+        {Array.from({ length: n }, (_, i) => (
+          <div className={'gr ' + cols} key={i}><Skel w={80} h={14} /><Skel w="70%" h={14} /><Skel w={60} h={14} /><Skel w={40} h={14} /><Skel w={40} h={22} round /></div>
+        ))}
+      </div>
+    </section>
   );
 }
 
-function CommandEditor({ id, command, settings, index, isNew, onSave, onCancel, onDelete }: {
-  id?: string; command: BotCommand; settings: BotSettings; index?: number; isNew?: boolean;
-  onSave(c: BotCommand): Promise<void>; onCancel(): void; onDelete?(): Promise<void>;
+/* ---------------------------------------------------------------- Commands */
+
+function CommandsTab({ view, save, sender }: { view: BotView | null; save: Save; sender: string }) {
+  const ch = useChannel();
+  const search = useSearch();
+  const [open, setOpen] = useState<number | 'new' | null>(null);
+  const [builtin, setBuiltin] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+
+  // The search's New command action opens the editor.
+  useEffect(() => {
+    if (new URLSearchParams(search).get('new') && view && ch.can.edit) {
+      setOpen('new');
+      navigate('/app/commands', true);
+    }
+  }, [search, view, ch.can.edit]);
+
+  if (!view) return <><TableSkel cols="cm-cols" /><TableSkel cols="cm-cols" /></>;
+  const settings = view.settings;
+  const q = query.trim().toLowerCase().replace(/^!/, '');
+  const match = (name: string, aliases: string[], text: string) =>
+    !q || name.toLowerCase().includes(q) || aliases.some((a) => a.toLowerCase().includes(q)) || text.toLowerCase().includes(q);
+  const mine = (b: Builtin): BuiltinSetting => settings.builtins.find((s) => s.name === b.name) ?? { name: b.name, enabled: b.on, level: b.level, cooldown: b.cooldown };
+  const replaced = (b: Builtin) => settings.commands.some((c) => c.name === b.name || c.aliases.includes(b.name)) || settings.counters.some((c) => c.name === b.name);
+  const setBuiltinSetting = (b: Builtin, patch: Partial<BuiltinSetting>, done: string) => save({
+    ...settings, builtins: view.builtins.map((x) => (x.name === b.name ? { ...mine(x), ...patch } : mine(x))),
+  }, done);
+  const waiting = (needs: 'commands' | 'moderation') => view.permissions[needs] !== 'ok'
+    && view.builtins.some((b) => b.needs === needs && mine(b).enabled && !replaced(b));
+  const commands = settings.commands.map((c, i) => ({ c, i })).filter(({ c }) => match(c.name, c.aliases, c.reply));
+  const builtins = view.builtins.filter((b) => match(b.name, b.aliases, b.about));
+  const editing = open === 'new' ? blank() : open !== null ? settings.commands[open] : undefined;
+  const editingBuiltin = builtin ? view.builtins.find((b) => b.name === builtin) : undefined;
+
+  return (
+    <>
+      <section className="sect" aria-labelledby="cmds-title">
+        <div className="sect-head">
+          <div><h2 id="cmds-title">Your commands</h2></div>
+          <div className="page-actions">
+            {(settings.commands.length + view.builtins.length) > 10 && (
+              <label className="search cmd-search">
+                <Icon id="search" /><span className="sr-only">Find a command</span>
+                <input className="input sm" type="search" placeholder="Find a command" value={query} onChange={(e) => setQuery(e.target.value)} />
+              </label>
+            )}
+            <button className="btn sm primary" type="button" disabled={!ch.can.edit || settings.commands.length >= 100} onClick={() => setOpen('new')}><Icon id="plus" />New command</button>
+          </div>
+        </div>
+        <div className="tbl-head cm-cols" aria-hidden="true"><span>Command</span><span>Reply</span><span>Who can use</span><span>Cooldown</span><span /></div>
+        <div className="grp">
+          {settings.commands.length === 0 && <div className="empty">No commands yet. Add one, such as !discord with a link to your server.</div>}
+          {settings.commands.length > 0 && commands.length === 0 && <div className="empty">No command of yours matches that.</div>}
+          {commands.map(({ c, i }) => (
+            <div className={'gr cm-cols cm-row' + (c.enabled ? '' : ' off')} key={c.name + i}>
+              <button className="cm-open" type="button" onClick={() => setOpen(i)} aria-label={`Edit !${c.name}`}>
+                <span className="cm-name mono">!{c.name}</span>
+              </button>
+              <button className="cm-open cm-reply" type="button" tabIndex={-1} onClick={() => setOpen(i)}>{c.reply}</button>
+              <span className="muted">{levelOf(c.level).short}</span>
+              <span className="muted">{c.cooldown ? short(c.cooldown) : c.userCooldown ? `${short(c.userCooldown)} each` : 'None'}</span>
+              <Switch label={`!${c.name}`} on={c.enabled} disabled={!ch.can.edit}
+                onChange={(v) => void save({ ...settings, commands: settings.commands.map((x, j) => (j === i ? { ...x, enabled: v } : x)) }, `!${c.name} ${v ? 'on' : 'off'}`)} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="sect" aria-labelledby="builtin-title">
+        <div className="sect-head"><div><h2 id="builtin-title">Built in</h2><p>Ready in every channel. A command of yours with the same name takes its place.</p></div></div>
+        {waiting('commands') && (
+          <div className="notice">
+            <span>Some built-in commands need {ch.can.own ? 'your' : `${ch.name}'s`} permission{view.permissions.commands === 'expired' ? ' again, because Twitch no longer accepts the old one.' : ' to make clips, change the title and category, and see followers.'}</span>
+            {ch.can.own && <a className="btn primary sm" href={ALLOW_COMMANDS_URL}><Icon id="twitch" />Allow</a>}
+          </div>
+        )}
+        {waiting('moderation') && (
+          <div className="notice">
+            <span>
+              Moderation commands need
+              {view.permissions.moderation === 'notMod' ? ' Sylva_Bot to be a moderator. Type /mod sylva_bot in chat.'
+                : view.permissions.moderation === 'botMissing' ? ' Sylva_Bot, which is not set up to moderate yet.'
+                  : ' Sylva to be allowed to moderate, on the Moderation page.'}
+            </span>
+            <Link className="btn sm" href="/app/moderation">Open Moderation</Link>
+          </div>
+        )}
+        <div className="grp">
+          {builtins.length === 0 && <div className="empty">No built-in command matches that.</div>}
+          {builtins.map((b) => {
+            const s = mine(b);
+            const over = replaced(b);
+            const quotesOff = b.group === 'quotes' && !settings.quotes.enabled;
+            return (
+              <div className={'gr cm-cols cm-row' + (s.enabled && !over && !quotesOff ? '' : ' off')} key={b.name}>
+                <button className="cm-open" type="button" onClick={() => setBuiltin(b.name)} aria-label={`Edit !${b.name}`}>
+                  <span className="cm-name mono">!{b.name}</span>
+                </button>
+                <button className="cm-open cm-reply" type="button" tabIndex={-1} onClick={() => setBuiltin(b.name)}>
+                  {over ? `Replaced by your own !${b.name}` : quotesOff ? 'Quotes are off in chat' : b.about}
+                </button>
+                <span className="muted">{levelOf(s.level).short}</span>
+                <span className="muted">{short(s.cooldown)}</span>
+                <Switch label={`!${b.name}`} on={s.enabled} disabled={!ch.can.edit}
+                  onChange={(v) => void setBuiltinSetting(b, { enabled: v }, `!${b.name} ${v ? 'on' : 'off'}`)} />
+              </div>
+            );
+          })}
+        </div>
+        <p className="sect-foot">Moderators skip cooldowns. Viewers see every command at the link the bot gives for !commands.</p>
+      </section>
+
+      {editing && (
+        <CommandDrawer key={String(open)} command={editing} isNew={open === 'new'} index={open === 'new' ? undefined : (open as number)}
+          settings={settings} sender={sender} readOnly={!ch.can.edit} onClose={() => setOpen(null)}
+          onDelete={open === 'new' ? undefined : async () => {
+            const i = open as number;
+            if (await save({ ...settings, commands: settings.commands.filter((_, j) => j !== i) }, `!${editing.name} deleted`, settings)) setOpen(null);
+          }}
+          onSave={async (c) => {
+            const next = open === 'new' ? [...settings.commands, c] : settings.commands.map((x, j) => (j === open ? c : x));
+            if (await save({ ...settings, commands: next }, open === 'new' ? `!${c.name.toLowerCase()} added` : `!${c.name} saved`)) setOpen(null);
+          }} />
+      )}
+      {editingBuiltin && (
+        <BuiltinDrawer b={editingBuiltin} s={mine(editingBuiltin)} readOnly={!ch.can.edit} onClose={() => setBuiltin(null)}
+          onSet={(patch) => void setBuiltinSetting(editingBuiltin, patch, `Saved !${editingBuiltin.name}`)} />
+      )}
+    </>
+  );
+}
+
+/** Who can use it, as a segmented choice. */
+function WhoSeg({ value, min = 'everyone', onChange, disabled }: { value: UserLevel; min?: UserLevel; onChange(v: UserLevel): void; disabled?: boolean }) {
+  const levels = LEVELS.filter((l) => LEVEL_ORDER.indexOf(l.id) >= LEVEL_ORDER.indexOf(min));
+  return <Seg label="Who can use it" small options={levels.map((l) => ({ id: l.id, label: l.short }))} value={value} onChange={onChange} disabled={disabled} />;
+}
+function CooldownSeg({ label, value, onChange, disabled }: { label: string; value: number; onChange(v: number): void; disabled?: boolean }) {
+  return <Seg label={label} small options={withValue(COOLDOWNS, value).map((n) => ({ id: n, label: short(n) }))} value={value} onChange={onChange} disabled={disabled} />;
+}
+
+function BuiltinDrawer({ b, s, readOnly, onClose, onSet }: { b: Builtin; s: BuiltinSetting; readOnly: boolean; onClose(): void; onSet(p: Partial<BuiltinSetting>): void }) {
+  return (
+    <Drawer title={<span className="mono">!{b.name}</span>} label={`!${b.name}`} onClose={onClose}>
+      <p className="muted small">{b.about}</p>
+      <div className="grp">
+        <div className="gr"><div className="gr-main"><div className="t1">Type</div></div><div className="gr-ctl"><code className="mono">{b.usage}</code></div></div>
+        {b.aliases.length > 0 && <div className="gr"><div className="gr-main"><div className="t1">Also answers to</div></div><div className="gr-ctl mono">{b.aliases.map((a) => '!' + a).join(' ')}</div></div>}
+        <div className="gr"><div className="gr-main"><div className="t1">On</div></div><div className="gr-ctl"><Switch label={`!${b.name}`} on={s.enabled} disabled={readOnly} onChange={(v) => onSet({ enabled: v })} /></div></div>
+        <div className="gr stack-sm"><div className="gr-main"><div className="t1">Who can use it</div></div><div className="gr-ctl"><WhoSeg value={s.level} min={b.min} disabled={readOnly} onChange={(v) => onSet({ level: v })} /></div></div>
+        <div className="gr stack-sm"><div className="gr-main"><div className="t1">Cooldown</div><div className="t2">For all of chat</div></div><div className="gr-ctl"><CooldownSeg label="Cooldown" value={s.cooldown} disabled={readOnly} onChange={(v) => onSet({ cooldown: v })} /></div></div>
+      </div>
+      <p className="sect-foot">Changes save as you make them.</p>
+    </Drawer>
+  );
+}
+
+function CommandDrawer({ command, isNew, index, settings, sender, readOnly, onSave, onClose, onDelete }: {
+  command: BotCommand; isNew: boolean; index?: number; settings: BotSettings; sender: string; readOnly: boolean;
+  onSave(c: BotCommand): Promise<void>; onClose(): void; onDelete?(): Promise<void>;
 }) {
   const ch = useChannel();
   const [draft, setDraft] = useState(command);
-  const [aliases, setAliases] = useState(command.aliases.map((a) => '!' + a).join(' '));
+  const [alias, setAlias] = useState('');
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<{ text: string; bad: boolean } | null>(null);
   const reply = useRef<HTMLTextAreaElement>(null);
   const set = (patch: Partial<BotCommand>) => setDraft((d) => ({ ...d, ...patch }));
-  const f = (name: string) => `${id ?? 'cmd-new'}-${name}`;
+  const per: 'all' | 'each' = draft.cooldown === 0 && draft.userCooldown > 0 ? 'each' : 'all';
+  const cool = per === 'each' ? draft.userCooldown : draft.cooldown;
 
-  const full = useMemo<BotCommand>(() => ({
-    ...draft,
-    name: draft.name.trim().replace(/^!+/, ''),
-    aliases: aliases.split(/[\s,]+/).map((a) => a.replace(/^!+/, '')).filter(Boolean),
-  }), [draft, aliases]);
+  const full = useMemo<BotCommand>(() => ({ ...draft, name: draft.name.trim().replace(/^!+/, '').toLowerCase() }), [draft]);
+  const addAlias = () => {
+    const a = alias.trim().replace(/^!+/, '').toLowerCase();
+    if (a && !draft.aliases.includes(a) && draft.aliases.length < 5 && a !== full.name) set({ aliases: [...draft.aliases, a] });
+    setAlias('');
+  };
 
   // The preview runs the unsaved command through the server's own bot.
   useEffect(() => {
@@ -421,10 +318,8 @@ function CommandEditor({ id, command, settings, index, isNew, onSave, onCancel, 
     const t = setTimeout(async () => {
       const commands = index === undefined ? [...settings.commands, full] : settings.commands.map((c, j) => (j === index ? full : c));
       try {
-        const r = await api.tryBot(ch.key, `!${full.name} @Juniper hello`, 'broadcaster', {
-          settings: { ...settings, commands: commands.map((c) => ({ ...c, enabled: true })) },
-          user: 'Maple',
-          channel: ch.name,
+        const r = await api.tryBot(ch.key, `!${full.name}`, 'broadcaster', {
+          settings: { ...settings, commands: commands.map((c) => ({ ...c, enabled: true })) }, user: 'Hazel', channel: ch.name,
         });
         setPreview(r.reply !== undefined ? { text: r.reply, bad: false } : null);
       } catch (x) {
@@ -432,203 +327,148 @@ function CommandEditor({ id, command, settings, index, isNew, onSave, onCancel, 
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [full, settings, index, ch.key]);
+  }, [full, settings, index, ch.key, ch.name]);
 
   const insert = (v: string) => {
     const el = reply.current;
     const at = el ? el.selectionStart : draft.reply.length;
     const end = el ? el.selectionEnd : at;
-    const next = (draft.reply.slice(0, at) + v + draft.reply.slice(end)).slice(0, MAX_REPLY);
-    set({ reply: next });
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(at + v.length, at + v.length);
-    });
+    set({ reply: (draft.reply.slice(0, at) + v + draft.reply.slice(end)).slice(0, MAX_REPLY) });
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(at + v.length, at + v.length); });
   };
-
-  const cooldowns = (n: number) => (COOLDOWNS.includes(n) ? COOLDOWNS : [...COOLDOWNS, n].sort((a, b) => a - b));
   const changed = isNew || JSON.stringify(full) !== JSON.stringify(command);
 
   return (
-    <form
-      className="cmd-edit"
-      id={id}
-      onSubmit={async (e) => {
+    <Drawer
+      title={isNew ? 'New command' : <>Edit <span className="mono sage">!{command.name}</span></>}
+      label={isNew ? 'New command' : `Edit !${command.name}`}
+      onClose={onClose}
+      foot={readOnly ? <><span className="spacer" /><button className="btn sm" type="button" onClick={onClose}>Close</button></> : <>
+        {onDelete && <ArmedButton className="sm danger" armedText="Click again to delete" icon="trash" onConfirm={() => void onDelete()}>Delete</ArmedButton>}
+        <span className="spacer" />
+        <button className="btn sm" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn sm primary" type="submit" form="cmd-form" disabled={busy || !changed || !full.name || !full.reply.trim()}>{busy ? 'Saving' : isNew ? 'Add command' : 'Save'}</button>
+      </>}
+    >
+      <form id="cmd-form" className="stack" onSubmit={async (e) => {
         e.preventDefault();
+        if (readOnly || !full.name || !full.reply.trim()) return;
         setBusy(true);
         try { await onSave(full); } finally { setBusy(false); }
-      }}
-    >
-      <div className="cmd-fields">
-        <label className="field" htmlFor={f('name')}>
-          Command
-          <span className="prefixed"><span aria-hidden="true">!</span>
-            <input id={f('name')} className="input" maxLength={26} required autoFocus={isNew} placeholder="discord"
-              value={draft.name.replace(/^!+/, '')} onChange={(e) => set({ name: e.target.value })} />
-          </span>
-        </label>
-        <label className="field" htmlFor={f('aliases')}>
-          Other names
-          <input id={f('aliases')} className="input" placeholder="!dc !server" value={aliases} onChange={(e) => setAliases(e.target.value)} />
-          <span className="field-hint">Optional. Up to 5, separated by spaces.</span>
-        </label>
-        <label className="field wide" htmlFor={f('reply')}>
-          <span className="field-row">Reply<span className="field-hint">{draft.reply.length} / {MAX_REPLY}</span></span>
-          <textarea id={f('reply')} ref={reply} className="input textarea" rows={3} maxLength={MAX_REPLY} required
-            placeholder="Join us on Discord: https://discord.gg/..." value={draft.reply} onChange={(e) => set({ reply: e.target.value })} />
-        </label>
-        <div className="field wide">
-          <span id={f('vars')}>Add to the reply</span>
-          <div className="chips" role="group" aria-labelledby={f('vars')}>
-            {VARIABLES.map((v) => (
-              <button key={v.v} type="button" className="chip" title={v.what} onClick={() => insert(v.v)}>{v.v}</button>
-            ))}
+      }}>
+        <fieldset className="plain" disabled={readOnly}>
+          <label className="field" htmlFor="cmd-name">Command
+            <span className="prefixed mono"><span aria-hidden="true">!</span>
+              <input id="cmd-name" className="input mono" maxLength={26} required autoFocus={isNew} placeholder="discord"
+                value={draft.name.replace(/^!+/, '')} onChange={(e) => set({ name: e.target.value.replace(/\s/g, '') })} />
+            </span>
+          </label>
+          <div className="field">
+            <label htmlFor="cmd-alias">Also answers to</label>
+            <div className="alias-box">
+              {draft.aliases.map((a) => (
+                <span className="alias" key={a}>!{a}<button type="button" aria-label={`Remove !${a}`} onClick={() => set({ aliases: draft.aliases.filter((x) => x !== a) })}><Icon id="x" /></button></span>
+              ))}
+              {draft.aliases.length < 5 && (
+                <input id="cmd-alias" className="alias-input" placeholder={draft.aliases.length ? 'Add another' : 'Other names, such as !dc'} value={alias}
+                  onChange={(e) => setAlias(e.target.value.replace(/\s/g, ''))} onBlur={addAlias}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ' || e.key === ',') { e.preventDefault(); addAlias(); }
+                    if (e.key === 'Backspace' && !alias && draft.aliases.length) set({ aliases: draft.aliases.slice(0, -1) });
+                  }} />
+              )}
+            </div>
           </div>
-        </div>
-        <label className="field" htmlFor={f('level')}>
-          Who can use it
-          <select id={f('level')} className="select" value={draft.level} onChange={(e) => set({ level: e.target.value as UserLevel })}>
-            {LEVELS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-          </select>
-        </label>
-        <div className="cmd-pair">
-          <label className="field" htmlFor={f('cooldown')}>
-            Cooldown
-            <select id={f('cooldown')} className="select" value={draft.cooldown} onChange={(e) => set({ cooldown: Number(e.target.value) })}>
-              {cooldowns(draft.cooldown).map((n) => <option key={n} value={n}>{seconds(n)}</option>)}
-            </select>
-          </label>
-          <label className="field" htmlFor={f('ucooldown')}>
-            Per viewer
-            <select id={f('ucooldown')} className="select" value={draft.userCooldown} onChange={(e) => set({ userCooldown: Number(e.target.value) })}>
-              {cooldowns(draft.userCooldown).map((n) => <option key={n} value={n}>{seconds(n)}</option>)}
-            </select>
-          </label>
-        </div>
-      </div>
-      <div className="cmd-preview" aria-live="polite">
-        <span className="cmd-preview-label">Preview</span>
-        <div className="bubble you"><b>Maple</b>!{full.name || 'command'} @Juniper hello</div>
-        {preview
-          ? <div className={'bubble bot' + (preview.bad ? ' bad' : '')}>{!preview.bad && <b>Bot</b>}{preview.text}</div>
-          : <div className="bubble bot muted">Write a reply to see it here.</div>}
-      </div>
-      <div className="type-actions">
-        {onDelete && <button className="btn ghost danger push-left" type="button" onClick={() => onDelete()}><Icon id="trash" />Delete</button>}
-        <button className="btn ghost" type="button" onClick={onCancel}>Cancel</button>
-        <button className="btn primary" type="submit" disabled={busy || !changed || !full.name || !full.reply.trim()}>{busy ? 'Saving' : isNew ? 'Add command' : 'Save'}</button>
-      </div>
-    </form>
+          <div className="field">
+            <label htmlFor="cmd-reply">Reply</label>
+            <textarea id="cmd-reply" ref={reply} className="input" rows={3} maxLength={MAX_REPLY} required
+              placeholder="Join us on Discord: https://discord.gg/..." value={draft.reply} onChange={(e) => set({ reply: e.target.value })} />
+            <div className="chat-msg-foot">
+              <span className="vars" aria-label="Insert a variable">
+                {VARIABLES.map((v) => <button key={v.v} type="button" className="var" title={v.what} onClick={() => insert(v.v)}>{v.v}</button>)}
+              </span>
+              <span className="faint mono count">{draft.reply.length}/{MAX_REPLY}</span>
+            </div>
+          </div>
+          <div className="grp">
+            <div className="gr stack-sm"><div className="gr-main"><div className="t1">Who can use it</div></div><div className="gr-ctl"><WhoSeg value={draft.level} onChange={(v) => set({ level: v })} /></div></div>
+            <div className="gr stack-sm"><div className="gr-main"><div className="t1">Cooldown</div></div>
+              <div className="gr-ctl"><CooldownSeg label="Cooldown" value={cool} onChange={(v) => set(per === 'each' ? { userCooldown: v, cooldown: 0 } : { cooldown: v, userCooldown: 0 })} /></div>
+            </div>
+            <div className="gr stack-sm">
+              <div className="gr-main"><div className="t1">Cooldown is for</div><div className="t2">{cool ? (per === 'each' ? `Each viewer waits ${seconds(cool)}` : `Once every ${seconds(cool)} for all of chat`) : 'No wait'}</div></div>
+              <div className="gr-ctl">
+                <Seg label="Cooldown is for" small options={[{ id: 'all', label: 'Whole chat' }, { id: 'each', label: 'Each viewer' }]} value={per}
+                  onChange={(v) => set(v === 'each' ? { userCooldown: cool, cooldown: 0 } : { cooldown: cool, userCooldown: 0 })} />
+              </div>
+            </div>
+            {!isNew && <div className="gr"><div className="gr-main"><div className="t1">Used</div></div><div className="gr-ctl muted">{command.count === 1 ? 'Once' : `${num(command.count)} times`}</div></div>}
+          </div>
+        </fieldset>
+        <section className="sect" aria-labelledby="cmd-preview-title">
+          <div className="sect-head"><div><h2 id="cmd-preview-title">Preview in chat</h2></div></div>
+          <TwitchChat lines={[
+            { name: 'Hazel', color: '#9147ff', text: `!${full.name || 'command'}` },
+            preview
+              ? preview.bad ? { note: preview.text } : { name: sender, color: '#1e90ff', mod: sender === 'Sylva_Bot', text: preview.text }
+              : { note: 'Write a reply to see it here.' },
+          ]} />
+        </section>
+      </form>
+    </Drawer>
   );
 }
 
-interface Line { id: number; who: 'you' | 'bot' | 'note'; text: string; name?: string }
+export type ChatLine = { name: string; color: string; text: ReactNode; mod?: boolean; reply?: string } | { note: string };
 
-function TestChat({ settings }: { settings: BotSettings }) {
-  const ch = useChannel();
-  const [level, setLevel] = useState<UserLevel>('everyone');
-  const [text, setText] = useState('');
-  const [lines, setLines] = useState<Line[]>([]);
-  const list = useRef<HTMLOListElement>(null);
-  const nextId = useRef(1);
-
-  useEffect(() => {
-    list.current?.scrollTo({ top: list.current.scrollHeight });
-  }, [lines]);
-
-  const add = (l: Omit<Line, 'id'>[]) => setLines((x) => [...x, ...l.map((y) => ({ ...y, id: nextId.current++ }))].slice(-40));
-
-  const send = async () => {
-    const message = text.trim();
-    if (!message) return;
-    setText('');
-    const name = level === 'broadcaster' ? ch.name : 'Maple';
-    const you: Omit<Line, 'id'> = { who: 'you', text: message, name };
-    try {
-      const r = await api.tryBot(ch.key, message, level, { user: name, channel: ch.name });
-      if (r.reply !== undefined) { add([you, { who: 'bot', text: r.reply }]); return; }
-      const c = settings.commands.find((x) => x.name === r.command);
-      const trigger = message.trim().split(/\s+/)[0];
-      const note = {
-        notACommand: 'Not a command, so the bot stays quiet. Commands start with !.',
-        unknown: `There is no ${trigger.toLowerCase()} command.`,
-        off: `!${r.command} is turned off.`,
-        level: `Only ${c ? levelOf(c.level).who : 'some viewers'} can use !${r.command}.`,
-        cooldown: `!${r.command} is cooling down.`,
-      }[r.skip ?? 'unknown'];
-      add([you, { who: 'note', text: note }]);
-    } catch (x) {
-      add([you, { who: 'note', text: errorText(x) }]);
-    }
-  };
-
+/** A few lines of chat as Twitch shows them. */
+export function TwitchChat({ lines }: { lines: ChatLine[] }) {
   return (
-    <Card id="test-chat" title="Test chat" desc="Type a command to see what the bot would say. Nothing here goes to Twitch, and cooldowns are skipped.">
-      <ol className="test-log" ref={list} aria-live="polite" aria-label="Test messages">
-        {lines.length === 0 && <li className="empty">Try !commands or !lurk.</li>}
-        {lines.map((l) => (
-          <li key={l.id} className={'test-line ' + l.who}>
-            {l.who === 'you' && <b>{l.name}</b>}
-            {l.who === 'bot' && <b className="bot-name"><Icon id="bot" />Bot</b>}
-            <span>{l.text}</span>
-          </li>
+    <div className="twitch-chat" aria-live="polite">
+      {lines.map((l, i) => 'note' in l
+        ? <div className="tc-line tc-note" key={i}>{l.note}</div>
+        : (
+          <div className="tc-line" key={i}>
+            {l.reply && <div className="tc-reply"><Icon id="reply" /><span>Replying to {l.reply}</span></div>}
+            {l.mod && <img className="tc-badge" src={MOD_BADGE} alt="Moderator" width={18} height={18} />}
+            <span className="tc-name" style={{ color: l.color }}>{l.name}</span>: {l.text}
+          </div>
         ))}
-      </ol>
-      <form className="test-form" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-        <label className="sr-only" htmlFor="test-level">Send as</label>
-        <select id="test-level" className="select" value={level} onChange={(e) => setLevel(e.target.value as UserLevel)}>
-          <option value="everyone">As Maple, a viewer</option>
-          <option value="subscriber">As Maple, a subscriber</option>
-          <option value="vip">As Maple, a VIP</option>
-          <option value="moderator">As Maple, a moderator</option>
-          <option value="broadcaster">As you</option>
-        </select>
-        <label className="sr-only" htmlFor="test-text">Message</label>
-        <input id="test-text" className="input" placeholder="!lurk" value={text} maxLength={500} onChange={(e) => setText(e.target.value)} />
-        <button className="btn primary" type="submit" disabled={!text.trim()}><Icon id="send" />Send</button>
-      </form>
-    </Card>
+    </div>
   );
 }
 
 /* ---------------------------------------------------------------- Timers */
 
-const INTERVALS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180];
-const LINES = [0, 1, 2, 3, 5, 10, 20, 50, 100];
+const INTERVALS = [5, 10, 15, 30, 60];
+const LINES = [0, 1, 5, 10, 20];
 const TIMER_VARIABLES = VARIABLES.filter((v) => ['${channel}', '${uptime}', '${commands}', '${random.1-100}'].includes(v.v));
 
 function minutes(n: number): string {
-  if (n < 60) return `${n} minutes`;
+  if (n < 60) return `${n} min`;
   if (n === 60) return '1 hour';
   return n % 60 === 0 ? `${n / 60} hours` : `${Math.floor(n / 60)} h ${n % 60} min`;
 }
-
 function when(at: number, now: number): string {
   const m = Math.round((at - now) / 60_000);
-  if (m <= 0) return 'Next with the next chat line';
-  if (m === 1) return 'Next in about 1 minute';
-  if (m < 60) return `Next in about ${m} minutes`;
-  return `Next at ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  if (m <= 0) return 'With the next chat line';
+  if (m === 1) return 'In about 1 minute';
+  if (m < 60) return `In about ${m} minutes`;
+  return `At ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
-
 function statusText(st: TimerStatus | undefined, now: number): string {
   if (!st) return '';
   switch (st.waiting) {
     case 'off': return 'Off';
-    case 'bot': return 'Waits for the bot to be on';
+    case 'bot': return 'Waits for the bot';
     case 'live': return 'Waits for you to go live';
-    case 'chat': return st.linesNeeded === 1 ? 'Waits for 1 more chat line' : `Waits for ${st.linesNeeded} more chat lines`;
+    case 'chat': return st.linesNeeded === 1 ? 'Waits for 1 chat line' : `Waits for ${st.linesNeeded} chat lines`;
     default: return st.nextAt ? when(st.nextAt, now) : '';
   }
 }
-
 const blankTimer = (): BotTimer => ({ id: '', name: '', message: '', interval: 15, lines: 5, liveOnly: true, enabled: true });
 
-function Timers({ view, onSave, onView }: {
-  view: BotView;
-  onSave(next: BotSettings, done?: string, undo?: BotSettings): Promise<boolean>;
-  onView(v: BotView): void;
-}) {
+function Timers({ view, onSave, onView }: { view: BotView; onSave: Save; onView(v: BotView): void }) {
   const ch = useChannel();
   const toast = useToast();
   const [open, setOpen] = useState<number | 'new' | null>(null);
@@ -641,180 +481,106 @@ function Timers({ view, onSave, onView }: {
   }, []);
 
   const sendNow = async (t: BotTimer) => {
-    try {
-      onView(await api.sendTimer(ch.key, t.id));
-      toast(`${t.name} posted in your chat`);
-    } catch (x) {
-      toast(errorText(x), true);
-    }
+    try { onView(await api.sendTimer(ch.key, t.id)); toast(`${t.name} posted in your chat`); } catch (x) { toast(errorText(x), true); }
   };
+  const editing = open === 'new' ? blankTimer() : open !== null ? settings.timers[open] : undefined;
 
   return (
-    <Card
-      id="timers"
-      className="timers-card"
-      title="Timers"
-      desc="Messages the bot posts on a schedule. A timer can wait for chat to be active, so the bot never talks to an empty room."
-      action={
-        <button className="btn sm" type="button" onClick={() => setOpen('new')} disabled={open === 'new' || settings.timers.length >= 20}>
-          <Icon id="plus" />New timer
-        </button>
-      }
-    >
-      <ul className="types">
-        {open === 'new' && (
-          <li className="type open">
-            <TimerEditor
-              timer={blankTimer()}
-              isNew
-              onCancel={() => setOpen(null)}
-              onSave={async (t) => {
-                if (await onSave({ ...settings, timers: [...settings.timers, t] }, `${t.name.trim()} added`)) setOpen(null);
-              }}
-            />
-          </li>
-        )}
-        {settings.timers.length === 0 && open !== 'new' && (
-          <li className="empty">No timers yet. Add one to remind viewers to follow, or to share your Discord every half hour.</li>
-        )}
-        {settings.timers.map((t, i) => {
-          const isOpen = open === i;
-          const st = view.timers.find((x) => x.id === t.id);
-          const rule = [`Every ${minutes(t.interval)}`];
-          if (t.lines > 0) rule.push(t.lines === 1 ? 'after a chat line' : `after ${t.lines} chat lines`);
-          if (t.liveOnly) rule.push('only while live');
-          return (
-            <li key={t.id} className={'type cmd' + (isOpen ? ' open' : '') + (t.enabled ? '' : ' off')}>
-              <div className="type-row">
-                <div className="type-main">
-                  <b className="timer-name">{t.name}</b>
-                  <span className="cmd-reply">{t.message}</span>
-                  <span className="cmd-meta">{rule.join(' · ')}</span>
-                  <span className={'timer-status' + (st?.nextAt && !st.waiting ? ' due' : '')}>{statusText(st, now)}</span>
-                </div>
-                <button className="btn sm ghost" type="button" disabled={!settings.enabled || !t.enabled} title={settings.enabled ? 'Post it in your chat now' : 'Turn the bot on first'} onClick={() => sendNow(t)}>
-                  Send now
-                </button>
-                <button className="btn sm ghost" type="button" aria-expanded={isOpen} aria-controls={`timer-edit-${i}`} onClick={() => setOpen(isOpen ? null : i)}>
-                  {isOpen ? 'Close' : 'Edit'}
-                </button>
-                <button
-                  className="switch"
-                  type="button"
-                  role="switch"
-                  aria-checked={t.enabled}
-                  aria-label={t.name}
-                  onClick={() => onSave(
-                    { ...settings, timers: settings.timers.map((x, j) => (j === i ? { ...x, enabled: !x.enabled } : x)) },
-                    `${t.name} ${t.enabled ? 'off' : 'on'}`,
-                  )}
-                />
-              </div>
-              {isOpen && (
-                <TimerEditor
-                  id={`timer-edit-${i}`}
-                  timer={t}
-                  onCancel={() => setOpen(null)}
-                  onDelete={async () => {
-                    if (await onSave({ ...settings, timers: settings.timers.filter((_, j) => j !== i) }, `${t.name} deleted`, settings)) setOpen(null);
-                  }}
-                  onSave={async (next) => {
-                    if (await onSave({ ...settings, timers: settings.timers.map((x, j) => (j === i ? next : x)) }, `${next.name.trim()} saved`)) setOpen(null);
-                  }}
-                />
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </Card>
+    <section className="sect" aria-labelledby="timers-title">
+      <div className="sect-head">
+        <div><h2 id="timers-title">Timers</h2><p>Messages Sylva posts on a schedule. A timer can wait for chat to be active, so it never talks to an empty room.</p></div>
+        <div className="page-actions"><button className="btn sm primary" type="button" onClick={() => setOpen('new')} disabled={settings.timers.length >= 20}><Icon id="plus" />New timer</button></div>
+      </div>
+      <div className="tbl-head tm-cols" aria-hidden="true"><span>Timer</span><span>Message</span><span>Every</span><span>Next</span><span /></div>
+      <div className="grp">
+        {settings.timers.length === 0 && <div className="empty">No timers yet. Add one to remind viewers to follow, or to share your Discord every half hour.</div>}
+        {settings.timers.map((t, i) => (
+          <div className={'gr tm-cols cm-row' + (t.enabled ? '' : ' off')} key={t.id || i}>
+            <button className="cm-open" type="button" onClick={() => setOpen(i)} aria-label={`Edit ${t.name}`}><span className="t1">{t.name}</span></button>
+            <button className="cm-open cm-reply" type="button" tabIndex={-1} onClick={() => setOpen(i)}>{t.message}</button>
+            <span className="muted">{minutes(t.interval)}</span>
+            <span className="muted small">{statusText(view.timers.find((x) => x.id === t.id), now)}</span>
+            <Switch label={t.name} on={t.enabled}
+              onChange={(v) => void onSave({ ...settings, timers: settings.timers.map((x, j) => (j === i ? { ...x, enabled: v } : x)) }, `${t.name} ${v ? 'on' : 'off'}`)} />
+          </div>
+        ))}
+      </div>
+      {editing && (
+        <TimerDrawer key={String(open)} timer={editing} isNew={open === 'new'} canSend={settings.enabled && editing.enabled && open !== 'new'}
+          onSend={() => void sendNow(editing)} onClose={() => setOpen(null)}
+          onDelete={open === 'new' ? undefined : async () => {
+            const i = open as number;
+            if (await onSave({ ...settings, timers: settings.timers.filter((_, j) => j !== i) }, `${editing.name} deleted`, settings)) setOpen(null);
+          }}
+          onSave={async (next) => {
+            const timers = open === 'new' ? [...settings.timers, next] : settings.timers.map((x, j) => (j === open ? next : x));
+            if (await onSave({ ...settings, timers }, open === 'new' ? `${next.name.trim()} added` : `${next.name.trim()} saved`)) setOpen(null);
+          }} />
+      )}
+    </section>
   );
 }
 
-function TimerEditor({ id, timer, isNew, onSave, onCancel, onDelete }: {
-  id?: string; timer: BotTimer; isNew?: boolean;
-  onSave(t: BotTimer): Promise<void>; onCancel(): void; onDelete?(): Promise<void>;
+function TimerDrawer({ timer, isNew, canSend, onSave, onSend, onClose, onDelete }: {
+  timer: BotTimer; isNew: boolean; canSend: boolean; onSave(t: BotTimer): Promise<void>; onSend(): void; onClose(): void; onDelete?(): Promise<void>;
 }) {
   const [draft, setDraft] = useState(timer);
   const [busy, setBusy] = useState(false);
   const message = useRef<HTMLTextAreaElement>(null);
   const set = (patch: Partial<BotTimer>) => setDraft((d) => ({ ...d, ...patch }));
-  const f = (name: string) => `${id ?? 'timer-new'}-${name}`;
   const changed = isNew || JSON.stringify(draft) !== JSON.stringify(timer);
-  const options = (list: number[], n: number) => (list.includes(n) ? list : [...list, n].sort((a, b) => a - b));
-
   const insert = (v: string) => {
     const el = message.current;
     const at = el ? el.selectionStart : draft.message.length;
     const end = el ? el.selectionEnd : at;
     set({ message: (draft.message.slice(0, at) + v + draft.message.slice(end)).slice(0, MAX_REPLY) });
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(at + v.length, at + v.length);
-    });
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(at + v.length, at + v.length); });
   };
-
   return (
-    <form
-      className="cmd-edit timer-edit"
-      id={id}
-      onSubmit={async (e) => {
+    <Drawer title={isNew ? 'New timer' : timer.name} icon="timer" onClose={onClose}
+      actions={!isNew ? <button className="btn sm" type="button" disabled={!canSend} title={canSend ? 'Post it in your chat now' : 'Turn the bot and this timer on first'} onClick={onSend}><Icon id="send" />Send now</button> : undefined}
+      foot={<>
+        {onDelete && <ArmedButton className="sm danger" armedText="Click again to delete" icon="trash" onConfirm={() => void onDelete()}>Delete</ArmedButton>}
+        <span className="spacer" />
+        <button className="btn sm" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn sm primary" type="submit" form="timer-form" disabled={busy || !changed || !draft.name.trim() || !draft.message.trim()}>{busy ? 'Saving' : isNew ? 'Add timer' : 'Save'}</button>
+      </>}>
+      <form id="timer-form" className="stack" onSubmit={async (e) => {
         e.preventDefault();
+        if (!draft.name.trim() || !draft.message.trim()) return;
         setBusy(true);
         try { await onSave(draft); } finally { setBusy(false); }
-      }}
-    >
-      <div className="cmd-fields">
-        <label className="field wide" htmlFor={f('name')}>
-          Name
-          <input id={f('name')} className="input" maxLength={40} required autoFocus={isNew} placeholder="Follow reminder"
-            value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+      }}>
+        <label className="field" htmlFor="tm-name">Name
+          <input id="tm-name" className="input" maxLength={40} required autoFocus={isNew} placeholder="Follow reminder" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
           <span className="field-hint">Only you see this.</span>
         </label>
-        <label className="field wide" htmlFor={f('message')}>
-          <span className="field-row">Message<span className="field-hint">{draft.message.length} / {MAX_REPLY}</span></span>
-          <textarea id={f('message')} ref={message} className="input textarea" rows={3} maxLength={MAX_REPLY} required
+        <div className="field">
+          <label htmlFor="tm-msg">Message</label>
+          <textarea id="tm-msg" ref={message} className="input" rows={3} maxLength={MAX_REPLY} required
             placeholder="Enjoying the stream? Hit follow so you know when I am live." value={draft.message} onChange={(e) => set({ message: e.target.value })} />
-        </label>
-        <div className="field wide">
-          <span id={f('vars')}>Add to the message</span>
-          <div className="chips" role="group" aria-labelledby={f('vars')}>
-            {TIMER_VARIABLES.map((v) => (
-              <button key={v.v} type="button" className="chip" title={v.what} onClick={() => insert(v.v)}>{v.v}</button>
-            ))}
+          <div className="chat-msg-foot">
+            <span className="vars" aria-label="Insert a variable">{TIMER_VARIABLES.map((v) => <button key={v.v} type="button" className="var" title={v.what} onClick={() => insert(v.v)}>{v.v}</button>)}</span>
+            <span className="faint mono count">{draft.message.length}/{MAX_REPLY}</span>
           </div>
         </div>
-        <label className="field" htmlFor={f('interval')}>
-          Post every
-          <select id={f('interval')} className="select" value={draft.interval} onChange={(e) => set({ interval: Number(e.target.value) })}>
-            {options(INTERVALS, draft.interval).map((n) => <option key={n} value={n}>{minutes(n)}</option>)}
-          </select>
-        </label>
-        <label className="field" htmlFor={f('lines')}>
-          Chat lines in between
-          <select id={f('lines')} className="select" value={draft.lines} onChange={(e) => set({ lines: Number(e.target.value) })}>
-            {options(LINES, draft.lines).map((n) => <option key={n} value={n}>{n === 0 ? 'None needed' : `At least ${n}`}</option>)}
-          </select>
-        </label>
-        <div className="field inline wide">
-          <span>Only while you are live</span>
-          <button className="switch" type="button" role="switch" aria-checked={draft.liveOnly} aria-label="Only while you are live"
-            onClick={() => set({ liveOnly: !draft.liveOnly })} />
+        <div className="grp">
+          <div className="gr stack-sm"><div className="gr-main"><div className="t1">Post every</div></div>
+            <div className="gr-ctl"><Seg label="Post every" small options={withValue(INTERVALS, draft.interval).map((n) => ({ id: n, label: n < 60 ? `${n}m` : `${n / 60}h` }))} value={draft.interval} onChange={(n) => set({ interval: n })} /></div>
+          </div>
+          <div className="gr stack-sm"><div className="gr-main"><div className="t1">Chat lines in between</div><div className="t2">So it never posts to a quiet chat</div></div>
+            <div className="gr-ctl"><Seg label="Chat lines in between" small options={withValue(LINES, draft.lines).map((n) => ({ id: n, label: n === 0 ? 'None' : String(n) }))} value={draft.lines} onChange={(n) => set({ lines: n })} /></div>
+          </div>
+          <div className="gr"><div className="gr-main"><div className="t1">Only while live</div></div>
+            <div className="gr-ctl"><Switch label="Only while live" on={draft.liveOnly} onChange={(v) => set({ liveOnly: v })} /></div>
+          </div>
         </div>
-      </div>
-      <div className="cmd-preview">
-        <span className="cmd-preview-label">How it runs</span>
-        <p className="bubble">
-          {draft.liveOnly ? 'While you are live, ' : ''}the bot posts this every {minutes(draft.interval)}
-          {draft.lines > 0 ? `, once at least ${draft.lines} chat ${draft.lines === 1 ? 'line has' : 'lines have'} been sent since the last time` : ''}.
+        <p className="sect-foot">
+          {draft.liveOnly ? 'While you are live, ' : ''}Sylva posts this every {minutes(draft.interval)}
+          {draft.lines > 0 ? `, once at least ${draft.lines} chat ${draft.lines === 1 ? 'line has' : 'lines have'} come in since the last time` : ''}.
           Timers are spaced at least 30 seconds apart.
         </p>
-      </div>
-      <div className="type-actions">
-        {onDelete && <button className="btn ghost danger push-left" type="button" onClick={() => onDelete()}><Icon id="trash" />Delete</button>}
-        <button className="btn ghost" type="button" onClick={onCancel}>Cancel</button>
-        <button className="btn primary" type="submit" disabled={busy || !changed || !draft.name.trim() || !draft.message.trim()}>{busy ? 'Saving' : isNew ? 'Add timer' : 'Save'}</button>
-      </div>
-    </form>
+      </form>
+    </Drawer>
   );
 }

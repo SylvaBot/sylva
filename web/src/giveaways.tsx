@@ -48,7 +48,7 @@ export function GiveawaysPage() {
           {!view.botOn && (
             <div className="notice">
               <span>Entries come from chat, which Sylva only reads for commands while the chat bot is on. Turn it on to run a giveaway.</span>
-              <Link className="btn sm" href="/app/bot">Open Chat bot</Link>
+              <Link className="btn sm" href="/app/commands">Open Commands</Link>
             </div>
           )}
           <Gate on={ch.can.moderate}>

@@ -27,6 +27,21 @@ export function usePath(): string {
   return path;
 }
 
+/** The query string, kept current like usePath. */
+export function useSearch(): string {
+  const [search, setSearch] = useState(location.search);
+  useEffect(() => {
+    const update = () => setSearch(location.search);
+    listeners.add(update);
+    addEventListener('popstate', update);
+    return () => {
+      listeners.delete(update);
+      removeEventListener('popstate', update);
+    };
+  }, []);
+  return search;
+}
+
 type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; current?: boolean };
 
 /** An in app link: plain clicks change the page without a reload. */

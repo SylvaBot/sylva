@@ -1,56 +1,84 @@
-// The dashboard frame: a sidebar with the pages, the channel and a red ring
-// on your avatar while you are live, and on phones a top bar that opens the sidebar as a drawer.
+// The dashboard frame: a sidebar with the pages in four groups, the search
+// that jumps to any page or action (Ctrl K), and your name with Settings at
+// the foot. On phones a top bar opens the sidebar as a drawer. Settings opens
+// as a window over the page.
 
-import { Fragment, useEffect, useRef, useState } from 'react';
-import { BotPage } from './bot';
-import { ChatAlertsPage } from './chatAlerts';
+import { Command } from 'cmdk';
+import { Fragment, useEffect, useRef, useState, type ComponentType } from 'react';
+import { api } from './api';
+import { AlertsPage } from './alertsPage';
+import { AlertStylePage } from './alertStyle';
 import { ROLE_NAMES, useChannel } from './channel';
+import { CommandsPage } from './bot';
 import { GiveawaysPage } from './giveaways';
-import { LoyaltyPage } from './loyalty';
-import { StorePage } from './store';
+import { HomePage } from './home';
 import { ModerationPage } from './moderation';
 import { OverlayPage } from './overlay';
-import { ActivityPage, AlertsPage, NotFoundPage, OverviewPage, SettingsPage } from './pages';
-import { Command } from 'cmdk';
+import { ActivityPage, NotFoundPage } from './pages';
+import { PointsPage } from './points';
 import { Link, navigate } from './router';
-import { StatsPage } from './stats';
+import { SettingsWindow, type SettingsSection } from './settings';
 import { TipsPage } from './tipsAdmin';
-import { Avatar, Icon } from './ui';
-import { api } from './api';
+import { Avatar, errorText, Icon, Leaf, useToast } from './ui';
 
-const PAGES = [
-  { path: '/app', label: 'Overview', icon: 'home', view: OverviewPage, group: 'Home' },
-  { path: '/app/stats', label: 'Stats', icon: 'chart', view: StatsPage, group: 'Home' },
-  { path: '/app/activity', label: 'Activity', icon: 'activity', view: ActivityPage, group: 'Home' },
+interface Page { path: string; label: string; icon: string; view: ComponentType; group: string; nav?: string }
+
+const PAGES: Page[] = [
+  { path: '/app', label: 'Home', icon: 'home', view: HomePage, group: '' },
+  { path: '/app/activity', label: 'Activity', icon: 'activity', view: ActivityPage, group: '' },
   { path: '/app/alerts', label: 'Alerts', icon: 'bell', view: AlertsPage, group: 'Stream' },
-  { path: '/app/overlay', label: 'Overlays', icon: 'monitor', view: OverlayPage, group: 'Stream' },
+  { path: '/app/overlays', label: 'Overlays', icon: 'layers', view: OverlayPage, group: 'Stream' },
   { path: '/app/tips', label: 'Tips', icon: 'tip', view: TipsPage, group: 'Stream' },
-  { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage, group: 'Bot' },
-  { path: '/app/chat-alerts', label: 'Chat alerts', icon: 'zap', view: ChatAlertsPage, group: 'Bot' },
-  { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage, group: 'Bot' },
-  { path: '/app/loyalty', label: 'Loyalty', icon: 'gem', view: LoyaltyPage, group: 'Community' },
-  { path: '/app/store', label: 'Store', icon: 'gift', view: StorePage, group: 'Community' },
-  { path: '/app/giveaways', label: 'Giveaways', icon: 'trophy', view: GiveawaysPage, group: 'Community' },
+  { path: '/app/commands', label: 'Commands', icon: 'terminal', view: CommandsPage, group: 'Chat' },
+  { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage, group: 'Chat' },
+  { path: '/app/points', label: 'Points', icon: 'gem', view: PointsPage, group: 'Community' },
+  { path: '/app/giveaways', label: 'Giveaways', icon: 'ticket', view: GiveawaysPage, group: 'Community' },
 ];
-const SETTINGS = { path: '/app/settings', label: 'Settings', icon: 'settings', view: SettingsPage, group: 'Account' };
+/** Pages that are not in the sidebar, shown under the page they belong to. */
+const SUBPAGES: Page[] = [
+  { path: '/app/alerts/style', label: 'Alert style', icon: 'palette', view: AlertStylePage, group: 'Stream', nav: '/app/alerts' },
+];
+/** Old addresses keep working: bookmarks, Sylva Desktop and older links. */
+const MOVED: Record<string, string> = {
+  '/app/stats': '/app',
+  '/app/overlay': '/app/overlays',
+  '/app/bot': '/app/commands',
+  '/app/chat-alerts': '/app/alerts?tab=chat',
+  '/app/loyalty': '/app/points',
+  '/app/store': '/app/points',
+};
 
 export function Shell({ path }: { path: string }) {
   const ch = useChannel();
   const [open, setOpen] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [settings, setSettings] = useState<SettingsSection | null>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
-  const rail = useRef<HTMLElement>(null);
+  const side = useRef<HTMLElement>(null);
   const wasOpen = useRef(false);
   const clean = path.replace(/\/+$/, '') || '/app';
-  const page = [...PAGES, SETTINGS].find((p) => p.path === clean);
+  const isSettings = clean === '/app/settings';
+  const page = isSettings ? PAGES[0] : [...PAGES, ...SUBPAGES].find((p) => p.path === clean);
+  const navPath = page?.nav ?? page?.path;
   const View = page?.view ?? NotFoundPage;
 
+  // Old page addresses move to where that page lives now.
   useEffect(() => {
-    document.title = `${page?.label ?? 'Not found'} · Sylva`;
-    setOpen(false);
-  }, [page]);
+    const to = MOVED[clean];
+    if (to) navigate(to + (to.includes('?') ? '' : location.search) + location.hash, true);
+  }, [clean]);
 
-  // Ctrl or Cmd + K opens the page search from anywhere.
+  // /app/settings opens the Settings window over Home, for older links.
+  useEffect(() => {
+    if (isSettings) setSettings((s) => s ?? 'account');
+  }, [isSettings]);
+
+  useEffect(() => {
+    document.title = `${isSettings ? 'Settings' : page?.label ?? 'Not found'} · Sylva`;
+    setOpen(false);
+  }, [page, isSettings]);
+
+  // Ctrl or Cmd + K opens the search from anywhere.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((v) => !v); }
@@ -62,13 +90,12 @@ export function Shell({ path }: { path: string }) {
   // The phone drawer: focus moves into it when it opens and back to the menu
   // button when it closes; the page behind it is inert meanwhile.
   useEffect(() => {
-    if (open) rail.current?.querySelector<HTMLElement>('nav a')?.focus();
+    if (open) side.current?.querySelector<HTMLElement>('.side-nav a')?.focus();
     else if (wasOpen.current) menuButton.current?.focus();
     wasOpen.current = open;
     if (!open) return;
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    // Wider than a phone there is no drawer, so nothing may stay inert.
-    const wide = matchMedia('(min-width: 641px)');
+    const wide = matchMedia('(min-width: 721px)');
     const resized = () => wide.matches && setOpen(false);
     addEventListener('keydown', esc);
     wide.addEventListener('change', resized);
@@ -78,9 +105,7 @@ export function Shell({ path }: { path: string }) {
     };
   }, [open]);
 
-  const queued = ch.alerts?.queued ?? 0;
-  // No connection badge while things work; only a lost connection that lasts
-  // a few seconds gets a quiet note.
+  // Only a lost connection that lasts a few seconds gets a quiet note.
   const [lost, setLost] = useState(false);
   useEffect(() => {
     if (ch.connected) { setLost(false); return; }
@@ -88,111 +113,122 @@ export function Shell({ path }: { path: string }) {
     return () => clearTimeout(t);
   }, [ch.connected]);
 
-  // Live or not, for the red ring around the avatar: asked every minute, and
-  // right away when a going live or offline event comes in.
-  const [live, setLive] = useState(false);
-  const lastStreamEvent = ch.events.find((e) => e.rawType === 'stream.online' || e.rawType === 'stream.offline')?.seq;
-  useEffect(() => {
-    let gone = false;
-    const check = () => api.streams(ch.key).then((d) => !gone && setLive(!!d.live)).catch(() => {});
-    check();
-    const t = setInterval(check, 60_000);
-    return () => { gone = true; clearInterval(t); };
-  }, [ch.key, lastStreamEvent]);
-  const navLink = (p: typeof SETTINGS) => (
-    <Link key={p.path} href={p.path} current={p === page} data-tip={p.label} aria-label={p.label}>
-      <Icon id={p.icon} /><span className="rail-label">{p.label}</span>
-      {p.path === '/app/alerts' && queued > 0 && <span className="badge" title={`${queued} alerts waiting`}>{queued}</span>}
-    </Link>
-  );
+  const closeSettings = () => {
+    setSettings(null);
+    if (isSettings) navigate('/app', true);
+  };
 
   return (
     <div className={'shell' + (open ? ' open' : '')}>
       <div className="drawer-scrim" onClick={() => setOpen(false)} />
-      <aside ref={rail} className="rail" aria-label="Dashboard">
-        <Link className="rail-brand" href="/app" aria-label="Sylva home"><img src="/logo.svg" alt="" width="32" height="32" /><span className="rail-label">Sylva</span></Link>
-        <nav className="rail-nav" aria-label="Pages">
+      <aside ref={side} className="side" aria-label="Sylva">
+        <Link className="side-brand" href="/app" aria-label="Sylva home"><Leaf size={24} />Sylva</Link>
+        <button className="side-search" type="button" onClick={() => setPalette(true)} aria-keyshortcuts="Control+K Meta+K">
+          <Icon id="search" /><span>Search or jump</span><span className="kbd">Ctrl K</span>
+        </button>
+        <nav className="side-nav" aria-label="Pages">
           {PAGES.map((p, i) => (
             <Fragment key={p.path}>
-              {i > 0 && p.group !== PAGES[i - 1].group && <span className="rail-sep" role="separator" />}
-              {navLink(p)}
+              {p.group && p.group !== PAGES[i - 1]?.group && <div className="side-label" role="presentation">{p.group}</div>}
+              <Link className="si" href={p.path} current={p.path === navPath && !isSettings}>
+                <Icon id={p.icon} />{p.label}
+              </Link>
             </Fragment>
           ))}
         </nav>
-        <nav className="rail-foot" aria-label="Account">{navLink(SETTINGS)}</nav>
+        <div className="side-foot">
+          {ch.channels.length > 1 && (
+            <label className="side-channel">
+              <span className="sr-only">Channel</span>
+              <select className="select sm" value={ch.key} onChange={(e) => ch.switchTo(e.target.value)}>
+                {ch.channels.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {(c.name || c.login || 'Your channel') + (c.role === 'owner' ? '' : ` (${ROLE_NAMES[c.role]})`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div className="side-me">
+            <Avatar name={ch.you} url={ch.twitch?.avatar} />
+            <span className="side-me-name">{ch.you}{ch.role !== 'owner' && <small>{ROLE_NAMES[ch.role]} for {ch.name}</small>}</span>
+            <button className="icon-btn" type="button" aria-label="Settings" title="Settings" onClick={() => { setOpen(false); setSettings('account'); }}>
+              <Icon id="settings" />
+            </button>
+          </div>
+        </div>
       </aside>
 
       <div className="frame" inert={open}>
-        <header className="appbar">
-          <button ref={menuButton} className="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}>
+        <header className="topbar">
+          <button ref={menuButton} className="icon-btn" type="button" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}>
             <Icon id="menu" />
           </button>
-          <div className="appbar-title">
-            <span className="appbar-group">{page?.group ?? 'Sylva'}</span>
-            <b>{page?.label ?? 'Not found'}</b>
-          </div>
-          <div className="appbar-right">
-            <button className="search-pill" type="button" onClick={() => setPalette(true)} aria-keyshortcuts="Control+K Meta+K">
-              <Icon id="search" /><span>Search</span><kbd>Ctrl K</kbd>
-            </button>
-            {lost && <span className="conn down" role="status" title="Nothing is lost. Events catch up when it reconnects."><span className="dot" />Reconnecting</span>}
-            {ch.channels.length > 1 && (
-              <label className="channel-pick">
-                <span className="sr-only">Channel</span>
-                <select className="select sm" value={ch.key} onChange={(e) => ch.switchTo(e.target.value)}>
-                  {ch.channels.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {(c.name || c.login || 'Your channel') + (c.role === 'owner' ? '' : ` (${ROLE_NAMES[c.role]})`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <div className="pill-group" role="group" aria-label="History">
-              <button className="pill-btn" type="button" aria-label="Back" onClick={() => history.back()}><Icon id="chevron-left" /></button>
-              <button className="pill-btn" type="button" aria-label="Forward" onClick={() => history.forward()}><Icon id="chevron" /></button>
-            </div>
-            <Link className={'me-chip' + (live ? ' live' : '')} href="/app/settings" title={(live ? 'Live now. ' : '') + (ch.role === 'owner' ? `${ch.name}, settings` : `${ch.name} (${ROLE_NAMES[ch.role]}), settings`)}>
-              <Avatar name={ch.name} url={ch.avatar} />
-            </Link>
-          </div>
+          <Link className="side-brand" href="/app" aria-label="Sylva home"><Leaf size={22} />Sylva</Link>
+          <button className="icon-btn" type="button" aria-label="Search or jump" onClick={() => setPalette(true)}>
+            <Icon id="search" />
+          </button>
         </header>
-
         <main className="main" id="content">
-          {!ch.connected && <div className="notice reconnect" role="status">Reconnecting to live events. Nothing is lost while this shows.</div>}
+          {lost && <div className="notice reconnect" role="status">Reconnecting to live events. Nothing is lost while this shows.</div>}
           {!ch.can.edit && (
             <div className="notice role-note">
               {ch.can.moderate
-                ? <>You are a moderator for {ch.name}. Settings are read only here; the alert queue, points, the store queue, giveaways, quotes and counters work as usual.</>
-                : <>You can see everything on {ch.name}&apos;s channel, but only the owner and editors can change it.</>}
+                ? <span>You are a moderator for {ch.name}. Settings are read only here; the alert queue, points, rewards, giveaways, quotes and counters work as usual.</span>
+                : <span>You can see everything on {ch.name}&apos;s channel, but only the owner and editors can change it.</span>}
             </div>
           )}
           <View />
         </main>
       </div>
-      {palette && <Palette pages={[...PAGES, SETTINGS]} onClose={() => setPalette(false)} />}
+      {palette && <Palette pages={PAGES} onClose={() => setPalette(false)} openSettings={(s) => setSettings(s)} />}
+      {settings && <SettingsWindow section={settings} onSection={setSettings} onClose={closeSettings} />}
     </div>
   );
 }
 
-/** Jump to any page by typing its name (cmdk). */
-function Palette({ pages, onClose }: { pages: (typeof SETTINGS)[]; onClose(): void }) {
+/** Jump to any page or run a common action by typing (cmdk). */
+function Palette({ pages, onClose, openSettings }: { pages: Page[]; onClose(): void; openSettings(s: SettingsSection): void }) {
+  const ch = useChannel();
+  const toast = useToast();
   const go = (to: string) => { onClose(); navigate(to); scrollTo(0, 0); };
+  const s = ch.alerts;
+  const alertAction = async (a: 'pause' | 'resume' | 'mute' | 'unmute' | 'skip', done: string) => {
+    onClose();
+    try { ch.setAlerts(await api.alert(ch.key, a)); toast(done); } catch (x) { toast(errorText(x), true); }
+  };
+  const actions: { label: string; icon: string; run(): void; when: boolean }[] = [
+    { label: s?.paused ? 'Resume alerts' : 'Pause alerts', icon: s?.paused ? 'play' : 'pause', when: ch.can.moderate && !!s,
+      run: () => void alertAction(s?.paused ? 'resume' : 'pause', s?.paused ? 'Alerts resumed' : 'Alerts paused') },
+    { label: s?.muted ? 'Unmute alerts' : 'Mute alerts', icon: s?.muted ? 'vol' : 'volx', when: ch.can.moderate && !!s,
+      run: () => void alertAction(s?.muted ? 'unmute' : 'mute', s?.muted ? 'Alerts unmuted' : 'Alerts muted') },
+    { label: 'Skip the alert on screen', icon: 'skip', when: ch.can.moderate && s?.playing !== null && !!s, run: () => void alertAction('skip', 'Skipped the alert on screen') },
+    { label: 'Edit alert style', icon: 'palette', when: true, run: () => go('/app/alerts/style') },
+    { label: 'New command', icon: 'plus', when: ch.can.edit, run: () => go('/app/commands?new=1') },
+    { label: 'Start a giveaway', icon: 'ticket', when: ch.can.moderate, run: () => go('/app/giveaways') },
+    { label: 'Open Settings', icon: 'settings', when: true, run: () => { onClose(); openSettings('account'); } },
+    { label: 'Change theme', icon: 'palette', when: true, run: () => { onClose(); openSettings('appearance'); } },
+  ];
   return (
     <div className="palette-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <Command className="palette" label="Go to a page" loop onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <div className="palette-input"><Icon id="search" /><Command.Input autoFocus placeholder="Go to a page" /></div>
+      <Command className="palette" label="Search or jump" loop onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+        <div className="palette-input"><Icon id="search" /><Command.Input autoFocus placeholder="Search pages and actions" /></div>
         <Command.List>
-          <Command.Empty>No page by that name.</Command.Empty>
-          {['Home', 'Stream', 'Bot', 'Community', 'Account'].map((g) => (
-            <Command.Group key={g} heading={g}>
-              {pages.filter((p) => p.group === g).map((p) => (
-                <Command.Item key={p.path} value={p.label} onSelect={() => go(p.path)}>
-                  <Icon id={p.icon} />{p.label}
-                </Command.Item>
-              ))}
-            </Command.Group>
-          ))}
+          <Command.Empty>Nothing by that name.</Command.Empty>
+          <Command.Group heading="Pages">
+            {pages.map((p) => (
+              <Command.Item key={p.path} value={p.label} onSelect={() => go(p.path)}>
+                <Icon id={p.icon} />{p.label}
+              </Command.Item>
+            ))}
+          </Command.Group>
+          <Command.Group heading="Actions">
+            {actions.filter((a) => a.when).map((a) => (
+              <Command.Item key={a.label} value={a.label} onSelect={a.run}>
+                <Icon id={a.icon} />{a.label}
+              </Command.Item>
+            ))}
+          </Command.Group>
         </Command.List>
       </Command>
     </div>

@@ -8,10 +8,6 @@ workers_dev = true
 # The dashboard is embedded in the Worker (see build.rs), so build it first.
 command = "cd ../.. && npm run build:web && cd workers/edge && worker-build --release"
 
-# Static files, served before the Worker runs: the Kokoro voice demos
-# played on the tip page, under /kokoro/demos/.
-[assets]
-directory = "assets"
 
 [[durable_objects.bindings]]
 name = "CHANNEL"

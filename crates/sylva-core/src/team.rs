@@ -63,6 +63,8 @@ pub fn allows(role: Role, post: bool, rest: &[&str]) -> bool {
         ["overlay", "rotate"] => false,
         // Only the owner decides where their money goes and how tips work.
         ["tips", "connect" | "disconnect" | "settings"] => false,
+        // `!ask` spends the owner's own AI credit.
+        ["bot", "ask"] => false,
         _ if !post => true,
         _ if role == Role::Editor => true,
         _ if role == Role::Moderator => matches!(
@@ -122,6 +124,7 @@ mod tests {
         assert!(can(Role::Moderator, true, "bot/quotes"));
         assert!(can(Role::Moderator, true, "bot/counters/deaths/set"));
         assert!(can(Role::Moderator, true, "bot/try"));
+        assert!(!can(Role::Editor, true, "bot/ask"));
         assert!(!can(Role::Moderator, true, "bot/timers/t1/send"));
         assert!(!can(Role::Moderator, true, "bot"));
         assert!(!can(Role::Moderator, true, "loyalty"));

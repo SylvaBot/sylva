@@ -363,6 +363,14 @@ pub const BUILTINS: &[Builtin] = &[
         5,
     ),
     b(
+        "ask",
+        Fun,
+        "An AI answers a viewer's question in chat, using the streamer's own API key from the Bot page",
+        "!ask why is the sky blue?",
+        Everyone,
+        30,
+    ),
+    b(
         "dadjoke",
         Fun,
         "Tells an unfunny dad joke",

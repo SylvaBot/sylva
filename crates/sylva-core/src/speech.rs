@@ -92,7 +92,9 @@ pub fn mp3_ms(data: &[u8]) -> Option<u32> {
             .fold(0usize, |n, b| (n << 7) | (*b as usize & 0x7f));
         i = 10 + size;
     }
-    const RATES_V1: [u32; 15] = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+    const RATES_V1: [u32; 15] = [
+        0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
+    ];
     const RATES_V2: [u32; 15] = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
     let mut micros: u64 = 0;
     let mut frames = 0;
@@ -102,7 +104,14 @@ pub fn mp3_ms(data: &[u8]) -> Option<u32> {
         let layer = (h[1] >> 1) & 3; // 1: Layer III
         let rate_i = (h[2] >> 4) as usize;
         let freq_i = ((h[2] >> 2) & 3) as usize;
-        if h[0] != 0xff || h[1] & 0xe0 != 0xe0 || version == 1 || layer != 1 || rate_i == 0 || rate_i == 15 || freq_i == 3 {
+        if h[0] != 0xff
+            || h[1] & 0xe0 != 0xe0
+            || version == 1
+            || layer != 1
+            || rate_i == 0
+            || rate_i == 15
+            || freq_i == 3
+        {
             i += 1;
             continue;
         }
@@ -140,7 +149,11 @@ mod tests {
             date: "20150830T123600Z",
         };
         assert_eq!(
-            aws_authorization(&req, "AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"),
+            aws_authorization(
+                &req,
+                "AKIDEXAMPLE",
+                "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+            ),
             "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, \
              SignedHeaders=host;x-amz-date, \
              Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31"

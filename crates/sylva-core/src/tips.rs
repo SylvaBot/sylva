@@ -679,16 +679,39 @@ pub const BRIAN: &str = "polly_brian";
 /// The voices tips can be read in, the best sounding first: Brian, then
 /// Kokoro's English voices.
 pub const VOICES: &[Voice] = &[
-    Voice { id: BRIAN, name: "Brian", accent: "uk", gender: "m" },
-    v("af_heart", "Heart"), v("af_bella", "Bella"), v("af_nicole", "Nicole"),
-    v("bf_emma", "Emma"), v("am_fenrir", "Fenrir"), v("am_michael", "Michael"),
-    v("am_puck", "Puck"), v("bm_george", "George"), v("bm_fable", "Fable"),
-    v("af_aoede", "Aoede"), v("af_kore", "Kore"), v("af_sarah", "Sarah"),
-    v("af_alloy", "Alloy"), v("af_nova", "Nova"), v("af_sky", "Sky"),
-    v("bf_isabella", "Isabella"), v("bm_lewis", "Lewis"), v("bm_daniel", "Daniel"),
-    v("bf_alice", "Alice"), v("bf_lily", "Lily"), v("af_jessica", "Jessica"),
-    v("af_river", "River"), v("am_echo", "Echo"), v("am_eric", "Eric"),
-    v("am_liam", "Liam"), v("am_onyx", "Onyx"), v("am_santa", "Santa"),
+    Voice {
+        id: BRIAN,
+        name: "Brian",
+        accent: "uk",
+        gender: "m",
+    },
+    v("af_heart", "Heart"),
+    v("af_bella", "Bella"),
+    v("af_nicole", "Nicole"),
+    v("bf_emma", "Emma"),
+    v("am_fenrir", "Fenrir"),
+    v("am_michael", "Michael"),
+    v("am_puck", "Puck"),
+    v("bm_george", "George"),
+    v("bm_fable", "Fable"),
+    v("af_aoede", "Aoede"),
+    v("af_kore", "Kore"),
+    v("af_sarah", "Sarah"),
+    v("af_alloy", "Alloy"),
+    v("af_nova", "Nova"),
+    v("af_sky", "Sky"),
+    v("bf_isabella", "Isabella"),
+    v("bm_lewis", "Lewis"),
+    v("bm_daniel", "Daniel"),
+    v("bf_alice", "Alice"),
+    v("bf_lily", "Lily"),
+    v("af_jessica", "Jessica"),
+    v("af_river", "River"),
+    v("am_echo", "Echo"),
+    v("am_eric", "Eric"),
+    v("am_liam", "Liam"),
+    v("am_onyx", "Onyx"),
+    v("am_santa", "Santa"),
     v("am_adam", "Adam"),
 ];
 
@@ -711,7 +734,11 @@ impl TipSettings {
             let f = fold(w);
             !f.is_empty() && self.tts_words.iter().any(|b| f.contains(b.as_str()))
         };
-        let name = if name.split_whitespace().any(blocked) { "Someone" } else { name };
+        let name = if name.split_whitespace().any(blocked) {
+            "Someone"
+        } else {
+            name
+        };
         let mut words: Vec<&str> = message
             .split_whitespace()
             .filter(|w| {
@@ -740,7 +767,11 @@ impl TipSettings {
             }
             msg.push_str(w);
         }
-        let template = if self.tts_template.trim().is_empty() { TTS_TEMPLATE } else { &self.tts_template };
+        let template = if self.tts_template.trim().is_empty() {
+            TTS_TEMPLATE
+        } else {
+            &self.tts_template
+        };
         let out = template
             .replace("{name}", name)
             .replace("{amount}", amount)
@@ -770,12 +801,7 @@ impl TipSettings {
         // The smallest tip must be worth about a dollar, above Stripe's own minimums.
         let floor = nice(convert(1.0, "USD", cur.code), cur, true);
         let top = convert(10_000.0, "USD", cur.code);
-        let finite = [
-            self.min,
-            self.max,
-            self.hold_over,
-            self.tts_min,
-        ];
+        let finite = [self.min, self.max, self.hold_over, self.tts_min];
         if finite.iter().any(|x| !x.is_finite() || *x < 0.0) {
             return bad("Amounts must be numbers of 0 or more.");
         }
@@ -810,7 +836,8 @@ impl TipSettings {
         if voice(&self.tts_voice).is_none() || self.tts_voices.iter().any(|v| voice(v).is_none()) {
             return bad("Pick one of the listed voices.");
         }
-        self.tts_voices.sort_by_key(|id| VOICES.iter().position(|v| v.id == id));
+        self.tts_voices
+            .sort_by_key(|id| VOICES.iter().position(|v| v.id == id));
         self.tts_voices.dedup();
         if self.tts_voices.len() == VOICES.len() {
             self.tts_voices.clear();
@@ -818,7 +845,11 @@ impl TipSettings {
         if !self.tts_voices.is_empty() && !self.tts_voices.contains(&self.tts_voice) {
             return bad("The default voice must be one tippers can pick.");
         }
-        self.tts_template = self.tts_template.split_whitespace().collect::<Vec<_>>().join(" ");
+        self.tts_template = self
+            .tts_template
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         if self.tts_template.is_empty() {
             self.tts_template = TTS_TEMPLATE.into();
         }
@@ -1221,7 +1252,10 @@ pub fn spoken_amount(amount: f64, code: &str) -> String {
 /// The text read aloud for a tip: no links, at most 200 characters.
 /// A word as compared with the filter: lower case letters and digits only.
 fn fold(w: &str) -> String {
-    w.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+    w.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 #[cfg(test)]
@@ -1248,7 +1282,10 @@ mod tests {
     #[test]
     fn allowed_never_excluded() {
         for m in ALLOWED_METHODS {
-            assert!(!EXCLUDED_METHODS.contains(m), "{m} is both allowed and excluded");
+            assert!(
+                !EXCLUDED_METHODS.contains(m),
+                "{m} is both allowed and excluded"
+            );
         }
         assert!(EXCLUDED_METHODS.contains(&"klarna"));
     }
@@ -1472,8 +1509,14 @@ mod tests {
     #[test]
     fn voices() {
         assert_eq!(VOICES.len(), 29);
-        assert_eq!(voice(BRIAN).map(|v| (v.accent, v.gender)), Some(("uk", "m")));
-        assert_eq!(voice("bm_george").map(|v| (v.accent, v.gender)), Some(("uk", "m")));
+        assert_eq!(
+            voice(BRIAN).map(|v| (v.accent, v.gender)),
+            Some(("uk", "m"))
+        );
+        assert_eq!(
+            voice("bm_george").map(|v| (v.accent, v.gender)),
+            Some(("uk", "m"))
+        );
         let mut s = TipSettings::default();
         assert_eq!(s.voice_for("bm_george"), "bm_george");
         assert_eq!(s.voice_for("nope"), "af_heart");
@@ -1482,9 +1525,15 @@ mod tests {
         assert_eq!(s.tts_voices, ["af_heart", "am_puck"]);
         assert_eq!(s.voice_for("bm_george"), "af_heart");
         assert_eq!(s.voice_for("am_puck"), "am_puck");
-        let bad = TipSettings { tts_voices: vec!["am_puck".into()], ..TipSettings::default() };
+        let bad = TipSettings {
+            tts_voices: vec!["am_puck".into()],
+            ..TipSettings::default()
+        };
         assert!(bad.validate().is_err());
-        let bad = TipSettings { tts_voice: "x".into(), ..TipSettings::default() };
+        let bad = TipSettings {
+            tts_voice: "x".into(),
+            ..TipSettings::default()
+        };
         assert!(bad.validate().is_err());
     }
 
@@ -1494,7 +1543,10 @@ mod tests {
         assert_eq!(f.encode(), "a%5Bb%5D%5B%5D=x%20y&n=5");
         let mut s = TipSettings::default();
         let say = |s: &TipSettings, m: &str| s.speech("Ann", "5 dollars", m);
-        assert_eq!(say(&s, "hi https://x.y there").as_deref(), Some("Ann tipped 5 dollars. hi there"));
+        assert_eq!(
+            say(&s, "hi https://x.y there").as_deref(),
+            Some("Ann tipped 5 dollars. hi there")
+        );
         assert_eq!(say(&s, " ").as_deref(), Some("Ann tipped 5 dollars."));
         s.tts_template = "{message}".into();
         assert_eq!(say(&s, "hello"), Some("hello".into()));
@@ -1504,12 +1556,22 @@ mod tests {
         s.tts_word_mode = WordMode::Skip;
         assert_eq!(say(&s, "oh darn ok"), None);
         s.tts_template = TTS_TEMPLATE.into();
-        assert_eq!(s.speech("darn_it", "5 dollars", "hi").as_deref(), Some("Someone tipped 5 dollars. hi"));
+        assert_eq!(
+            s.speech("darn_it", "5 dollars", "hi").as_deref(),
+            Some("Someone tipped 5 dollars. hi")
+        );
         s.tts_max_chars = 20;
-        assert_eq!(say(&s, "aaaa bbbb cccc dddd eeee").as_deref(), Some("Ann tipped 5 dollars. aaaa bbbb cccc dddd"));
-        let v = TipSettings { tts_words: vec![" Foo! ".into(), "foo".into(), "".into()], tts_template: "  ".into(), ..TipSettings::default() }
-            .validate()
-            .unwrap();
+        assert_eq!(
+            say(&s, "aaaa bbbb cccc dddd eeee").as_deref(),
+            Some("Ann tipped 5 dollars. aaaa bbbb cccc dddd")
+        );
+        let v = TipSettings {
+            tts_words: vec![" Foo! ".into(), "foo".into(), "".into()],
+            tts_template: "  ".into(),
+            ..TipSettings::default()
+        }
+        .validate()
+        .unwrap();
         assert_eq!(v.tts_words, ["foo"]);
         assert_eq!(v.tts_template, TTS_TEMPLATE);
         assert_eq!(spoken_amount(5.0, "USD"), "5 dollars");

@@ -11,7 +11,12 @@ const DEMO: &str = "Hi, I'm Brian. Thanks so much for the tip, have an awesome s
 
 /// The access key id and its secret, when both are set.
 fn keys(env: &Env) -> Option<(String, String)> {
-    let get = |k: &str| env.secret(k).ok().map(|v| v.to_string()).filter(|v| !v.is_empty());
+    let get = |k: &str| {
+        env.secret(k)
+            .ok()
+            .map(|v| v.to_string())
+            .filter(|v| !v.is_empty())
+    };
     Some((get("AWS_ACCESS_KEY_ID")?, get("AWS_SECRET_ACCESS_KEY")?))
 }
 
@@ -94,9 +99,12 @@ pub(crate) async fn speak(env: &Env, text: &str) -> Result<Vec<u8>> {
     init.with_method(Method::Post)
         .with_headers(headers)
         .with_body(Some(body.into()));
-    let mut res = Fetch::Request(Request::new_with_init(&format!("https://{host}/v1/speech"), &init)?)
-        .send()
-        .await?;
+    let mut res = Fetch::Request(Request::new_with_init(
+        &format!("https://{host}/v1/speech"),
+        &init,
+    )?)
+    .send()
+    .await?;
     if res.status_code() != 200 {
         let why = res.text().await.unwrap_or_default();
         return Err(Error::RustError(format!(

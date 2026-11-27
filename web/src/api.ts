@@ -211,7 +211,12 @@ export interface BotView {
   live: boolean;
   builtins: Builtin[];
   permissions: { commands: Permission; moderation: ModPermission };
+  ask: AskView;
 }
+export type AskProvider = 'anthropic' | 'openai' | 'gemini';
+export interface AskSettings { provider: AskProvider; model: string; instructions: string }
+export interface AskView { settings: AskSettings; keyHint?: string }
+export interface AskUpdate extends AskSettings { key?: string; clearKey?: boolean }
 export type BotSkip = 'notACommand' | 'unknown' | 'off' | 'level' | 'cooldown';
 export interface BotTry { reply?: string; skip?: BotSkip; command?: string }
 
@@ -387,6 +392,7 @@ export const api = {
   revokeApp: (id: string) => request<unknown>('POST', `/v1/apps/${encodeURIComponent(id)}/revoke`),
   bot: (key: string) => request<BotView>('GET', `${ch(key)}/bot`),
   saveBot: (key: string, s: BotSettings) => request<BotView>('POST', `${ch(key)}/bot`, s),
+  saveAsk: (key: string, a: AskUpdate) => request<BotView>('POST', `${ch(key)}/bot/ask`, a),
   sendTimer: (key: string, id: string) => request<BotView>('POST', `${ch(key)}/bot/timers/${encodeURIComponent(id)}/send`),
   moderation: (key: string) => request<ModView>('GET', `${ch(key)}/moderation`),
   saveModeration: (key: string, s: ModSettings) => request<ModView>('POST', `${ch(key)}/moderation`, s),

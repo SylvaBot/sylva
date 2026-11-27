@@ -172,17 +172,20 @@ impl ChannelDo {
                     None,
                 )?
                 .to_array()?;
-            first
-                .first()
-                .and_then(|f| f.at)
-                .map_or(1, |at| (today - ((at as i64 - tz_ms).div_euclid(DAY) * DAY + tz_ms)) / DAY + 1)
+            first.first().and_then(|f| f.at).map_or(1, |at| {
+                (today - ((at as i64 - tz_ms).div_euclid(DAY) * DAY + tz_ms)) / DAY + 1
+            })
         } else {
             days
         }
         .clamp(1, 3660);
         let from = today - (end + days - 1) * DAY;
         let prev = from - days * DAY;
-        let to = if end == 0 { now + 1 } else { today - (end - 1) * DAY };
+        let to = if end == 0 {
+            now + 1
+        } else {
+            today - (end - 1) * DAY
+        };
 
         // Day by day, counted from the start of the period before: days
         // 0..days are the period before, days..2*days this one.

@@ -83,7 +83,6 @@ CREATE TABLE IF NOT EXISTS tip_voice (
 /// The stand-in voice for tips, made on the server.
 const TTS_FALLBACK: &str = "@cf/deepgram/aura-2-en";
 
-
 fn now() -> i64 {
     Date::now().as_millis() as i64
 }
@@ -937,7 +936,11 @@ impl ChannelDo {
         )?;
         self.sql.exec(
             "INSERT OR REPLACE INTO tip_voice (id, voice, created_at) VALUES (?, ?, ?)",
-            vec![id.as_str().into(), s.voice_for(&t.voice).into(), (now as f64).into()],
+            vec![
+                id.as_str().into(),
+                s.voice_for(&t.voice).into(),
+                (now as f64).into(),
+            ],
         )?;
         // Wake Kokoro while the tipper pays, so the message is read right away.
         if s.tts {
@@ -1386,7 +1389,10 @@ impl ChannelDo {
             match crate::polly::speak(&self.env, text).await {
                 Ok(a) => Some(a).filter(|a| !a.is_empty()),
                 Err(e) => {
-                    console_error!("Brian could not read {}, using the stand-in voice: {e}", t.id);
+                    console_error!(
+                        "Brian could not read {}, using the stand-in voice: {e}",
+                        t.id
+                    );
                     None
                 }
             }
@@ -1394,7 +1400,10 @@ impl ChannelDo {
             match crate::kokoro::speak(&self.env, text, &voice).await {
                 Ok(a) => a.filter(|a| !a.is_empty()),
                 Err(e) => {
-                    console_error!("Kokoro could not read {}, using the stand-in voice: {e}", t.id);
+                    console_error!(
+                        "Kokoro could not read {}, using the stand-in voice: {e}",
+                        t.id
+                    );
                     None
                 }
             }
@@ -1419,7 +1428,11 @@ impl ChannelDo {
         if !s.tts || t.base + 0.005 < s.tts_min {
             return None;
         }
-        s.speech(&t.name, &rules::spoken_amount(t.paid_amount(), &t.currency), &t.message)
+        s.speech(
+            &t.name,
+            &rules::spoken_amount(t.paid_amount(), &t.currency),
+            &t.message,
+        )
     }
 
     fn tip_voice(&self, id: &str) -> String {

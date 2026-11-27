@@ -5,6 +5,7 @@
 
 pub mod alerts;
 pub mod apps;
+pub mod ask;
 pub mod auth;
 pub mod bot;
 pub mod builtins;

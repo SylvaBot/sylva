@@ -356,6 +356,21 @@ pub fn check(s: &ModSettings, msg: &Message) -> Option<Rule> {
     None
 }
 
+/// Whether a bot answer written by someone else (such as `!ask`'s AI) would
+/// break the channel's banned words, or link to a site the channel does not
+/// allow. Banned words count even when moderation is off: the streamer wrote
+/// that list on purpose.
+pub fn blocks_bot_text(s: &ModSettings, text: &str) -> bool {
+    let lower = text.to_lowercase();
+    if s.words
+        .iter()
+        .any(|w| contains_word(&lower, &w.to_lowercase()))
+    {
+        return true;
+    }
+    s.preset != Preset::Off && s.rules.links && links(text).any(|h| !allowed(&h, &s.allowed_links))
+}
+
 /// Seconds of timeout for a chatter with `strikes` recent strikes before this
 /// one. 0 means delete the message only.
 pub fn penalty(steps: &[u32; 3], strikes: u32) -> u32 {

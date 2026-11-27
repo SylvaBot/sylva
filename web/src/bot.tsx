@@ -4,8 +4,9 @@
 // which checks every save again.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type BotCommand, type BotSettings, type BotTimer, type BotView, type Builtin, type BuiltinSetting, type TimerStatus, type UserLevel } from './api';
+import { api, type AskProvider, type AskView, type BotCommand, type BotSettings, type BotTimer, type BotView, type Builtin, type BuiltinSetting, type TimerStatus, type UserLevel } from './api';
 import { useChannel } from './channel';
+import { Select } from './dropdown';
 import { Counters, Quotes } from './community';
 import { PageHead } from './pages';
 import { Link, navigate, useSearch } from './router';
@@ -113,7 +114,7 @@ export function CommandsPage() {
       </div>
 
       {failed && !view && <div className="notice">Could not load your commands. Refresh to try again.</div>}
-      {tab === 'commands' && <CommandsTab view={view} save={save} sender={sender} />}
+      {tab === 'commands' && <CommandsTab view={view} save={save} sender={sender} onView={setView} />}
       {tab === 'timers' && (view ? <Gate on={ch.can.edit}><Timers view={view} onSave={save} onView={setView} /></Gate> : <TableSkel cols="tm-cols" />)}
       {tab === 'counters' && (view ? <Counters view={view} onSave={save} onView={setView} /> : <TableSkel cols="tm-cols" />)}
       {tab === 'quotes' && (view ? <Quotes view={view} onSave={save} /> : <TableSkel cols="tm-cols" />)}
@@ -136,7 +137,7 @@ function TableSkel({ cols, n = 4 }: { cols: string; n?: number }) {
 
 /* ---------------------------------------------------------------- Commands */
 
-function CommandsTab({ view, save, sender }: { view: BotView | null; save: Save; sender: string }) {
+function CommandsTab({ view, save, sender, onView }: { view: BotView | null; save: Save; sender: string; onView(v: BotView): void }) {
   const ch = useChannel();
   const search = useSearch();
   const [open, setOpen] = useState<number | 'new' | null>(null);
@@ -233,7 +234,7 @@ function CommandsTab({ view, save, sender }: { view: BotView | null; save: Save;
                   <span className="cm-name mono">!{b.name}</span>
                 </button>
                 <button className="cm-open cm-reply" type="button" tabIndex={-1} onClick={() => setBuiltin(b.name)}>
-                  {over ? `Replaced by your own !${b.name}` : quotesOff ? 'Quotes are off in chat' : b.about}
+                  {over ? `Replaced by your own !${b.name}` : quotesOff ? 'Quotes are off in chat' : b.name === 'ask' && !view.ask.keyHint ? 'Waiting for an AI API key. Open it to add one.' : b.about}
                 </button>
                 <span className="muted">{levelOf(s.level).short}</span>
                 <span className="muted">{short(s.cooldown)}</span>
@@ -260,7 +261,9 @@ function CommandsTab({ view, save, sender }: { view: BotView | null; save: Save;
       )}
       {editingBuiltin && (
         <BuiltinDrawer b={editingBuiltin} s={mine(editingBuiltin)} readOnly={!ch.can.edit} onClose={() => setBuiltin(null)}
-          onSet={(patch) => void setBuiltinSetting(editingBuiltin, patch, `Saved !${editingBuiltin.name}`)} />
+          onSet={(patch) => void setBuiltinSetting(editingBuiltin, patch, `Saved !${editingBuiltin.name}`)}>
+          {editingBuiltin.name === 'ask' && <AskSetup ask={view.ask} onView={onView} />}
+        </BuiltinDrawer>
       )}
     </>
   );
@@ -275,7 +278,7 @@ function CooldownSeg({ label, value, onChange, disabled }: { label: string; valu
   return <Seg label={label} small options={withValue(COOLDOWNS, value).map((n) => ({ id: n, label: short(n) }))} value={value} onChange={onChange} disabled={disabled} />;
 }
 
-function BuiltinDrawer({ b, s, readOnly, onClose, onSet }: { b: Builtin; s: BuiltinSetting; readOnly: boolean; onClose(): void; onSet(p: Partial<BuiltinSetting>): void }) {
+function BuiltinDrawer({ b, s, readOnly, onClose, onSet, children }: { b: Builtin; s: BuiltinSetting; readOnly: boolean; onClose(): void; onSet(p: Partial<BuiltinSetting>): void; children?: ReactNode }) {
   return (
     <Drawer title={<span className="mono">!{b.name}</span>} label={`!${b.name}`} onClose={onClose}>
       <p className="muted small">{b.about}</p>
@@ -287,7 +290,83 @@ function BuiltinDrawer({ b, s, readOnly, onClose, onSet }: { b: Builtin; s: Buil
         <div className="gr stack-sm"><div className="gr-main"><div className="t1">Cooldown</div><div className="t2">For all of chat</div></div><div className="gr-ctl"><CooldownSeg label="Cooldown" value={s.cooldown} disabled={readOnly} onChange={(v) => onSet({ cooldown: v })} /></div></div>
       </div>
       <p className="sect-foot">Changes save as you make them.</p>
+      {children}
     </Drawer>
+  );
+}
+
+const PROVIDERS: { value: AskProvider; label: string; model: string; keys: string }[] = [
+  { value: 'anthropic', label: 'Claude', model: 'claude-haiku-5-5', keys: 'https://console.anthropic.com/settings/keys' },
+  { value: 'openai', label: 'OpenAI', model: 'gpt-5-mini', keys: 'https://platform.openai.com/api-keys' },
+  { value: 'gemini', label: 'Gemini', model: 'gemini-2.5-flash', keys: 'https://aistudio.google.com/apikey' },
+];
+
+/** !ask's AI: which one, and the streamer's own key. Only the owner sees the
+ *  form, since the key spends their credit. The key is never shown again. */
+function AskSetup({ ask, onView }: { ask: AskView; onView(v: BotView): void }) {
+  const ch = useChannel();
+  const toast = useToast();
+  const [draft, setDraft] = useState(ask.settings);
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const p = PROVIDERS.find((x) => x.value === draft.provider) ?? PROVIDERS[0];
+  const changed = key.trim() !== '' || JSON.stringify(draft) !== JSON.stringify(ask.settings);
+
+  if (!ch.can.own) {
+    return (
+      <section className="sect ask-setup" aria-labelledby="ask-title">
+        <div className="sect-head"><div><h2 id="ask-title">AI</h2></div></div>
+        <p className="muted small">{ask.keyHint ? `Answers come from ${p.label}.` : 'Not set up yet.'} Only {ch.name} can change the AI or its key, since it uses their own account.</p>
+      </section>
+    );
+  }
+  const send = async (clearKey = false) => {
+    setBusy(true);
+    try {
+      const v = await api.saveAsk(ch.key, { ...draft, key: clearKey ? undefined : key.trim() || undefined, clearKey });
+      onView(v);
+      setDraft(v.ask.settings);
+      setKey('');
+      toast(clearKey ? 'Key removed' : 'Saved !ask');
+    } catch (x) {
+      toast(errorText(x), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="sect ask-setup" aria-labelledby="ask-title" onSubmit={(e) => { e.preventDefault(); if (changed) void send(); }}>
+      <div className="sect-head"><div><h2 id="ask-title">AI</h2></div></div>
+      <p className="muted small">Answers use your own API key, so {p.label} bills your account for each question. Sylva stores the key encrypted and never shows it again. Answers stay short and pass through your banned words.</p>
+      <div className="field">
+        <label htmlFor="ask-provider">Provider</label>
+        <Select id="ask-provider" label="Provider" value={draft.provider} options={PROVIDERS.map((x) => ({ value: x.value, label: x.label }))}
+          onChange={(v) => setDraft({ ...draft, provider: v, model: '' })} />
+      </div>
+      <label className="field" htmlFor="ask-model">Model
+        <input id="ask-model" className="input mono" maxLength={80} placeholder={p.model} spellCheck={false}
+          value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value.trim() })} />
+      </label>
+      <div className="field">
+        <label htmlFor="ask-key">API key</label>
+        <input id="ask-key" className="input mono" type="password" autoComplete="off" spellCheck={false}
+          placeholder={ask.keyHint ? `Saved key ending in ${ask.keyHint}. Paste a new one to replace it` : 'Paste your key'}
+          value={key} onChange={(e) => setKey(e.target.value)} />
+        <div className="chat-msg-foot">
+          <a className="faint small" href={p.keys} target="_blank" rel="noreferrer">Get a {p.label} key</a>
+          {ask.keyHint && <button className="btn sm" type="button" disabled={busy} onClick={() => void send(true)}>Remove key</button>}
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="ask-notes">Extra instructions</label>
+        <textarea id="ask-notes" className="input" rows={3} maxLength={500} placeholder="Talk like a calm forest ranger. Never spoil story games."
+          value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} />
+        <div className="chat-msg-foot"><span /><span className="faint mono count">{draft.instructions.length}/500</span></div>
+      </div>
+      <div className="page-actions">
+        <button className="btn sm primary" type="submit" disabled={busy || !changed}>{busy ? 'Saving' : 'Save'}</button>
+      </div>
+    </form>
   );
 }
 

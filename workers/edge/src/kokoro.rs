@@ -18,7 +18,10 @@ const SPEAK_TIMEOUT_MS: u64 = 6000;
 const PORT: u16 = 8080;
 
 fn stub(env: &Env) -> Option<Stub> {
-    env.durable_object("KOKORO").ok()?.get_by_name("kokoro").ok()
+    env.durable_object("KOKORO")
+        .ok()?
+        .get_by_name("kokoro")
+        .ok()
 }
 
 /// `f`, unless it takes longer than `ms`.
@@ -55,7 +58,9 @@ async fn call(stub: &Stub, path: &str, body: Option<String>, timeout_ms: u64) ->
 /// `text` read by Kokoro in `voice`, as MP3. `Ok(None)` while Kokoro is not
 /// set up here.
 pub(crate) async fn speak(env: &Env, text: &str, voice: &str) -> Result<Option<Vec<u8>>> {
-    let Some(stub) = stub(env) else { return Ok(None) };
+    let Some(stub) = stub(env) else {
+        return Ok(None);
+    };
     let body = json!({ "text": text, "voice": voice }).to_string();
     let mut res = call(&stub, "/speak", Some(body), SPEAK_TIMEOUT_MS).await?;
     match res.status_code() {
@@ -64,7 +69,12 @@ pub(crate) async fn speak(env: &Env, text: &str, voice: &str) -> Result<Option<V
         501 => Ok(None),
         code => Err(Error::RustError(format!(
             "Kokoro said {code}: {}",
-            res.text().await.unwrap_or_default().chars().take(200).collect::<String>()
+            res.text()
+                .await
+                .unwrap_or_default()
+                .chars()
+                .take(200)
+                .collect::<String>()
         ))),
     }
 }

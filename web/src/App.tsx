@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, type Me } from './api';
 import { ChannelProvider } from './channel';
-import { ChannelPage, ChatStatsPage, type ChannelTab } from './channelPage';
+import { ChannelPage, ChatStatsHome, ChatStatsPage, type ChannelTab } from './channelPage';
 import { DevicePage } from './device';
 import { Landing } from './Landing';
 import { navigate, usePath } from './router';
@@ -61,6 +61,7 @@ export function App() {
   if (store) return <PublicStorePage login={store[1].toLowerCase()} signedIn={!!me} />;
   const tip = /^\/tip\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
   if (tip) return <PublicTipPage login={tip[1].toLowerCase()} signedIn={!!me} />;
+  if (path === '/c' || path === '/c/') return <ChatStatsHome signedIn={!!me} />;
   const stats = /^\/c\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
   if (stats) return <ChatStatsPage login={stats[1].toLowerCase()} signedIn={!!me} />;
   const channel = /^\/([A-Za-z0-9_]{1,25})(?:\/(leaderboard|commands))?\/?$/.exec(path);

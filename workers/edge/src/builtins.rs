@@ -187,7 +187,7 @@ impl ChannelDo {
         }
     }
 
-    fn channel_login(&self) -> Result<Option<String>> {
+    pub(crate) fn channel_login(&self) -> Result<Option<String>> {
         self.config("channel_login")
     }
 

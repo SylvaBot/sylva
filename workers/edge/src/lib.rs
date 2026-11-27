@@ -216,6 +216,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 .await
         }
         (Method::Get, ["v1", "public", login, "commands"]) => public_commands(&env, login).await,
+        (Method::Get, ["v1", "chatstats", "top"]) => chat_top(&env).await,
         (Method::Get, ["v1", "public", login, "chatstats"]) => public_chat_stats(&env, login).await,
         (Method::Get, ["v1", "public", login, "profile"]) => public_profile(&env, login).await,
         (Method::Get, ["v1", "chat-assets", key]) => {
@@ -550,6 +551,48 @@ async fn public_chat_stats(env: &Env, login: &str) -> Result<Response> {
     v["channel"] = json!({ "login": ch.login, "name": ch.name, "avatar": ch.avatar, "banner": ch.banner });
     let mut out = Response::from_json(&v)?;
     out.headers_mut().set("Cache-Control", "public, max-age=15")?;
+    Ok(out)
+}
+
+/// `GET /v1/chatstats/top`: the streamers on Sylva with the most chat
+/// messages, for /c.
+async fn chat_top(env: &Env) -> Result<Response> {
+    let dir = env.durable_object("DIRECTORY")?.get_by_name("directory")?;
+    let mut res = dir
+        .fetch_with_request(Request::new_with_init(
+            "https://directory/chat/top",
+            RequestInit::new().with_method(Method::Post),
+        )?)
+        .await?;
+    let mut rows: Vec<serde_json::Value> = res.json().await.unwrap_or_default();
+    let ids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r["channel"].as_str())
+        .map(|k| format!("id={}", broadcaster_id(k)))
+        .collect();
+    if !ids.is_empty() {
+        let app = twitch_api::App::new(env).await?;
+        if let Ok((200, v)) = app
+            .helix(Method::Get, &format!("/users?{}", ids.join("&")), None)
+            .await
+        {
+            for u in v["data"].as_array().into_iter().flatten() {
+                let key = format!("twitch:{}", u["id"].as_str().unwrap_or_default());
+                if let Some(r) = rows.iter_mut().find(|r| r["channel"] == key.as_str()) {
+                    r["avatar"] = u["profile_image_url"].clone();
+                    r["name"] = u["display_name"].clone();
+                    r["login"] = u["login"].clone();
+                }
+            }
+        }
+    }
+    for r in rows.iter_mut() {
+        if let Some(o) = r.as_object_mut() {
+            o.remove("channel");
+        }
+    }
+    let mut out = Response::from_json(&rows)?;
+    out.headers_mut().set("Cache-Control", "public, max-age=60")?;
     Ok(out)
 }
 

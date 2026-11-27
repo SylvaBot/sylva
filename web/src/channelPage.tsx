@@ -4,7 +4,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api, type ChatEmote, type ChatStats, type PublicCommands, type PublicProfile, type PublicStore } from './api';
 import { CommandsBody } from './commandsPage';
-import { Link } from './router';
+import { Link, navigate } from './router';
 import { SiteFooter, SiteHeader } from './site';
 import { Avatar, Icon, num, SkelRows } from './ui';
 
@@ -24,10 +24,11 @@ function useLoad<T>(run: () => Promise<T>, deps: unknown[]): Load<T> {
   return data;
 }
 
-function Frame({ signedIn, children }: { signedIn: boolean; children: ReactNode }) {
+function Frame({ signedIn, stats, children }: { signedIn: boolean; stats?: boolean; children: ReactNode }) {
   return (
     <div className="site">
       <SiteHeader>
+        {stats && <Link className="ch-section" href="/c">Chat stats</Link>}
         <span className="spacer" />
         {signedIn ? <Link className="btn" href="/app">Open dashboard</Link> : <Link className="btn" href="/">What is Sylva?</Link>}
       </SiteHeader>
@@ -116,8 +117,6 @@ export function ChannelPage({ login, tab, signedIn }: { login: string; tab: Chan
 }
 
 function ProfileTab({ p }: { p: PublicProfile }) {
-  const stats = useLoad(() => api.chatStats(p.login), [p.login]);
-  const s = typeof stats === 'object' ? stats : null;
   return (
     <div className="ch-profile">
       <section className="card ch-about" aria-labelledby="ch-about">
@@ -126,20 +125,6 @@ function ProfileTab({ p }: { p: PublicProfile }) {
         <p className="ch-bio">
           <a className="btn" href={`https://twitch.tv/${p.login}`} target="_blank" rel="noreferrer"><Icon id="twitch" />Watch on Twitch</a>
         </p>
-      </section>
-      <section className="card" aria-labelledby="ch-chat">
-        <div className="card-head">
-          <div><h2 id="ch-chat">In chat</h2><p>The people who talk the most.</p></div>
-          <Link className="btn sm" href={`/c/${p.login}`}>All chat stats</Link>
-        </div>
-        {stats === null
-          ? <SkelRows n={3} tile={false} />
-          : !s || s.total === 0
-            ? <p className="empty">Sylva starts counting with the next message in {p.name}’s chat.</p>
-            : <>
-                <p className="ch-sum"><b>{num(s.total)}</b> messages so far</p>
-                <Ranked rows={s.chatters.slice(0, 5).map((c) => ({ key: c.login, label: c.name, value: c.messages }))} />
-              </>}
       </section>
     </div>
   );
@@ -219,6 +204,56 @@ function List({ id, title, empty, children }: { id: string; title: string; empty
   );
 }
 
+/** The streamers on Sylva whose chats sent the most messages. */
+function TopStreamers({ limit, current }: { limit: number; current?: string }) {
+  const top = useLoad(() => api.chatTop(), []);
+  const rows = typeof top === 'object' && top ? top.slice(0, limit) : [];
+  return (
+    <section className="card ch-top" aria-labelledby="cs-top">
+      <div className="card-head"><div><h2 id="cs-top">Top streamers on Sylva</h2><p>By messages sent in their chat.</p></div></div>
+      {top === null
+        ? <SkelRows n={4} tile={false} />
+        : rows.length === 0
+          ? <p className="empty">{top === 'failed' || top === 'missing' ? 'The list could not be loaded. Refresh to try again.' : 'No channel has chat stats yet.'}</p>
+          : <Ranked unit="messages" rows={rows.map((r) => ({
+              key: r.login,
+              label: (
+                <Link className={r.login === current ? 'ch-who on' : 'ch-who'} href={`/c/${r.login}`}>
+                  <Avatar name={r.name} url={r.avatar} />{r.name}
+                </Link>
+              ),
+              value: r.total,
+            }))} />}
+    </section>
+  );
+}
+
+/** /c: chat stats home, with a search and the top streamers on Sylva. */
+export function ChatStatsHome({ signedIn }: { signedIn: boolean }) {
+  const [q, setQ] = useState('');
+  useEffect(() => { document.title = 'Chat stats · Sylva'; }, []);
+  const go = () => {
+    const login = q.trim().replace(/^@/, '').toLowerCase();
+    if (/^[a-z0-9_]{1,25}$/.test(login)) navigate(`/c/${login}`);
+  };
+  return (
+    <Frame signedIn={signedIn} stats>
+      <main id="content" className="wrap ch">
+        <div className="pub-head">
+          <h1 className="ch-title">Chat stats</h1>
+          <p className="prose-lede">Messages, top chatters, emotes and commands for every channel on Sylva.</p>
+          <form className="pub-look" onSubmit={(e) => { e.preventDefault(); go(); }}>
+            <label className="sr-only" htmlFor="cs-q">Twitch channel</label>
+            <input id="cs-q" className="input" placeholder="Twitch channel" maxLength={26} value={q} onChange={(e) => setQ(e.target.value)} />
+            <button className="btn primary" type="submit" disabled={!q.trim()}>See stats</button>
+          </form>
+        </div>
+        <TopStreamers limit={50} />
+      </main>
+    </Frame>
+  );
+}
+
 /** /c/{login}: the chat stats page. */
 export function ChatStatsPage({ login, signedIn }: { login: string; signedIn: boolean }) {
   const data = useLoad(() => api.chatStats(login), [login]);
@@ -228,16 +263,16 @@ export function ChatStatsPage({ login, signedIn }: { login: string; signedIn: bo
   }, [data, login]);
 
   if (data === 'missing' || data === 'failed') {
-    return <Frame signedIn={signedIn}><Missing login={login} failed={data === 'failed'} /></Frame>;
+    return <Frame signedIn={signedIn} stats><Missing login={login} failed={data === 'failed'} /></Frame>;
   }
   if (!data) {
-    return <Frame signedIn={signedIn}><main id="content" className="wrap pub"><SkelRows n={6} /></main></Frame>;
+    return <Frame signedIn={signedIn} stats><main id="content" className="wrap pub"><SkelRows n={6} /></main></Frame>;
   }
   const c = data.channel;
   const since = data.since ? new Date(data.since).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : null;
   const emoteRows = (list: ChatEmote[]) => list.map((e) => ({ key: e.id, label: e.name, value: e.uses, img: e.url }));
   return (
-    <Frame signedIn={signedIn}>
+    <Frame signedIn={signedIn} stats>
       <main id="content" className="wrap ch">
         <Hero login={c.login} name={c.name} avatar={c.avatar} banner={c.banner} live={data.live}>
           <Link className="btn lg" href={`/${c.login}`}>Profile</Link>
@@ -254,8 +289,10 @@ export function ChatStatsPage({ login, signedIn }: { login: string; signedIn: bo
           </div>
         </section>
         <p className="ch-note">
-          {since ? `Counted since ${since}. ` : 'Sylva starts counting with the next chat message. '}
-          The bot’s own messages and removed messages are left out.
+          {data.imported
+            ? `Includes ${num(data.imported.messages)} messages from ${num(data.imported.chatters)} chatters counted by StreamElements, then Sylva’s own count${since ? ` since ${since}` : ''}. `
+            : since ? `Counted since ${since}. ` : 'Sylva starts counting with the next chat message. '}
+          Chat bots, test events and removed messages are left out.
         </p>
 
         <div className="ch-stats">
@@ -271,8 +308,12 @@ export function ChatStatsPage({ login, signedIn }: { login: string; signedIn: bo
             <List id="cs-commands" title="Top commands" empty={data.commands.length === 0}>
               <Ranked unit="uses" rows={data.commands.map((x) => ({ key: x.name, label: <code>!{x.name}</code>, value: x.uses }))} />
             </List>
+            <List id="cs-hashtags" title="Top hashtags" empty={data.hashtags.length === 0}>
+              <Ranked unit="uses" rows={data.hashtags.map((x) => ({ key: x.name, label: `#${x.name}`, value: x.uses }))} />
+            </List>
           </div>
         </div>
+        <TopStreamers limit={10} current={c.login} />
       </main>
     </Frame>
   );

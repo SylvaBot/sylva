@@ -9,7 +9,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use worker::*;
 
@@ -42,8 +42,26 @@ CREATE TABLE IF NOT EXISTS chat_emotes (
 CREATE TABLE IF NOT EXISTS chat_commands (
     name TEXT PRIMARY KEY,
     uses INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS chat_hashtags (
+    name TEXT PRIMARY KEY,
+    uses INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS chat_se (
+    id   INTEGER PRIMARY KEY CHECK (id = 1),
+    at   INTEGER NOT NULL,
+    body TEXT NOT NULL
 )
 "#;
+
+/// Chat bots that StreamElements counted as chatters. Left off the lists.
+const BOTS: &[&str] = &[
+    "streamelements", "nightbot", "fossabot", "moobot", "sylva_bot", "wizebot",
+    "streamlabs", "soundalerts", "sery_bot", "botrixoficial", "kofistreambot",
+];
+
+/// How often a channel tells the directory its total, for the top list.
+const REPORT_MS: f64 = 60_000.0;
 
 /// How long the channel's third party emote list is trusted.
 const EMOTES_KEEP_MS: f64 = 3_600_000.0;
@@ -63,26 +81,6 @@ struct MetaRow {
     live_started: Option<f64>,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ChatterRow {
-    login: String,
-    name: String,
-    messages: f64,
-}
-
-#[derive(Deserialize)]
-struct EmoteRow {
-    id: String,
-    name: String,
-    uses: f64,
-}
-
-#[derive(Deserialize)]
-struct CommandRow {
-    name: String,
-    uses: f64,
-}
 
 fn emote_url(provider: &str, id: &str) -> String {
     match provider {
@@ -227,6 +225,18 @@ impl ChannelDo {
                 }
             }
         }
+        for w in &words {
+            if let Some(tag) = w.strip_prefix('#') {
+                let tag: String = tag.trim_end_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+                if !tag.is_empty() && tag.len() <= 50 {
+                    self.sql.exec(
+                        "INSERT INTO chat_hashtags (name, uses) VALUES (?, 1)
+                         ON CONFLICT(name) DO UPDATE SET uses = uses + 1",
+                        vec![tag.into()],
+                    )?;
+                }
+            }
+        }
         if !words.is_empty() {
             let map = self.emote_names(&broadcaster).await;
             for w in words {
@@ -245,68 +255,180 @@ impl ChannelDo {
                 vec![provider.into(), id.into(), name.into()],
             )?;
         }
+        if now - self.chat_reported.get() > REPORT_MS {
+            self.chat_reported.set(now);
+            self.report_chat_total().await?;
+        }
         Ok(())
     }
 
-    fn top_emotes(&self, provider: &str) -> Result<Vec<Value>> {
+    fn se_snapshot(&self) -> Result<Option<sylva_core::import::SeChatStats>> {
+        #[derive(Deserialize)]
+        struct Row {
+            body: String,
+        }
         Ok(self
             .sql
-            .exec(
-                "SELECT id, name, uses FROM chat_emotes WHERE provider = ? ORDER BY uses DESC, name LIMIT ?",
-                vec![provider.into(), (TOP as f64).into()],
-            )?
-            .to_array::<EmoteRow>()?
+            .exec("SELECT body FROM chat_se WHERE id = 1", None)?
+            .to_array::<Row>()?
             .into_iter()
-            .map(|r| json!({ "id": r.id, "name": r.name, "uses": r.uses, "url": emote_url(provider, &r.id) }))
-            .collect())
+            .next()
+            .and_then(|r| serde_json::from_str(&r.body).ok()))
     }
 
-    /// `GET /public/chatstats`: everything the chat stats page shows.
+    /// StreamElements' all time stats become the starting point. What Sylva
+    /// counted before is dropped, because StreamElements counted the same
+    /// chat over that time.
+    pub(crate) async fn import_chat_stats(&self, se: &sylva_core::import::SeChatStats) -> Result<()> {
+        let now = Date::now().as_millis() as f64;
+        self.sql.exec(
+            "INSERT OR REPLACE INTO chat_se (id, at, body) VALUES (1, ?, ?)",
+            vec![now.into(), serde_json::to_string(se)?.into()],
+        )?;
+        for t in ["chat_users", "chat_emotes", "chat_commands", "chat_hashtags", "chat_meta"] {
+            self.sql.exec(&format!("DELETE FROM {t}"), None)?;
+        }
+        let live = self.uptime_ms()?.is_some().then_some(now);
+        self.sql.exec(
+            "INSERT INTO chat_meta (id, since, live_started) VALUES (1, ?, ?)",
+            vec![now.into(), live.into()],
+        )?;
+        self.report_chat_total().await
+    }
+
+    /// Tells the directory this channel's message total, for the list of top
+    /// streamers on /c.
+    async fn report_chat_total(&self) -> Result<()> {
+        let Some(login) = self.channel_login()? else {
+            return Ok(());
+        };
+        let Some(key) = self.broadcaster_id().map(|id| format!("twitch:{id}")) else {
+            return Ok(());
+        };
+        let total = self.chat_meta()?.map_or(0.0, |m| m.total)
+            + self.se_snapshot()?.map_or(0, |s| s.total) as f64;
+        let dir = self.env.durable_object("DIRECTORY")?.get_by_name("directory")?;
+        crate::auth::post(
+            &dir,
+            "/chat/report",
+            &json!({ "channel": key, "login": login, "name": self.channel_name()?, "total": total }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// `GET /public/chatstats`: everything the chat stats page shows, with
+    /// StreamElements' imported stats added in.
     pub(crate) fn chat_stats(&self) -> Result<Value> {
+        #[derive(Deserialize)]
+        struct UserRow {
+            login: String,
+            name: String,
+            messages: f64,
+        }
+        #[derive(Deserialize)]
+        struct EmoteRow {
+            provider: String,
+            id: String,
+            name: String,
+            uses: f64,
+        }
+        #[derive(Deserialize)]
+        struct NameRow {
+            name: String,
+            uses: f64,
+        }
         let now = Date::now().as_millis() as f64;
         let meta = self.chat_meta()?;
+        let se = self.se_snapshot()?.unwrap_or_default();
+        let imported = se.total > 0;
+
+        let mut chatters: HashMap<String, (String, f64)> = HashMap::new();
+        for (login, n) in &se.chatters {
+            chatters.insert(login.clone(), (login.clone(), *n as f64));
+        }
+        for r in self
+            .sql
+            .exec("SELECT login, name, messages FROM chat_users ORDER BY messages DESC LIMIT 500", None)?
+            .to_array::<UserRow>()?
+        {
+            let e = chatters.entry(r.login.to_lowercase()).or_insert((r.name.clone(), 0.0));
+            e.0 = r.name;
+            e.1 += r.messages;
+        }
+        let mut chatters: Vec<(String, String, f64)> = chatters
+            .into_iter()
+            .filter(|(l, _)| !BOTS.contains(&l.as_str()))
+            .map(|(l, (n, m))| (l, n, m))
+            .collect();
+        chatters.sort_by(|a, b| b.2.total_cmp(&a.2).then(a.1.cmp(&b.1)));
+        chatters.truncate(TOP_CHATTERS as usize);
+
+        let mut emotes: HashMap<(String, String), (String, f64)> = HashMap::new();
+        for (p, id, name, n) in &se.emotes {
+            emotes.insert((p.clone(), id.clone()), (name.clone(), *n as f64));
+        }
+        for r in self
+            .sql
+            .exec("SELECT provider, id, name, uses FROM chat_emotes", None)?
+            .to_array::<EmoteRow>()?
+        {
+            let e = emotes.entry((r.provider, r.id)).or_insert((r.name, 0.0));
+            e.1 += r.uses;
+        }
+        let top_emotes = |provider: &str| -> Vec<Value> {
+            let mut list: Vec<(&String, &String, f64)> = emotes
+                .iter()
+                .filter(|((p, _), _)| p == provider)
+                .map(|((_, id), (name, n))| (id, name, *n))
+                .collect();
+            list.sort_by(|a, b| b.2.total_cmp(&a.2).then(a.1.cmp(b.1)));
+            list.into_iter()
+                .take(TOP as usize)
+                .map(|(id, name, n)| json!({ "id": id, "name": name, "uses": n, "url": emote_url(provider, id) }))
+                .collect()
+        };
+
+        let merged = |table: &str, from_se: &[(String, i64)]| -> Result<Vec<Value>> {
+            let mut m: HashMap<String, f64> = from_se.iter().map(|(n, a)| (n.clone(), *a as f64)).collect();
+            for r in self
+                .sql
+                .exec(&format!("SELECT name, uses FROM {table}"), None)?
+                .to_array::<NameRow>()?
+            {
+                *m.entry(r.name).or_default() += r.uses;
+            }
+            let mut v: Vec<(String, f64)> = m.into_iter().collect();
+            v.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            Ok(v.into_iter()
+                .take(TOP as usize)
+                .map(|(name, uses)| json!({ "name": name, "uses": uses }))
+                .collect())
+        };
+
         let (since, total, per_second) = match &meta {
             Some(m) => {
                 let live_ms = m.live_ms + m.live_started.map_or(0.0, |s| (now - s).max(0.0));
-                let rate = if live_ms >= 60_000.0 {
-                    Some(m.live_messages / (live_ms / 1000.0))
-                } else {
-                    None
-                };
+                let rate = (live_ms >= 60_000.0).then(|| m.live_messages / (live_ms / 1000.0));
                 (Some(m.since), m.total, rate)
             }
             None => (None, 0.0, None),
         };
-        let chatters = self
-            .sql
-            .exec(
-                "SELECT login, name, messages FROM chat_users ORDER BY messages DESC, name LIMIT ?",
-                vec![(TOP_CHATTERS as f64).into()],
-            )?
-            .to_array::<ChatterRow>()?;
-        let commands: Vec<Value> = self
-            .sql
-            .exec(
-                "SELECT name, uses FROM chat_commands ORDER BY uses DESC, name LIMIT ?",
-                vec![(TOP as f64).into()],
-            )?
-            .to_array::<CommandRow>()?
-            .into_iter()
-            .map(|r| json!({ "name": r.name, "uses": r.uses }))
-            .collect();
         Ok(json!({
             "since": since,
-            "total": total,
+            "total": total + se.total as f64,
+            "imported": imported.then_some(json!({ "messages": se.total, "chatters": se.unique })),
             "perSecond": per_second,
             "live": meta.as_ref().is_some_and(|m| m.live_started.is_some()),
-            "chatters": chatters,
+            "chatters": chatters.into_iter().map(|(login, name, messages)| json!({ "login": login, "name": name, "messages": messages })).collect::<Vec<_>>(),
             "emotes": {
-                "twitch": self.top_emotes("twitch")?,
-                "7tv": self.top_emotes("7tv")?,
-                "bttv": self.top_emotes("bttv")?,
-                "ffz": self.top_emotes("ffz")?,
+                "twitch": top_emotes("twitch"),
+                "7tv": top_emotes("7tv"),
+                "bttv": top_emotes("bttv"),
+                "ffz": top_emotes("ffz"),
             },
-            "commands": commands,
+            "commands": merged("chat_commands", &se.commands)?,
+            "hashtags": merged("chat_hashtags", &se.hashtags)?,
         }))
     }
 

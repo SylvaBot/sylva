@@ -1,9 +1,10 @@
 /* The public home page (Landing.tsx). Dark only, scoped under .lp so the
  * dashboard's styles and theme never reach it. */
+@font-face { font-family: "Geist"; src: url("/fonts/geist-wght.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 @font-face { font-family: "Geist Mono"; src: url("/fonts/geist-mono-wght.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 :where(.lp) a{color:#d6efc2;text-decoration:none}:where(.lp) a:hover{color:#ffffff}
-.lp{font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;color:#fff;background:#0a0a0a;-webkit-font-smoothing:antialiased}
+.lp{font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Geist", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;color:#fff;background:#0a0a0a;-webkit-font-smoothing:antialiased}
 .lp *{box-sizing:border-box}
 .lp-mono{font-family:"SF Mono", ui-monospace, "Geist Mono", SFMono-Regular, Menlo, Consolas, monospace}
 .lp .lp-wrap{width:100%;max-width:1120px;margin:0 auto;padding:0 24px}

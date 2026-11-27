@@ -18,10 +18,13 @@ var showing = null;
 // one comes only then.
 var sylva = window.Sylva && typeof window.Sylva.on === 'function' ? window.Sylva : null;
 var sylvaId = null;
+// How long Sylva wants the alert up, so a tip's message is read in full.
+var sylvaMs = 0;
 if (sylva) {
   sylva.paced = true;
   sylva.on('alert', function (a) {
     sylvaId = a.id;
+    sylvaMs = num(a.view && a.view.tts ? a.view.durationMs : 0, 0);
     // An alert this widget has no look for never reaches onEventReceived:
     // hand it straight back so the queue does not wait on it.
     setTimeout(function () {
@@ -198,6 +201,7 @@ window.addEventListener('onEventReceived', function (obj) {
     alert = null;
   }
   var fromSylva = sylvaId;
+  var holdMs = fromSylva !== null ? sylvaMs : 0;
   sylvaId = null;
 
   // Ignore the same real event delivered twice within a few seconds
@@ -213,6 +217,7 @@ window.addEventListener('onEventReceived', function (obj) {
     return;
   }
   alert.sylvaId = fromSylva;
+  alert.holdMs = holdMs;
 
   var maxQueue = num(setting('maxQueue', 50), 50);
   if (queue.length >= maxQueue) queue.shift();
@@ -266,7 +271,7 @@ function gifterName(e) {
 var CHEERMOTES = /\b(cheer|biblethump|cheerwhal|corgo|uni|showlove|party|seemsgood|pride|kappa|frankerz|heyguys|dansgame|elegiggle|trihard|kreygasm|4head|swiftrage|notlikethis|failfish|vohiyo|pjsalt|mrdestructoid|bday|ripcheer|shamrock|streamlabs|muxy|doodlecheer|anon|holidaycheer|goal|charity)\d+\b/gi;
 
 function message(e, isCheer) {
-  if (setting('showMessages', false) !== true) return '';
+  if (setting('showMessages', true) !== true) return '';
   var text = clean(e.message, '');
   if (isCheer) text = clean(text.replace(CHEERMOTES, ' '), '');
   return text;
@@ -375,7 +380,7 @@ function buildAlert(listener, e) {
       var who = clean(d.displayName || d.username, 'Someone');
       var reward = clean(d.redemption, 'a reward');
       return A('sparkle', who, 'redeemed', reward, '',
-        setting('showMessages', false) === true ? clean(d.message, '') : '');
+        setting('showMessages', true) === true ? clean(d.message, '') : '');
     }
   }
 
@@ -451,7 +456,7 @@ window.addEventListener('resize', function () {
 });
 
 function showAlert(a) {
-  var seconds = Math.max(1, num(setting('duration', 5), 5));
+  var seconds = Math.max(1, num(setting('duration', 5), 5), (a.holdMs || 0) / 1000);
   hiding = false;
   clearTimers();
   showing = a;

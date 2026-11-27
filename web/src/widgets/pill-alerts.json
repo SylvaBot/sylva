@@ -70,7 +70,7 @@
   "showMessages": {
     "type": "checkbox",
     "label": "Show viewer messages",
-    "value": false,
+    "value": true,
     "group": "Behavior"
   },
   "minTip": {

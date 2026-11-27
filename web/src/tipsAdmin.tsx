@@ -12,7 +12,6 @@ import { errorText, Gate, Icon, SkelCard, useToast } from './ui';
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-const LANGS: Record<string, string> = { en: 'English', es: 'Spanish', fr: 'French', zh: 'Chinese', jp: 'Japanese', kr: 'Korean' };
 
 const STATUS: Record<Tip['status'], [string, string]> = {
   held: ['Waiting', 'var(--warn)'],
@@ -275,13 +274,11 @@ export function TipsPage() {
         {tab === 'voice' && (
           <Gate on={ch.can.own}>
             <section className="ta-panel">
-              <PanelHead title="Text to speech" hint="Reads the name, amount and message aloud on your overlay after the alert sound. Links are skipped." />
+              <PanelHead title="Text to speech" hint="Brian reads the name, amount and message aloud on your overlay after the alert sound. Links are skipped." />
               <Row label="Read tips aloud"><Switch on={draft.tts} label="Read tips aloud" set={(v) => set({ tts: v })} /></Row>
               <Row label="Only tips of at least"><NumField value={draft.ttsMin} suffix={draft.currency} onChange={(n) => set({ ttsMin: n })} /></Row>
-              <Row label="Voice">
-                <select className="ta-select" value={draft.ttsLang} onChange={(e) => set({ ttsLang: e.target.value })}>
-                  {view.ttsLangs.map((l) => <option key={l} value={l}>{LANGS[l] || l}</option>)}
-                </select>
+              <Row label="Voice" hint={view.ttsBrian ? undefined : 'Brian starts once Amazon Polly is set up for Sylva. A stand-in voice reads tips until then.'}>
+                <span className="ta-value">{view.ttsBrian ? 'Brian' : 'Stand-in voice'}</span>
               </Row>
             </section>
           </Gate>

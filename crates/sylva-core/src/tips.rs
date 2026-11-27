@@ -80,10 +80,10 @@ pub const METHOD_ORDER: &[&str] = &[
     "link",
 ];
 
-/// The only payment method types the tip page's form may show. An allow
-/// list, so a method Stripe adds or turns on later (Klarna, for one) never
-/// appears on its own. Apple Pay and Google Pay come with `card`. The
-/// server still sends EXCLUDED_METHODS when it charges.
+/// Methods Sylva means to offer. Not sent to Stripe: Elements with
+/// `allowedPaymentMethodTypes` cannot be confirmed against a PaymentIntent
+/// with automatic payment methods, so the form and the charge both use
+/// EXCLUDED_METHODS instead. Kept to test that the two lists never overlap.
 pub const ALLOWED_METHODS: &[&str] = &[
     "card",
     "link",

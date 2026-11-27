@@ -509,7 +509,7 @@ pub enum HoldMode {
     Off,
     /// Held tips alert on their own after `delay_seconds`.
     Delay,
-    /// Held tips wait until someone approves them in Sylva or Sylva Desktop.
+    /// Held tips wait until someone approves them in Sylva or Sylva Control.
     #[default]
     Approve,
 }

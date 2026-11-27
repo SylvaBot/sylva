@@ -111,7 +111,7 @@ fn overlay_html() -> &'static str {
 #[derive(PartialEq)]
 enum Caller {
     Admin,
-    /// The owner or a teammate. `via_token` is an app such as Sylva Desktop with an
+    /// The owner or a teammate. `via_token` is an app such as Sylva Control with an
     /// API token, rather than a browser with the session cookie.
     Member {
         role: Role,

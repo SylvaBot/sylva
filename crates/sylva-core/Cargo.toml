@@ -1,6 +1,6 @@
 [package]
 name = "sylva-core"
-description = "Platform independent core of Sylva: the normalized event model, Twitch EventSub parsing and the realtime protocol. No Cloudflare or UI code, so Sylva Desktop can depend on it too."
+description = "Platform independent core of Sylva: the normalized event model, Twitch EventSub parsing and the realtime protocol. No Cloudflare or UI code, so Sylva Control can depend on it too."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

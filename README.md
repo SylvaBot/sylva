@@ -1,17 +1,17 @@
 # Sylva
 
-A friendly web toolkit for streamers: alerts, overlays, an activity feed, and later a chatbot and loyalty points. Twitch first, with room for YouTube, Kick, TikTok, Rumble and Facebook. Sylva Desktop (the desktop app in `haruxee/cortex`, formerly called Cortex) connects to Sylva with an API token.
+A friendly web toolkit for streamers: alerts, overlays, an activity feed, and later a chatbot and loyalty points. Twitch first, with room for YouTube, Kick, TikTok, Rumble and Facebook. Sylva Control (the desktop app in `SylvaBot/sylva-control`, formerly Sylva Desktop and Cortex) connects to Sylva with an API token. Sylva Chat, a Twitch chat app, lives in `SylvaBot/sylva-chat`.
 
-This repository is in **Phase 1**. Streamers sign in with Twitch, and Sylva picks up their follows, subs, cheers, raids and chat, plays alerts on an overlay for OBS, and shows everything on its website: a landing page at `/` and a dashboard at `/app`. Read [docs/phase-1.md](docs/phase-1.md), [docs/site.md](docs/site.md) and, for Sylva Desktop, [docs/api.md](docs/api.md) for what is built and what comes next, and [docs/phase-0-findings.md](docs/phase-0-findings.md) for the tests behind the architecture.
+This repository is in **Phase 1**. Streamers sign in with Twitch, and Sylva picks up their follows, subs, cheers, raids and chat, plays alerts on an overlay for OBS, and shows everything on its website: a landing page at `/` and a dashboard at `/app`. Read [docs/phase-1.md](docs/phase-1.md), [docs/site.md](docs/site.md) and, for Sylva Control, [docs/api.md](docs/api.md) for what is built and what comes next, and [docs/phase-0-findings.md](docs/phase-0-findings.md) for the tests behind the architecture.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `crates/sylva-core` | Plain Rust with no Cloudflare code: the normalized event model, Twitch EventSub verification and parsing, the realtime protocol, and sign in helpers (scopes, cookies, token encryption). Sylva Desktop can depend on it too. |
+| `crates/sylva-core` | Plain Rust with no Cloudflare code: the normalized event model, Twitch EventSub verification and parsing, the realtime protocol, and sign in helpers (scopes, cookies, token encryption). Sylva Control can depend on it too. |
 | `workers/edge` | The Cloudflare Worker (Rust compiled to WebAssembly with workers-rs). Twitch sign in and webhooks, the API, and three kinds of Durable Object: `ChannelDo` per channel, `AccountDo` per account, and one `DirectoryDo`. |
-| `workers/edge/overlay` | The alert overlay for OBS, styled like Sylva Desktop. |
-| `web` | The website: the landing page and the dashboard, in React and TypeScript, built with Vite. Its look takes Sylva Desktop's ideas (neutral grays, one color per kind of event, flat cards) and lays them out as a site. It is built into the Worker (`workers/edge/build.rs`), so one deploy carries everything. |
+| `workers/edge/overlay` | The alert overlay for OBS, styled like Sylva Control. |
+| `web` | The website: the landing page and the dashboard, in React and TypeScript, built with Vite. Its look takes Sylva Control's ideas (neutral grays, one color per kind of event, flat cards) and lays them out as a site. It is built into the Worker (`workers/edge/build.rs`), so one deploy carries everything. |
 | `tools` | Node scripts that test a running Worker the way Twitch, OBS and the dashboard would, plus a fake Twitch for sign in tests. |
 
 ## Run it locally

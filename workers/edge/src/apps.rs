@@ -1,4 +1,4 @@
-//! Apps such as Sylva Desktop: the device code sign in and the API tokens it makes.
+//! Apps such as Sylva Control: the device code sign in and the API tokens it makes.
 //! See `sylva_core::apps` for the flow.
 //!
 //! * `POST /v1/device/code` (no auth) starts a sign in for an app.

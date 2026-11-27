@@ -84,11 +84,10 @@ fn now() -> i64 {
 /// Whether whoever runs Sylva has set up the Stripe platform account.
 /// Sylva runs on Stripe test keys (a sandbox): every tip is a test.
 pub(crate) fn test_mode(env: &Env) -> bool {
-    env.secret("STRIPE_SECRET_KEY")
-        .is_ok_and(|v| {
-            let k = v.to_string();
-            k.starts_with("sk_test_") || k.starts_with("rk_test_")
-        })
+    env.secret("STRIPE_SECRET_KEY").is_ok_and(|v| {
+        let k = v.to_string();
+        k.starts_with("sk_test_") || k.starts_with("rk_test_")
+    })
 }
 
 pub(crate) fn platform_ready(env: &Env) -> bool {
@@ -836,20 +835,32 @@ impl ChannelDo {
             global.push(c.clone());
         }
         let blocked = self.locally_blocked(&ids)? || directory_blocked(&self.env, global).await?;
-        let recent_attempts = self.tip_count(
+        // Test mode is for the streamer trying things: no attempt limits.
+        let testing = test_mode(&self.env);
+        let recent_attempts = if testing {
+            0
+        } else {
+            self.tip_count(
             "SELECT COUNT(*) AS n FROM tips WHERE created_at > ? AND (ip_hash = ? OR email_hash = ?)",
             vec![((now - 10 * 60_000) as f64).into(), ip_hash.as_str().into(), email_hash.as_str().into()],
-        )?;
-        let recent_failures = self.tip_count(
-            "SELECT COUNT(*) AS n FROM tips WHERE status = 'failed' AND created_at > ?
+        )?
+        };
+        // Only real declines count, not payments Sylva or Stripe could not start.
+        let recent_failures = if testing {
+            0
+        } else {
+            self.tip_count(
+                "SELECT COUNT(*) AS n FROM tips WHERE status = 'failed' AND created_at > ?
+               AND (note IS NULL OR note NOT LIKE 'Not started:%')
                AND (ip_hash = ? OR email_hash = ? OR (card_hash IS NOT NULL AND card_hash = ?))",
-            vec![
-                ((now - 60 * 60_000) as f64).into(),
-                ip_hash.as_str().into(),
-                email_hash.as_str().into(),
-                card_hash.as_deref().unwrap_or("-").into(),
-            ],
-        )?;
+                vec![
+                    ((now - 60 * 60_000) as f64).into(),
+                    ip_hash.as_str().into(),
+                    email_hash.as_str().into(),
+                    card_hash.as_deref().unwrap_or("-").into(),
+                ],
+            )?
+        };
         let base = rules::convert(t.amount, cur.code, &s.currency);
         let known = self.known_tipper(&email_hash, card_hash.as_deref(), "")?;
         let attempt = rules::Attempt {
@@ -931,12 +942,14 @@ impl ChannelDo {
         )
         .await?;
         if !(200..300).contains(&status) {
-            self.set_tip(
-                &id,
-                "status = 'failed', note = ?",
-                vec![stripe_error(&pi).into()],
-            )?;
             let card_error = pi["error"]["type"].as_str() == Some("card_error");
+            // Only a card decline counts toward the tipper's decline limit.
+            let note = if card_error {
+                stripe_error(&pi)
+            } else {
+                format!("Not started: {}", stripe_error(&pi))
+            };
+            self.set_tip(&id, "status = 'failed', note = ?", vec![note.into()])?;
             return if card_error {
                 error(&stripe_error(&pi), 402)
             } else {
@@ -1610,7 +1623,10 @@ impl ChannelDo {
             }
         } else {
             if status != 200 {
-                console_warn!("Reading the Stripe account (v2) failed: {}", stripe_error(&obj));
+                console_warn!(
+                    "Reading the Stripe account (v2) failed: {}",
+                    stripe_error(&obj)
+                );
             }
             let (status, v) = stripe(
                 &self.env,

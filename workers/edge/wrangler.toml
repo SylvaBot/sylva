@@ -43,7 +43,7 @@ binding = "AI"
 #   STRIPE_WEBHOOK_SECRET   signing secret of the Connect webhook at /stripe/webhook
 #   AWS_ACCESS_KEY_ID       Amazon key allowed polly:SynthesizeSpeech: Brian reads tips
 #   AWS_SECRET_ACCESS_KEY   its secret. Without both, a Workers AI voice reads them.
-#   AWS_REGION              optional, default us-east-1
+#   AWS_REGION              optional, default us-east-2
 
 [vars]
 # Not secret: the public client id of the "sylva dev" Twitch application.

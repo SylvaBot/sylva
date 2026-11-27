@@ -21,6 +21,7 @@ pub mod protocol;
 pub mod scene;
 pub mod store;
 pub mod team;
+pub mod tips;
 pub mod twitch;
 pub mod widgets;
 

@@ -12,7 +12,7 @@ export interface SylvaEvent {
   receivedAt: number;
   id: string;
   channel: string;
-  platform: 'twitch' | 'sylva';
+  platform: 'twitch' | 'sylva' | 'stripe';
   kind: Kind;
   rawType: string;
   createdAt: string;
@@ -25,6 +25,32 @@ export interface SylvaEvent {
   sender?: string;
   redemption?: string;
   raw: Record<string, unknown> | null;
+}
+
+export type HoldMode = 'off' | 'delay' | 'approve';
+export interface TipSettings {
+  enabled: boolean; currency: string; min: number; max: number; suggested: number[]; firstMax: number;
+  hold: HoldMode; holdOver: number; holdFirst: boolean; holdUnverified: boolean; delaySeconds: number;
+  mismatch: 'allow' | 'hold' | 'block'; refundOnWarning: boolean; autoEvidence: boolean;
+  tts: boolean; ttsMin: number; ttsLang: string; note: string;
+}
+export interface Tip {
+  id: string; name: string; message: string; amount: number; currency: string; base: number; email: string;
+  method?: string; status: 'held' | 'shown' | 'rejected' | 'refunded' | 'disputed' | 'failed';
+  verified: boolean; risk?: string; holdReason?: string; needsApproval: boolean; releaseAt?: number;
+  createdAt: number; paidAt?: number; shownAt?: number; country?: string; cardCountry?: string;
+  clip?: string; disputeStatus?: string; evidenceSent: boolean; blocked: boolean; note?: string;
+}
+export interface StripeAccount { id: string; country: string; chargesEnabled: boolean; detailsSubmitted: boolean; due: number; domain: string }
+export interface TipsView {
+  platformReady: boolean; account: StripeAccount | null; settings: TipSettings; tips: Tip[];
+  pageUrl: string | null; currencies: string[]; countries: string[]; ttsLangs: string[];
+}
+export interface TipCurrency { code: string; decimals: number; min: number; max: number; firstMax: number; suggested: number[] }
+export interface PublicTipPage {
+  open: boolean; account: string | null; currency: string; baseCurrency: string; currencies: TipCurrency[];
+  excluded: string[]; order: string[]; messageMax: number; nameMax: number; note: string;
+  login: string; name: string; avatar: string; publishableKey?: string;
 }
 
 export interface AlertState {
@@ -388,6 +414,18 @@ export const api = {
     request<Redemption>('POST', `${ch(key)}/loyalty/redemptions/${id}/${action}`),
   importStreamElements: (key: string, body: { token: string; commands: boolean; timers: boolean; points: boolean; watchtime: boolean }) =>
     request<ImportResult>('POST', `${ch(key)}/import/streamelements`, body),
+  tips: (key: string) => request<TipsView>('GET', `${ch(key)}/tips`),
+  heldTips: (key: string) => request<Tip[]>('GET', `${ch(key)}/tips/held`),
+  saveTipSettings: (key: string, s: TipSettings) => request<TipSettings>('POST', `${ch(key)}/tips/settings`, s),
+  connectStripe: (key: string, country: string) => request<{ url: string }>('POST', `${ch(key)}/tips/connect`, { country }),
+  disconnectStripe: (key: string) => request<unknown>('POST', `${ch(key)}/tips/disconnect`),
+  tipAction: (key: string, id: string, action: 'approve' | 'reject' | 'refund' | 'block' | 'unblock') =>
+    request<Tip>('POST', `${ch(key)}/tips/${encodeURIComponent(id)}/${action}`),
+  publicTip: (login: string) => request<PublicTipPage>('GET', `/v1/public/${encodeURIComponent(login)}/tip`),
+  sendTip: (login: string, body: { amount: number; currency: string; name: string; email: string; message: string; agreed: boolean; confirmationToken: string }) =>
+    request<{ id: string; status: string; clientSecret?: string }>('POST', `/v1/public/${encodeURIComponent(login)}/tip`, body),
+  tipStatus: (login: string, id: string) =>
+    request<{ status: 'pending' | 'paid' | 'failed' | 'closed'; note?: string }>('GET', `/v1/public/${encodeURIComponent(login)}/tip/${encodeURIComponent(id)}`),
   publicCommands: (login: string) => request<PublicCommands>('GET', `/v1/public/${encodeURIComponent(login)}/commands`),
   publicStore: (login: string, viewer?: string) =>
     request<PublicStore>('GET', `/v1/public/${encodeURIComponent(login)}${viewer ? `?viewer=${encodeURIComponent(viewer)}` : ''}`),

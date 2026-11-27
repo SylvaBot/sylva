@@ -38,8 +38,7 @@ pub const TEST_EVENT_TTL_MS: i64 = 30_000;
 
 /// Leaves out test events older than [`TEST_EVENT_TTL_MS`]. Takes one
 /// argument: the cutoff time.
-const NOT_OLD_TEST: &str =
-    "AND NOT (event_id LIKE 'sylva:test:%' AND received_at < ?)";
+const NOT_OLD_TEST: &str = "AND NOT (event_id LIKE 'sylva:test:%' AND received_at < ?)";
 
 /// Every stored event except the "Try it" tests, for use as `FROM {REAL_EVENTS}`.
 /// Stats, stream summaries, goals and top labels read from this, so a test
@@ -389,7 +388,12 @@ pub struct ChannelDo {
 impl DurableObject for ChannelDo {
     fn new(state: State, env: Env) -> Self {
         let sql = state.storage().sql();
-        for stmt in SCHEMA.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        for stmt in SCHEMA
+            .split(';')
+            .chain(crate::tips::SCHEMA.split(';'))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             sql.exec(stmt, None).expect("schema");
         }
         let head = sql
@@ -428,6 +432,10 @@ impl DurableObject for ChannelDo {
                 | ["public"]
                 | ["public", "commands"]
                 | ["public", "media", _]
+                | ["public", "tips"]
+                | ["public", "tips", _]
+                | ["public", "tts", _]
+                | ["stripe-event"]
         );
         if !self.tests_cleared.replace(true) {
             if let Err(e) = self.clear_tests() {
@@ -499,6 +507,40 @@ impl DurableObject for ChannelDo {
                 Response::from_json(&self.summary(since)?)
             }
             (Method::Get, ["public", "media", id]) => self.media_file(id),
+            (Method::Get, ["public", "tts", id]) => self.tts_file(id),
+            (Method::Get, ["public", "tips"]) => {
+                let country = q.get("country").cloned().unwrap_or_default();
+                Response::from_json(&self.tips_public(&country)?)
+            }
+            (Method::Post, ["public", "tips"]) => self.tips_create(req).await,
+            (Method::Get, ["public", "tips", id]) => self.tips_status(id),
+            (Method::Post, ["stripe-event"]) => {
+                let ev: serde_json::Value = req.json().await?;
+                self.stripe_event(ev).await?;
+                Response::ok("ok")
+            }
+            (Method::Get, ["tips"]) => {
+                let origin = url.origin().ascii_serialization();
+                let host = url.host_str().unwrap_or_default().to_string();
+                Response::from_json(&self.tips_view(&origin, &host).await?)
+            }
+            (Method::Get, ["tips", "held"]) => Response::from_json(&self.tips_held()?),
+            (Method::Post, ["tips", "settings"]) => {
+                let s: sylva_core::tips::TipSettings = match req.json().await {
+                    Ok(s) => s,
+                    Err(_) => return Response::error("Those settings could not be read.", 400),
+                };
+                match self.tips_save_settings(s) {
+                    Ok(s) => Response::from_json(&s),
+                    Err(m) => Response::error(m, 400),
+                }
+            }
+            (Method::Post, ["tips", "connect"]) => {
+                let origin = url.origin().ascii_serialization();
+                self.tips_connect(req, &origin).await
+            }
+            (Method::Post, ["tips", "disconnect"]) => self.tips_disconnect().await,
+            (Method::Post, ["tips", id, action]) => self.tips_action(id, action).await,
             (Method::Get, ["media"]) => Response::from_json(&self.media_list()?),
             (Method::Get, ["streams"]) => Response::from_json(&self.streams_view()?),
             (Method::Get, ["stats"]) => {
@@ -892,6 +934,8 @@ impl DurableObject for ChannelDo {
                     "redemptions",
                     "giveaways",
                     "giveaway_entries",
+                    "tips",
+                    "tts",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
@@ -1002,6 +1046,9 @@ impl DurableObject for ChannelDo {
         if let Err(e) = self.run_viewers(now).await {
             console_error!("The viewer count could not be read: {e}");
         }
+        if let Err(e) = self.run_tip_releases(now).await {
+            console_error!("A held tip could not be released: {e}");
+        }
         self.schedule().await?;
         Response::ok("ok")
     }
@@ -1081,6 +1128,7 @@ impl DurableObject for ChannelDo {
             ClientFrame::Ack { alert_id } => {
                 if self.playing()?.is_some_and(|p| p.id as u64 == alert_id) {
                     self.finish(alert_id, "done")?;
+                    self.tip_alert_done(alert_id)?;
                     if self.dispatch().await?.is_none() {
                         self.broadcast_state()?;
                     }
@@ -1122,7 +1170,7 @@ fn send(ws: &WebSocket, frame: &ServerFrame) -> Result<()> {
 impl ChannelDo {
     /// Store an event, then fan it out. Everything here is synchronous, so no
     /// other request can run in between and sequence numbers stay in order.
-    async fn ingest(&self, event: Event) -> Result<IngestResult> {
+    pub(crate) async fn ingest(&self, event: Event) -> Result<IngestResult> {
         if event.raw_type == "channel.chat.notification" {
             let duplicate = self.chat_notification(&event).await?;
             return Ok(IngestResult {
@@ -1352,10 +1400,12 @@ impl ChannelDo {
         let rows = self
             .sql
             .exec(
-                &format!("SELECT kind, COUNT(*) AS n,
+                &format!(
+                    "SELECT kind, COUNT(*) AS n,
                         COALESCE(SUM(CASE WHEN kind = 'cheer'
                                      THEN json_extract(body, '$.amount') END), 0) AS amount
-                 FROM {REAL_EVENTS} WHERE received_at >= ? GROUP BY kind"),
+                 FROM {REAL_EVENTS} WHERE received_at >= ? GROUP BY kind"
+                ),
                 vec![since.into()],
             )?
             .to_array::<SummaryRow>()?;
@@ -1401,7 +1451,7 @@ impl ChannelDo {
             .ok_or_else(|| Error::RustError(format!("no event {seq}")))
     }
 
-    fn sockets(&self, role: Role) -> Vec<WebSocket> {
+    pub(crate) fn sockets(&self, role: Role) -> Vec<WebSocket> {
         self.state
             .get_websockets()
             .into_iter()
@@ -1471,7 +1521,10 @@ impl ChannelDo {
                         "SELECT seq, received_at, body FROM events WHERE kind = ? {NOT_OLD_TEST}
                          ORDER BY seq DESC LIMIT 1"
                     ),
-                    vec![name.as_str().unwrap_or("other").into(), test_cutoff().into()],
+                    vec![
+                        name.as_str().unwrap_or("other").into(),
+                        test_cutoff().into(),
+                    ],
                 )?
                 .to_array::<EventRow>()?;
             latest.extend(Self::rows_to_events(rows)?);
@@ -1811,10 +1864,16 @@ impl ChannelDo {
 
     fn send_play(&self, ws: &WebSocket, alert_id: u64, event_seq: u64) -> Result<()> {
         let event = self.event(event_seq)?;
+        let mut view = self.alert_settings()?.view(&event.event);
+        if let Some((id, ms)) = self.tip_speech(&event.event) {
+            view.tts = Some(id);
+            // Keep the alert up while its message is read.
+            view.duration_ms = view.duration_ms.max(ms + 1500);
+        }
         let frame = ServerFrame::Play {
             alert_id,
             muted: self.setting("muted")?,
-            view: self.alert_settings()?.view(&event.event),
+            view,
             event,
         };
         send(ws, &frame)
@@ -1845,6 +1904,7 @@ impl ChannelDo {
         let filesay = self.next_filesay_at()?;
         let raffle = self.next_raffle_at()?;
         let viewers = self.next_viewers_at()?;
+        let tips = self.next_tip_at()?;
         let storage = self.state.storage();
         match alert
             .into_iter()
@@ -1853,6 +1913,7 @@ impl ChannelDo {
             .chain(filesay)
             .chain(raffle)
             .chain(viewers)
+            .chain(tips)
             .min()
         {
             // Careful: a Duration here is an offset from now, not a timestamp.

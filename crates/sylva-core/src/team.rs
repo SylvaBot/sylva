@@ -61,6 +61,8 @@ pub fn allows(role: Role, post: bool, rest: &[&str]) -> bool {
         // The overlay link is a secret that shows the channel's alerts.
         ["overlay"] => role >= Role::Editor && !post,
         ["overlay", "rotate"] => false,
+        // Only the owner decides where their money goes and how tips work.
+        ["tips", "connect" | "disconnect" | "settings"] => false,
         _ if !post => true,
         _ if role == Role::Editor => true,
         _ if role == Role::Moderator => matches!(
@@ -70,6 +72,8 @@ pub fn allows(role: Role, post: bool, rest: &[&str]) -> bool {
                 | ["loyalty", "viewers", _, "adjust"]
                 | ["loyalty", "redemptions", ..]
                 | ["giveaways", ..]
+                // Moderators can let a held tip through or turn it back.
+                | ["tips", _, "approve" | "reject"]
                 | ["bot", "quotes", ..]
                 | ["bot", "counters", _, "set"]
                 // Trying a message changes nothing.

@@ -15,6 +15,8 @@ pub enum Platform {
     Twitch,
     /// Events made by Sylva itself, such as the "Try it" test button.
     Sylva,
+    /// Tips paid on Sylva's tip page, through the streamer's own Stripe.
+    Stripe,
 }
 
 impl Platform {
@@ -22,6 +24,7 @@ impl Platform {
         match self {
             Platform::Twitch => "twitch",
             Platform::Sylva => "sylva",
+            Platform::Stripe => "stripe",
         }
     }
 }

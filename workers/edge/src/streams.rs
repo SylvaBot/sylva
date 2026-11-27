@@ -86,7 +86,7 @@ impl ChannelDo {
         let rows: Vec<KindRow> = self
             .sql
             .exec(
-                &format!("SELECT kind, COUNT(*) AS n, COALESCE(SUM(json_extract(body, '$.amount')), 0) AS amount
+                &format!("SELECT kind, COUNT(*) AS n, COALESCE(SUM(COALESCE(json_extract(body, '$.raw.sylvaBase'), json_extract(body, '$.amount'))), 0) AS amount
                  FROM {REAL_EVENTS} WHERE received_at >= ? AND received_at <= ? GROUP BY kind"),
                 range(),
             )?
@@ -125,7 +125,7 @@ impl ChannelDo {
             .map_or(0, |c| c.n as u64);
         let leader = |kind: &str, sum: bool| -> Result<Option<Leader>> {
             let what = if sum {
-                "SUM(json_extract(body, '$.amount'))"
+                "SUM(COALESCE(json_extract(body, '$.raw.sylvaBase'), json_extract(body, '$.amount')))"
             } else {
                 "COUNT(*)"
             };
@@ -211,10 +211,7 @@ impl ChannelDo {
             r.avg_viewers = r.avg_viewers.or(old.avg_viewers);
             self.sql.exec(
                 "UPDATE stream_recaps SET body = ? WHERE started_at = ?",
-                vec![
-                    serde_json::to_string(&r)?.into(),
-                    old.started_at.into(),
-                ],
+                vec![serde_json::to_string(&r)?.into(), old.started_at.into()],
             )?;
         }
         Ok(())

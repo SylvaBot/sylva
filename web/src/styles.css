@@ -1040,7 +1040,6 @@ fieldset.gate { border: 0; margin: 0; padding: 0; min-width: 0; }
 .card-head h2 { font-size: 14.5px; }
 .btn.primary { box-shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 0 0 1px rgba(255, 255, 255, .04) inset; }
 
-
 /* Page header */
 .page { padding-top: 28px; }
 .page-wide { max-width: 1320px; }
@@ -1827,30 +1826,6 @@ textarea.tip-input { height: auto; min-height: 88px; padding: 11px 13px 24px; re
   .tp-stage { padding: 36px 16px 28px; }
   .ie-hint { display: none; }
 }
-
-/* Kokoro voice picker: the tip page and the dashboard's Voice tab. */
-.vp { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-.vp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: var(--sunken); }
-.vp-item { display: flex; align-items: center; gap: 2px; min-width: 0; border-radius: 10px; transition: background .15s, box-shadow .15s; }
-.vp-item:hover { background: var(--surface-2); }
-.vp-item[data-on] { background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--border-3); }
-.vp-play { flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin-left: 5px; border: 0; border-radius: 50%; background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text-2); cursor: pointer; transition: background .15s, color .15s; }
-.vp-play svg { width: 12px; height: 12px; }
-.vp-play:hover, .vp-play[aria-pressed="true"] { background: var(--text); color: var(--bg); }
-.vp-play:focus-visible, .vp-pick:focus-visible, .vp-more:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.vp-pick { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 8px; align-items: center; padding: 7px 10px 7px 6px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.vp-name { grid-column: 1; font-size: 13.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vp-meta { grid-column: 1; font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vp-tick { grid-column: 2; grid-row: 1 / 3; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 6px; box-shadow: inset 0 0 0 1.5px var(--border-3); color: var(--bg); }
-.vp-item[data-on] .vp-tick { background: var(--text); box-shadow: none; }
-.vp-tick svg { width: 11px; height: 11px; }
-.vp-more { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border: 0; border-radius: 9px; background: none; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-.vp-more:hover { background: var(--surface-2); color: var(--text); }
-.vp-more span { padding: 1px 7px; border-radius: 99px; background: var(--surface-2); font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
-.tip-voice-hint { font-size: 12px; color: var(--faint); }
-.ta-voice-default { display: flex; align-items: center; gap: 8px; }
-.ta-voice-default .vp-play { margin: 0; }
-@media (prefers-reduced-motion: reduce) { .vp-item, .vp-play { transition: none; } }
 
 .ta-tts-template { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
 .ta-tts-template .ta-input { flex: 1 1 260px; min-width: 0; }

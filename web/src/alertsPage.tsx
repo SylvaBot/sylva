@@ -14,6 +14,7 @@ import { codeOf } from './overlay';
 import { PageHead, sendTest, TESTS } from './pages';
 import { Link } from './router';
 import { ArmedButton, Drawer, errorText, Gate, Icon, num, SaveState, Seg, Skel, Switch, Tile, useAutosave, useToast } from './ui';
+import { Select } from './dropdown';
 
 interface Meta { name: string; desc: string; icon: string; unit?: string; chat: string[]; smallest?: string }
 const META: Partial<Record<Kind, Meta>> = {
@@ -581,10 +582,8 @@ function MediaPick({ what, id, value, files, volume, onPick, onUpload, onDelete 
           <Icon id="trash" />
         </ArmedButton>
       )}
-      <select id={id} className="select sm" value={value ?? ''} disabled={!files} onChange={(e) => onPick(e.target.value || undefined)}>
-        <option value="">None</option>
-        {(files ?? []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-      </select>
+      <Select id={id} className="sm" value={value ?? ''} disabled={!files} onChange={(v) => onPick(v || undefined)}
+        options={[{ value: '', label: 'None' }, ...(files ?? []).map((f) => ({ value: f.id, label: f.name }))]} />
       <button className="btn sm" type="button" disabled={busy} onClick={() => input.current?.click()} title={what === 'sound' ? 'MP3, OGG or WAV, up to 3 MB' : 'PNG, JPG, GIF or WebP, up to 3 MB'}>
         <Icon id="upload" />{busy ? 'Uploading' : 'Upload'}
       </button>

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, type TeamMember, type TeamView } from './api';
 import { ROLE_NAMES, useChannel } from './channel';
 import { Avatar, errorText, Row, Sect, SkelRows, useToast } from './ui';
+import { Select } from './dropdown';
 
 const ROLES: { id: TeamMember['role']; what: string }[] = [
   { id: 'editor', what: 'Changes everything except the team and the overlay link' },
@@ -67,19 +68,15 @@ export function TeamCard() {
               <div className="t2">twitch.tv/{m.login}{m.joined ? '' : ', has not signed in to Sylva yet'}</div>
             </div>
             <div className="gr-ctl">
-              <label className="sr-only" htmlFor={`team-role-${m.id}`}>Role for {m.name}</label>
-              <select
+              <Select<TeamMember['role']>
                 id={`team-role-${m.id}`}
-                className="select sm"
+                className="sm"
+                label={`Role for ${m.name}`}
                 value={m.role}
                 disabled={busy !== null}
-                onChange={(e) => {
-                  const r = e.target.value as TeamMember['role'];
-                  void run(m.id, () => api.setTeammate(ch.key, m.login, r), `${m.name} is now ${aRole(r)}`);
-                }}
-              >
-                {ROLES.map((r) => <option key={r.id} value={r.id}>{ROLE_NAMES[r.id]}</option>)}
-              </select>
+                onChange={(r) => void run(m.id, () => api.setTeammate(ch.key, m.login, r), `${m.name} is now ${aRole(r)}`)}
+                options={ROLES.map((r) => ({ value: r.id, label: ROLE_NAMES[r.id] }))}
+              />
               <button
                 className="btn sm danger"
                 type="button"
@@ -108,9 +105,8 @@ export function TeamCard() {
             style={{ flex: 1, minWidth: 0 }}
           />
           <label className="sr-only" htmlFor="team-new-role">Role</label>
-          <select id="team-new-role" className="select" style={{ width: 130 }} value={role} onChange={(e) => setRole(e.target.value as TeamMember['role'])}>
-            {ROLES.map((r) => <option key={r.id} value={r.id}>{ROLE_NAMES[r.id]}</option>)}
-          </select>
+          <Select<TeamMember['role']> id="team-new-role" style={{ width: 130 }} value={role} onChange={setRole}
+            options={ROLES.map((r) => ({ value: r.id, label: ROLE_NAMES[r.id] }))} />
           <button className="btn primary" type="submit" disabled={busy !== null || !login.trim() || full || !view}>
             {busy === 'add' ? 'Adding' : 'Add'}
           </button>

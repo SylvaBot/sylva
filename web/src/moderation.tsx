@@ -10,6 +10,7 @@ import {
 import { useChannel } from './channel';
 import { Card, PageHead } from './pages';
 import { errorText, Gate, Icon, SaveState, Seg, Skel, SkelRows, Switch, useAutosave, useToast } from './ui';
+import { Select } from './dropdown';
 
 const PRESETS: { id: ModPreset; label: string; what: string }[] = [
   { id: 'off', label: 'Off', what: 'Sylva leaves your chat alone. Twitch AutoMod and your moderators still work as usual.' },
@@ -56,37 +57,38 @@ function lasting(s: number): string {
 }
 
 const ALLOW_URL = '/auth/twitch/start?scopes=moderation&next=/app/moderation';
-const lines = (s: string) => s.split('\n').map((l) => l.trim()).filter(Boolean);
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const MAX_WORDS = 200;
+const MAX_WORD_LEN = 50;
+const MAX_SITES = 50;
+
+/** A banned word as Sylva stores it: trimmed, lower case, single spaces. */
+function cleanWord(raw: string): string {
+  return raw.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** The site name from whatever was typed: no https://, www., path or port. */
+function cleanSite(raw: string): string {
+  let h = raw.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, '');
+  h = h.split(/[/?#]/)[0].replace(/:\d+$/, '').replace(/^www\./, '').replace(/\.$/, '');
+  return h;
+}
 
 export function ModerationPage() {
   const ch = useChannel();
   const [view, setView] = useState<ModView | null>(null);
   const [failed, setFailed] = useState(false);
   const mod = useAutosave<ModSettings>((v) => api.saveModeration(ch.key, v).then((r) => { setView(r); return r.settings; }));
-  const [words, setWords] = useState('');
-  const [sites, setSites] = useState('');
 
   useEffect(() => {
     setFailed(false);
     api.moderation(ch.key).then((v) => {
       setView(v);
       mod.reset(v.settings);
-      setWords(v.settings.words.join('\n'));
-      setSites(v.settings.allowedLinks.join('\n'));
     }).catch(() => setFailed(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ch.key]);
 
   const draft = mod.value;
-  // The lists follow the settings (after an undo, say) unless you are typing in them.
-  const listKey = draft ? JSON.stringify([draft.words, draft.allowedLinks]) : '';
-  useEffect(() => {
-    if (!draft) return;
-    const typing = document.activeElement?.id === 'mod-words' || document.activeElement?.id === 'mod-sites';
-    if (!typing) { setWords(draft.words.join('\n')); setSites(draft.allowedLinks.join('\n')); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listKey]);
   const presetInfo = (p: ModPreset) => view?.presets.find(([id]) => id === p)?.[1];
   const pick = (p: ModPreset) => {
     if (!draft) return;
@@ -96,12 +98,9 @@ export function ModerationPage() {
   // Changing any rule by hand makes it Custom.
   const tune = (patch: Partial<ModSettings>, now = true) => draft && mod.set({ ...draft, ...patch, preset: 'custom' }, now);
   const rule = <K extends keyof ModRules>(k: K, v: ModRules[K]) => draft && tune({ rules: { ...draft.rules, [k]: v } });
-  const commitLists = () => {
-    if (!draft) return;
-    const w = lines(words);
-    const a = lines(sites);
-    if (!same(w, draft.words) || !same(a, draft.allowedLinks)) mod.set({ ...draft, words: w, allowedLinks: a }, true);
-  };
+  // Each word or site saves the moment it is added or removed.
+  const setWords = (words: string[]) => draft && mod.set({ ...draft, words }, true);
+  const setSites = (allowedLinks: string[]) => draft && mod.set({ ...draft, allowedLinks }, true);
 
   const off = draft?.preset === 'off';
   const what = PRESETS.find((p) => p.id === draft?.preset)?.what;
@@ -200,21 +199,17 @@ export function ModerationPage() {
                     <div className="gr" key={label}>
                       <div className="gr-main"><label className="t1" htmlFor={`mod-step-${i}`}>{label}</label></div>
                       <div className="gr-ctl">
-                        <select id={`mod-step-${i}`} className="select sm" value={draft.steps[i]}
-                          onChange={(e) => { const next = [...draft.steps] as ModSettings['steps']; next[i] = Number(e.target.value); tune({ steps: next }); }}>
-                          {(STEP_CHOICES.includes(draft.steps[i]) ? STEP_CHOICES : [...STEP_CHOICES, draft.steps[i]].sort((a, b) => a - b)).map((x) => (
-                            <option key={x} value={x}>{timeoutText(x)}</option>
-                          ))}
-                        </select>
+                        <Select<number> id={`mod-step-${i}`} className="sm" value={draft.steps[i]}
+                          onChange={(v) => { const next = [...draft.steps] as ModSettings['steps']; next[i] = v; tune({ steps: next }); }}
+                          options={(STEP_CHOICES.includes(draft.steps[i]) ? STEP_CHOICES : [...STEP_CHOICES, draft.steps[i]].sort((a, b) => a - b)).map((x) => ({ value: x, label: timeoutText(x) }))} />
                       </div>
                     </div>
                   ))}
                   <div className="gr">
                     <div className="gr-main"><label className="t1" htmlFor="mod-exempt">Never moderated</label><div className="t2">You and your moderators never are</div></div>
                     <div className="gr-ctl">
-                      <select id="mod-exempt" className="select sm" value={draft.exempt} onChange={(e) => tune({ exempt: e.target.value as UserLevel })}>
-                        {EXEMPT.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-                      </select>
+                      <Select<UserLevel> id="mod-exempt" className="sm" value={draft.exempt} onChange={(v) => tune({ exempt: v })}
+                        options={EXEMPT.map((x) => ({ value: x.id, label: x.label }))} />
                     </div>
                   </div>
                   <div className="gr">
@@ -227,19 +222,38 @@ export function ModerationPage() {
             </section>
 
             <section className="sect" aria-labelledby="mod-lists">
-              <div className="sect-head"><div><h2 id="mod-lists">Words and sites</h2><p>One per line. Banned words apply whatever the filters, and match whole words, ignoring capitals.</p></div></div>
+              <div className="sect-head"><div><h2 id="mod-lists">Words and sites</h2><p>Banned words apply whatever the filters, and match whole words, ignoring capitals.</p></div></div>
               <fieldset className="grp mod-lists" disabled={!draft || off}>
                 <legend className="sr-only">Words and sites</legend>
-                <label className="field" htmlFor="mod-words">
-                  <span className="field-row">Banned words and phrases<span className="field-hint">{lines(words).length} / 200</span></span>
-                  <textarea id="mod-words" className="input" rows={6} value={words} placeholder={'one word\nor a whole phrase'} onChange={(e) => setWords(e.target.value)} onBlur={commitLists} />
-                </label>
-                <label className="field" htmlFor="mod-sites">
-                  <span className="field-row">Allowed sites<span className="field-hint">Their subdomains count too</span></span>
-                  <textarea id="mod-sites" className="input" rows={6} value={sites} placeholder="clips.twitch.tv" onChange={(e) => setSites(e.target.value)} onBlur={commitLists} />
-                </label>
+                <TagList
+                  id="mod-words"
+                  label="Banned words and phrases"
+                  placeholder={draft?.words.length ? 'Add another' : 'A word or a whole phrase'}
+                  items={draft?.words ?? []}
+                  max={MAX_WORDS}
+                  hint={`${draft?.words.length ?? 0} / ${MAX_WORDS}`}
+                  clean={(raw) => {
+                    const w = cleanWord(raw);
+                    return w.length > MAX_WORD_LEN ? { error: `Banned words can be up to ${MAX_WORD_LEN} characters.` } : { value: w };
+                  }}
+                  onChange={setWords}
+                />
+                <TagList
+                  id="mod-sites"
+                  label="Allowed sites"
+                  placeholder={draft?.allowedLinks.length ? 'Add another' : 'Such as clips.twitch.tv'}
+                  items={draft?.allowedLinks ?? []}
+                  max={MAX_SITES}
+                  hint="Their subdomains count too"
+                  mono
+                  clean={(raw) => {
+                    const h = cleanSite(raw);
+                    return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h) ? { value: h } : { error: 'Use a site name, such as clips.twitch.tv.' };
+                  }}
+                  onChange={setSites}
+                />
               </fieldset>
-              <p className="sect-foot">Lists save when you click away from them.</p>
+              <p className="sect-foot">Press Enter to add one. Each change saves right away.</p>
             </section>
           </Gate>
         </div>
@@ -391,5 +405,49 @@ function ActionLog({ permission }: { permission: ModView['permission'] }) {
       )}
       {more && <div className="card-body load-more"><button className="btn sm" type="button" onClick={() => void older()}>Show older</button></div>}
     </Card>
+  );
+}
+
+/**
+ * A list you add to one item at a time, like a command's other names: each
+ * item is a chip you can remove, and the box at the end takes the next one.
+ */
+function TagList({ id, label, placeholder, items, max, hint, mono, clean, onChange }: {
+  id: string; label: string; placeholder: string; items: string[]; max: number; hint: string; mono?: boolean;
+  clean: (raw: string) => { value?: string; error?: string }; onChange: (items: string[]) => void;
+}) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState('');
+  const full = items.length >= max;
+  const add = () => {
+    if (!text.trim()) { setError(''); return; }
+    const r = clean(text);
+    if (r.error || !r.value) { setError(r.error ?? ''); return; }
+    if (items.includes(r.value)) { setError(`${r.value} is already on the list.`); return; }
+    if (full) { setError(`Up to ${max}.`); return; }
+    onChange([...items, r.value]);
+    setText('');
+    setError('');
+  };
+  return (
+    <div className="field tag-list">
+      <span className="field-row"><label htmlFor={id}>{label}</label><span className="field-hint">{hint}</span></span>
+      <div className={'alias-box' + (mono ? '' : ' words')}>
+        {items.map((w) => (
+          <span className="alias" key={w}>{w}<button type="button" aria-label={`Remove ${w}`} onClick={() => onChange(items.filter((x) => x !== w))}><Icon id="x" /></button></span>
+        ))}
+        {!full && (
+          <input id={id} className="alias-input" placeholder={placeholder} value={text} autoComplete="off" spellCheck={false}
+            aria-invalid={error ? true : undefined} aria-describedby={error ? id + '-error' : undefined}
+            onChange={(e) => { setText(e.target.value); if (error) setError(''); }}
+            onBlur={add}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || (mono && (e.key === ' ' || e.key === ','))) { e.preventDefault(); add(); }
+              if (e.key === 'Escape') { setText(''); setError(''); }
+            }} />
+        )}
+      </div>
+      {error && <span className="form-error" id={id + '-error'} role="alert">{error}</span>}
+    </div>
   );
 }

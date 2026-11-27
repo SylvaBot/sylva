@@ -11,6 +11,7 @@ import { GamesTab } from './games';
 import { PageHead } from './pages';
 import { Link, navigate, useSearch } from './router';
 import { ArmedButton, Drawer, errorText, Gate, Icon, num, SaveState, Seg, Skel, Switch, useAutosave, useToast } from './ui';
+import { Select } from './dropdown';
 
 type Tab = 'rewards' | 'viewers' | 'games';
 const TABS: { id: Tab; label: string }[] = [{ id: 'rewards', label: 'Rewards' }, { id: 'viewers', label: 'Viewers' }, { id: 'games', label: 'Games' }];
@@ -216,9 +217,8 @@ function RewardDrawer({ item, isNew, name, onSave, onClose, onDelete }: {
           <div className="gr">
             <div className="gr-main"><label className="t1" htmlFor="rw-cool">Each viewer waits</label></div>
             <div className="gr-ctl">
-              <select id="rw-cool" className="select sm" value={d.cooldown} onChange={(e) => set({ cooldown: Number(e.target.value) })}>
-                {cooldowns.map((m) => <option key={m} value={m}>{m === 0 ? 'No wait' : wait(m)}</option>)}
-              </select>
+              <Select<number> id="rw-cool" className="sm" value={d.cooldown} onChange={(v) => set({ cooldown: v })}
+                options={cooldowns.map((m) => ({ value: m, label: m === 0 ? 'No wait' : wait(m) }))} />
             </div>
           </div>
           <div className="gr">

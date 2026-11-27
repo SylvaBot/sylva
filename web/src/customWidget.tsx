@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CustomCode } from './api';
 import { Icon, Switch } from './ui';
+import { Select } from './dropdown';
 
 export const STARTER: CustomCode = {
   name: 'My widget',
@@ -270,9 +271,8 @@ export function FieldInput({ id, f, value, onChange, onPress }: {
       return (
         <label className="field" htmlFor={htmlId}>
           <span>{label}</span>
-          <select id={htmlId} className="select" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
-            {Object.entries(f.options ?? {}).map(([v, name]) => <option key={v} value={v}>{name}</option>)}
-          </select>
+          <Select id={htmlId} value={String(value ?? '')} onChange={(v) => onChange(v)}
+            options={Object.entries(f.options ?? {}).map(([v, name]) => ({ value: v, label: String(name) }))} />
         </label>
       );
     case 'number':

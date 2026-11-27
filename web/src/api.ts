@@ -426,7 +426,7 @@ export const api = {
   tipAction: (key: string, id: string, action: 'approve' | 'reject' | 'refund' | 'block' | 'unblock') =>
     request<Tip>('POST', `${ch(key)}/tips/${encodeURIComponent(id)}/${action}`),
   publicTip: (login: string) => request<PublicTipPage>('GET', `/v1/public/${encodeURIComponent(login)}/tip`),
-  sendTip: (login: string, body: { amount: number; currency: string; name: string; email: string; message: string; agreed: boolean; confirmationToken: string }) =>
+  sendTip: (login: string, body: { amount: number; currency: string; name: string; message: string; agreed: boolean; confirmationToken: string }) =>
     request<{ id: string; status: string; clientSecret?: string }>('POST', `/v1/public/${encodeURIComponent(login)}/tip`, body),
   tipStatus: (login: string, id: string) =>
     request<{ status: 'pending' | 'paid' | 'failed' | 'closed'; note?: string }>('GET', `/v1/public/${encodeURIComponent(login)}/tip/${encodeURIComponent(id)}`),

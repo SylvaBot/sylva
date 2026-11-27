@@ -14,7 +14,7 @@ import { ActivityPage, AlertsPage, NotFoundPage, OverviewPage, SettingsPage } fr
 import { Command } from 'cmdk';
 import { Link, navigate } from './router';
 import { StatsPage } from './stats';
-import { TipsPage } from './tips';
+import { TipsPage } from './tipsAdmin';
 import { Avatar, Icon } from './ui';
 import { api } from './api';
 

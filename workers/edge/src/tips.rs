@@ -1630,7 +1630,6 @@ impl ChannelDo {
             "use_case": {
                 "type": "account_onboarding",
                 "account_onboarding": {
-                    "configurations": ["merchant"],
                     "refresh_url": format!("{origin}/app/tips?stripe=again"),
                     "return_url": format!("{origin}/app/tips?stripe=back"),
                 }

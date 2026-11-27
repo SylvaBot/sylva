@@ -1,11 +1,18 @@
 /*
  * Sylva's look (2026-11-27), the source of truth for the dashboard and every
- * public page. It follows the landing page: flat near black, SF Pro with
- * Mono tags, and solid filled surfaces instead of outlines. No glass, blur,
+ * public page. It follows the landing page: flat near black, SF Pro (Geist where
+ * SF Pro is missing) with Mono tags, and solid filled surfaces instead of outlines. No glass, blur,
  * gradients, tinted see-through fills, colored left borders or dot badges.
  * Sage is the one accent: the main action and whatever is selected or on.
  * Loaded after styles.css, so it wins where both style the same thing.
  */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/geist-wght.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 @font-face {
   font-family: "Geist Mono";
   src: url("/fonts/geist-mono-wght.woff2") format("woff2");
@@ -79,7 +86,7 @@
   --r: 8px;
   --r-sm: 7px;
   --mono: "SF Mono", ui-monospace, "Geist Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Geist", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --r-control: 8px;
   --r-item: 12px;
   --r-panel: 20px;

@@ -487,6 +487,8 @@ struct NewTip {
     amount: f64,
     currency: String,
     name: String,
+    /// Optional: the tip page no longer asks for it.
+    #[serde(default)]
     email: String,
     #[serde(default)]
     message: String,
@@ -671,11 +673,12 @@ impl ChannelDo {
             name: String,
             base: f64,
             email_hash: String,
+            card_hash: Option<String>,
         }
         let rows = self
             .sql
             .exec(
-                "SELECT name, base, email_hash FROM tips WHERE status = 'shown' AND blocked = 0
+                "SELECT name, base, email_hash, card_hash FROM tips WHERE status = 'shown' AND blocked = 0
                    AND released_at > ? AND (? OR id NOT LIKE 'tip_test_%')
                  ORDER BY released_at",
                 vec![
@@ -686,13 +689,21 @@ impl ChannelDo {
             .to_array::<Top>()?;
         let mut totals: Vec<(String, String, f64)> = Vec::new();
         for r in rows {
-            match totals.iter_mut().find(|t| t.0 == r.email_hash) {
+            // The same person: same email, else same card, else same name.
+            let who = if !r.email_hash.starts_with("none:") {
+                r.email_hash.clone()
+            } else if let Some(c) = &r.card_hash {
+                c.clone()
+            } else {
+                format!("name:{}", r.name.to_lowercase())
+            };
+            match totals.iter_mut().find(|t| t.0 == who) {
                 // The latest name they tipped under.
                 Some(t) => {
                     t.1 = r.name;
                     t.2 += r.base;
                 }
-                None => totals.push((r.email_hash, r.name, r.base)),
+                None => totals.push((who, r.name, r.base)),
             }
         }
         totals.sort_by(|a, b| b.2.total_cmp(&a.2));
@@ -756,8 +767,14 @@ impl ChannelDo {
             Ok(m) => m,
             Err(m) => return error(&m, 400),
         };
-        let Some(email) = rules::normalize_email(&t.email) else {
-            return error("Enter a working email address for your receipt.", 400);
+        // No email is asked for. One sent anyway is checked and used.
+        let email = if t.email.trim().is_empty() {
+            None
+        } else {
+            match rules::normalize_email(&t.email) {
+                Some(e) => Some(e),
+                None => return error("That email address does not look right.", 400),
+            }
         };
         let Some(cur) = rules::currency(&t.currency) else {
             return error("Pick one of the listed currencies.", 400);
@@ -801,7 +818,12 @@ impl ChannelDo {
         let card_hash = card["fingerprint"]
             .as_str()
             .map(|f| rules::ident_hash(pepper.as_bytes(), "card", f));
-        let email_hash = rules::ident_hash(pepper.as_bytes(), "email", &email);
+        // Without an email the tipper is known by card and IP address; the
+        // column gets a value that matches nothing else.
+        let email_hash = match &email {
+            Some(e) => rules::ident_hash(pepper.as_bytes(), "email", e),
+            None => format!("none:{}", random_hex(12)?),
+        };
         let ip_hash = rules::ident_hash(pepper.as_bytes(), "ip", &ip);
 
         let now = now();
@@ -867,7 +889,7 @@ impl ChannelDo {
                 name.as_str().into(),
                 message.as_str().into(),
                 email_hash.as_str().into(),
-                rules::email_hint(&email).into(),
+                email.as_deref().map(rules::email_hint).unwrap_or_default().into(),
                 ip.as_str().into(),
                 ip_hash.as_str().into(),
                 attempt.ip_country.clone().into(),
@@ -891,9 +913,11 @@ impl ChannelDo {
                 "any",
             )
             .add("description", format!("Tip to {channel}"))
-            .add("receipt_email", t.email.trim())
             .add("metadata[sylva_tip]", &id)
             .add("metadata[sylva_channel]", self.key().unwrap_or_default());
+        if let Some(e) = &email {
+            form.push("receipt_email", e);
+        }
         for m in rules::EXCLUDED_METHODS {
             form.push("excluded_payment_method_types[]", m);
         }
@@ -1247,7 +1271,14 @@ impl ChannelDo {
                 .to_iso_string()
                 .into(),
             actor: Some(Actor {
-                id: format!("tip:{}", &t.email_hash[..12.min(t.email_hash.len())]),
+                id: {
+                    let who = if t.email_hash.starts_with("none:") {
+                        t.card_hash.as_deref().unwrap_or(&t.email_hash)
+                    } else {
+                        &t.email_hash
+                    };
+                    format!("tip:{}", &who[..12.min(who.len())])
+                },
                 login,
                 display_name: t.name.clone(),
             }),

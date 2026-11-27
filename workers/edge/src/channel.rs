@@ -510,7 +510,7 @@ impl DurableObject for ChannelDo {
             (Method::Get, ["public", "tts", id]) => self.tts_file(id),
             (Method::Get, ["public", "tips"]) => {
                 let country = q.get("country").cloned().unwrap_or_default();
-                Response::from_json(&self.tips_public(&country)?)
+                Response::from_json(&self.tips_public(&country).await?)
             }
             (Method::Post, ["public", "tips"]) => self.tips_create(req).await,
             (Method::Get, ["public", "tips", id]) => self.tips_status(id),

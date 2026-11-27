@@ -49,7 +49,7 @@ export interface Tip {
 export interface StripeAccount { id: string; country: string; chargesEnabled: boolean; detailsSubmitted: boolean; due: number; domain: string; stripeStatus?: string; reasons?: string[]; needs?: string[] }
 export interface TipsView {
   platformReady: boolean; testMode?: boolean; account: StripeAccount | null; settings: TipSettings; tips: Tip[];
-  pageUrl: string | null; currencies: string[]; countries: string[]; voices: TipVoice[];
+  pageUrl: string | null; currencies: string[]; countries: string[]; voices: TipVoice[]; brianReady?: boolean;
 }
 export interface TipCurrency { code: string; decimals: number; min: number; max: number; suggested: number[] }
 export interface PublicTipPage {

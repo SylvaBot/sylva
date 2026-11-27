@@ -8,7 +8,7 @@ import { api, type PublicTipPage, type Tip, type TipSettings, type TipsView } fr
 import { useChannel } from './channel';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
-import { SiteFooter, SiteHeader } from './site';
+import { SiteHeader } from './site';
 import { Avatar, errorText, Gate, Icon, SkelCard, SkelRows, useToast } from './ui';
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -364,7 +364,7 @@ function cssVar(name: string, fallback: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
-export function PublicTipPage({ login, signedIn }: { login: string; signedIn: boolean }) {
+export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) {
   const [page, setPage] = useState<PublicTipPage | null | 'missing' | 'failed'>(null);
   const [currency, setCurrency] = useState('USD');
   const [amountText, setAmountText] = useState('');
@@ -372,6 +372,7 @@ export function PublicTipPage({ login, signedIn }: { login: string; signedIn: bo
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [agreed, setAgreed] = useState(false);
+  const [custom, setCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<'pending' | 'paid' | 'failed' | null>(null);
@@ -431,7 +432,7 @@ export function PublicTipPage({ login, signedIn }: { login: string; signedIn: bo
         },
       });
       const pe = elements.current.create('payment', {
-        layout: { type: 'accordion', defaultCollapsed: false },
+        layout: { type: 'tabs' },
         paymentMethodOrder: page.order,
         fields: { billingDetails: { email: 'never' } },
         wallets: { applePay: 'auto', googlePay: 'auto' },
@@ -496,7 +497,7 @@ export function PublicTipPage({ login, signedIn }: { login: string; signedIn: bo
   const header = (
     <SiteHeader>
       <span className="spacer" />
-      {signedIn ? <Link className="btn" href="/app">Open dashboard</Link> : <Link className="btn" href="/">What is Sylva?</Link>}
+      {typeof page === 'object' && page?.testMode && <span className="tip-test">Test mode</span>}
     </SiteHeader>
   );
 
@@ -504,97 +505,124 @@ export function PublicTipPage({ login, signedIn }: { login: string; signedIn: bo
 
   if (page === null || page === 'missing' || page === 'failed' || !page.open) {
     return (
-      <div className="site">
+      <div className="site tip-site">
         {header}
-        <main id="content" className="prose wrap">
-          {page === null ? <SkelRows n={4} tile={false} /> : <>
-            <h1>{page === 'failed' ? 'Something went wrong' : 'No tips here yet'}</h1>
-            <p className="prose-lede">{page === 'failed' ? 'Sylva could not be reached. Refresh to try again.' : `${typeof page === 'object' ? page.name : login} is not taking tips on Sylva right now, or the link is mistyped.`}</p>
-          </>}
+        <main id="content" className="tip-main">
+          {page === null ? <div className="tip-card"><SkelRows n={4} tile={false} /></div> : (
+            <div className="tip-card tip-done">
+              <h1>{page === 'failed' ? 'Something went wrong' : 'No tips here yet'}</h1>
+              <p>{page === 'failed' ? 'Sylva could not be reached. Refresh to try again.' : `${typeof page === 'object' ? page.name : login} is not taking tips right now, or the link is mistyped.`}</p>
+            </div>
+          )}
         </main>
-        <SiteFooter />
       </div>
     );
   }
 
-  return (
-    <div className="site">
-      {header}
-      <main id="content" className="wrap tip-page">
-        <div className="tip-head">
-          <Avatar name={page.name} url={page.avatar} large />
-          <div>
-            <p className="pub-eyebrow">twitch.tv/{page.login}</p>
-            <h1>Tip {page.name}</h1>
-          </div>
-        </div>
-        {page.testMode && <div className="notice"><span>Test mode. This page takes Stripe test cards only, and no real money moves.</span></div>}
-        {page.note && <p className="prose-lede">{page.note}</p>}
+  const chips = cur?.suggested ?? [];
+  const picked = chips.includes(amount) && !custom;
+  const top = page.top ?? [];
 
-        {done === 'paid' ? (
-          <section className="card"><div className="card-body tip-done">
-            <Icon id="check" />
-            <h2>Thank you!</h2>
-            <p className="card-text">Your tip went through and will show on stream soon. Your receipt is on its way by email.</p>
-          </div></section>
-        ) : done === 'pending' ? (
-          <section className="card"><div className="card-body tip-done">
-            <h2>Confirming your payment</h2>
-            <p className="card-text">This can take a moment. Keep this page open.</p>
-          </div></section>
-        ) : (
-          <form className="card tip-form" onSubmit={(e) => { e.preventDefault(); void pay(); }}>
-            <div className="card-body stack">
-              <div className="tip-amount-row">
-                <label className="field">Amount
-                  <input className="input tip-amount" type="number" inputMode="decimal" min={cur?.min} max={cur?.max} step={cur?.decimals ? 0.01 : 1}
-                    value={amountText} onChange={(e) => setAmountText(e.target.value)} required />
-                </label>
-                <label className="field">Currency
-                  <select className="select" value={currency} onChange={(e) => {
-                    const next = page.currencies.find((c) => c.code === e.target.value);
-                    setCurrency(e.target.value);
-                    if (next?.suggested.length) setAmountText(String(next.suggested[Math.min(1, next.suggested.length - 1)]));
-                  }}>
-                    {page.currencies.map((c) => <option key={c.code}>{c.code}</option>)}
-                  </select>
-                </label>
+  return (
+    <div className="site tip-site">
+      {header}
+      <main id="content" className="tip-main">
+        <div className="tip-layout">
+          <section className="tip-card">
+            <div className="tip-banner" />
+            <div className="tip-who">
+              <Avatar name={page.name} url={page.avatar} large />
+              <div className="tip-id">
+                <h1>{page.name}</h1>
+                <a href={`https://twitch.tv/${page.login}`} target="_blank" rel="noreferrer">twitch.tv/{page.login}</a>
               </div>
-              {cur && cur.suggested.length > 0 && (
-                <div className="chips tip-chips">
-                  {cur.suggested.map((s) => (
-                    <button key={s} type="button" className="chip" aria-pressed={amount === s} onClick={() => setAmountText(String(s))}>{money(s, currency)}</button>
-                  ))}
-                </div>
-              )}
-              {cur && <span className="field-hint">{money(cur.min, currency)} to {money(cur.max, currency)}. A first tip here can be up to {money(cur.firstMax, currency)}.</span>}
-              <label className="field">Name shown on stream
-                <input className="input" maxLength={page.nameMax} value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" required />
-              </label>
-              <label className="field">Email for your receipt
-                <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
-                <span className="field-hint">Not shown on stream or to {page.name}.</span>
-              </label>
-              <label className="field">Message (optional)
-                <textarea className="input textarea" rows={3} maxLength={page.messageMax} value={message} onChange={(e) => setMessage(e.target.value)} />
-                <span className="field-hint">{left} characters left. It may be read aloud on stream.</span>
-              </label>
-              <div className="tip-pay" ref={mount} />
-              {!ready && <SkelRows n={2} tile={false} />}
-              <label className="tip-agree">
-                <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
-                <span>I understand this tip is a voluntary gift to {page.name} and is not refundable.</span>
-              </label>
-              {error && <p className="tip-error" role="alert">{error}</p>}
-              <button className="btn primary tip-submit" type="submit" disabled={busy || !ready}>
-                {busy ? 'Working' : minor > 0 ? `Tip ${money(amount, currency)}` : 'Tip'}
-              </button>
-              <p className="field-hint">Payments go straight to {page.name} through Stripe. Sylva never sees your card.</p>
             </div>
-          </form>
-        )}
+            {page.note && <p className="tip-note">{page.note}</p>}
+
+            {done === 'paid' ? (
+              <div className="tip-done">
+                <Icon id="check" />
+                <h2>Thank you!</h2>
+                <p>Your tip went through and will show on stream soon. Your receipt is on its way by email.</p>
+              </div>
+            ) : done === 'pending' ? (
+              <div className="tip-done">
+                <h2>Confirming your payment</h2>
+                <p>This can take a moment. Keep this page open.</p>
+              </div>
+            ) : (
+              <form className="tip-form" onSubmit={(e) => { e.preventDefault(); void pay(); }}>
+                <div className="tip-section">
+                  <div className="tip-label-row">
+                    <span className="tip-label">Amount</span>
+                    <select className="tip-currency" aria-label="Currency" value={currency} onChange={(e) => {
+                      const next = page.currencies.find((c) => c.code === e.target.value);
+                      setCurrency(e.target.value);
+                      setCustom(false);
+                      if (next?.suggested.length) setAmountText(String(next.suggested[Math.min(1, next.suggested.length - 1)]));
+                    }}>
+                      {page.currencies.map((c) => <option key={c.code}>{c.code}</option>)}
+                    </select>
+                  </div>
+                  <div className="tip-amounts" role="group" aria-label="Amount">
+                    {chips.map((v) => (
+                      <button key={v} type="button" className="tip-amount-btn" aria-pressed={picked && amount === v}
+                        onClick={() => { setCustom(false); setAmountText(String(v)); }}>{money(v, currency)}</button>
+                    ))}
+                    <button type="button" className="tip-amount-btn" aria-pressed={custom || (!picked && amountText !== '')}
+                      onClick={() => { setCustom(true); setAmountText(''); }}>Other</button>
+                  </div>
+                  {(custom || (!picked && amountText !== '')) && (
+                    <input className="input tip-other" type="number" inputMode="decimal" autoFocus placeholder={cur ? `${money(cur.min, currency)} to ${money(cur.max, currency)}` : ''}
+                      aria-label="Your amount" min={cur?.min} max={cur?.max} step={cur?.decimals ? 0.01 : 1}
+                      value={amountText} onChange={(e) => setAmountText(e.target.value)} required />
+                  )}
+                </div>
+
+                <div className="tip-fields">
+                  <label className="field">Your name
+                    <input className="input" maxLength={page.nameMax} value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" placeholder="Shown on stream" required />
+                  </label>
+                  <label className="field">Email
+                    <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" placeholder="For your receipt only" required />
+                  </label>
+                </div>
+                <label className="field">Message for {page.name}
+                  <span className="tip-message">
+                    <textarea className="input textarea" rows={3} maxLength={page.messageMax} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Say something nice" />
+                    <span className="tip-count" aria-live="polite">{left}</span>
+                  </span>
+                </label>
+
+                <div className="tip-pay" ref={mount} />
+                {!ready && <SkelRows n={2} tile={false} />}
+
+                <label className="tip-agree">
+                  <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+                  <span>This tip is a gift and is not refundable.</span>
+                </label>
+                {error && <p className="tip-error" role="alert">{error}</p>}
+                <button className="btn primary tip-submit" type="submit" disabled={busy || !ready}>
+                  {busy ? 'Working' : minor > 0 ? `Tip ${page.name} ${money(amount, currency)}` : `Tip ${page.name}`}
+                </button>
+                <p className="tip-fine">Paid securely to {page.name} through Stripe. Sylva never sees your card.</p>
+              </form>
+            )}
+          </section>
+
+          {top.length > 0 && (
+            <aside className="tip-card tip-top" aria-label="Top tippers this week">
+              <h2>Top tippers this week</h2>
+              <ol>
+                {top.map((t, i) => (
+                  <li key={i}><span className="tip-rank">{i + 1}</span><span className="tip-top-name">{t.name}</span><b>{money(t.amount, page.baseCurrency)}</b></li>
+                ))}
+              </ol>
+            </aside>
+          )}
+        </div>
       </main>
-      <SiteFooter />
+      <footer className="tip-foot"><Link href="/">Powered by Sylva</Link></footer>
     </div>
   );
 }

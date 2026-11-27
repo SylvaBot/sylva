@@ -51,6 +51,7 @@ export interface PublicTipPage {
   open: boolean; account: string | null; currency: string; baseCurrency: string; currencies: TipCurrency[];
   excluded: string[]; order: string[]; messageMax: number; nameMax: number; note: string;
   login: string; name: string; avatar: string; publishableKey?: string; testMode?: boolean;
+  top?: { name: string; amount: number }[];
 }
 
 export interface AlertState {

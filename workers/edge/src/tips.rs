@@ -1408,16 +1408,27 @@ impl ChannelDo {
     }
 
     async fn make_speech(&self, id: &str, text: &str) -> Result<()> {
-        let audio = if polly_keys(&self.env).is_some() {
-            polly(&self.env, text).await?
-        } else {
-            // Until Amazon keys are set, a Workers AI voice reads it.
-            let stream = self
-                .env
-                .ai("AI")?
-                .run_bytes(TTS_FALLBACK, json!({ "text": text, "speaker": "draco" }))
-                .await?;
-            Response::from_stream(stream)?.bytes().await?
+        let brian = match polly_keys(&self.env) {
+            Some(_) => match polly(&self.env, text).await {
+                Ok(audio) => Some(audio),
+                Err(e) => {
+                    console_error!("Brian could not read {id}, using the stand-in voice: {e}");
+                    None
+                }
+            },
+            None => None,
+        };
+        let audio = match brian {
+            Some(audio) => audio,
+            None => {
+                // Without working Amazon keys, a Workers AI voice reads it.
+                let stream = self
+                    .env
+                    .ai("AI")?
+                    .run_bytes(TTS_FALLBACK, json!({ "text": text, "speaker": "draco" }))
+                    .await?;
+                Response::from_stream(stream)?.bytes().await?
+            }
         };
         if audio.is_empty() {
             return Err(Error::RustError("no audio".into()));

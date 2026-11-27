@@ -41,6 +41,7 @@ mod builtins;
 mod channel;
 mod chat_alerts;
 mod chat_assets;
+mod chat_stats;
 mod community;
 mod delete;
 mod games;
@@ -217,6 +218,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 .await
         }
         (Method::Get, ["v1", "public", login, "commands"]) => public_commands(&env, login).await,
+        (Method::Get, ["v1", "public", login, "chatstats"]) => public_chat_stats(&env, login).await,
+        (Method::Get, ["v1", "public", login, "profile"]) => public_profile(&env, login).await,
         (Method::Get, ["v1", "chat-assets", key]) => {
             if !valid_key(key) {
                 return Response::error("Unknown channel", 404);
@@ -513,6 +516,7 @@ async fn public_channel(
         name: text("display_name"),
         avatar: text("profile_image_url"),
         banner: text("offline_image_url"),
+        description: text("description"),
     }))
 }
 
@@ -533,6 +537,43 @@ async fn public_commands(env: &Env, login: &str) -> Result<Response> {
     out.headers_mut().set("Content-Type", "application/json")?;
     out.headers_mut()
         .set("Cache-Control", "public, max-age=15")?;
+    Ok(out)
+}
+
+/// `GET /v1/public/{login}/chatstats`: the chat stats page at /c/{login}.
+async fn public_chat_stats(env: &Env, login: &str) -> Result<Response> {
+    let ch = match public_channel(env, login).await? {
+        Ok(c) => c,
+        Err(res) => return Ok(res),
+    };
+    let mut res = stub(env, &ch.key)?
+        .fetch_with_str("https://channel/public/chatstats")
+        .await?;
+    let mut v: serde_json::Value = res.json().await?;
+    v["channel"] = json!({ "login": ch.login, "name": ch.name, "avatar": ch.avatar, "banner": ch.banner });
+    let mut out = Response::from_json(&v)?;
+    out.headers_mut().set("Cache-Control", "public, max-age=15")?;
+    Ok(out)
+}
+
+/// `GET /v1/public/{login}/profile`: the channel page at /{login}. Says
+/// which tabs and links have something behind them.
+async fn public_profile(env: &Env, login: &str) -> Result<Response> {
+    let ch = match public_channel(env, login).await? {
+        Ok(c) => c,
+        Err(res) => return Ok(res),
+    };
+    let mut res = stub(env, &ch.key)?
+        .fetch_with_str("https://channel/public/profile")
+        .await?;
+    let mut v: serde_json::Value = res.json().await?;
+    v["login"] = json!(ch.login);
+    v["name"] = json!(ch.name);
+    v["avatar"] = json!(ch.avatar);
+    v["banner"] = json!(ch.banner);
+    v["description"] = json!(ch.description);
+    let mut out = Response::from_json(&v)?;
+    out.headers_mut().set("Cache-Control", "public, max-age=30")?;
     Ok(out)
 }
 

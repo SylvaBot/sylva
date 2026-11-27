@@ -268,6 +268,17 @@ pub const BUILTINS: &[Builtin] = &[
         Everyone,
         10,
     ),
+    Builtin {
+        aliases: &["chatstat"],
+        ..b(
+            "chatstats",
+            Info,
+            "Links to this channel's chat stats: top chatters, emotes and commands",
+            "!chatstats",
+            Everyone,
+            10,
+        )
+    },
     b(
         "uptime",
         Info,

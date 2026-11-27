@@ -383,6 +383,8 @@ pub struct ChannelDo {
     alert_settings: RefCell<Option<AlertSettings>>,
     /// Whether old test events were cleared since the object woke.
     tests_cleared: Cell<bool>,
+    /// The channel's third party emote names, for chat stats.
+    pub(crate) emote_map: crate::chat_stats::EmoteMap,
 }
 
 impl DurableObject for ChannelDo {
@@ -391,6 +393,7 @@ impl DurableObject for ChannelDo {
         for stmt in SCHEMA
             .split(';')
             .chain(crate::tips::SCHEMA.split(';'))
+            .chain(crate::chat_stats::SCHEMA.split(';'))
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
@@ -411,6 +414,7 @@ impl DurableObject for ChannelDo {
             head: Cell::new(head),
             alert_settings: RefCell::new(None),
             tests_cleared: Cell::new(false),
+            emote_map: RefCell::new(None),
             env,
             bot: RefCell::new(None),
             tokens: RefCell::new(std::collections::HashMap::new()),
@@ -431,6 +435,8 @@ impl DurableObject for ChannelDo {
                 | ["ingest-batch"]
                 | ["public"]
                 | ["public", "commands"]
+                | ["public", "chatstats"]
+                | ["public", "profile"]
                 | ["public", "media", _]
                 | ["public", "tips"]
                 | ["public", "tips", _]
@@ -619,6 +625,8 @@ impl DurableObject for ChannelDo {
                     Err(m) => Response::error(m, 400),
                 }
             }
+            (Method::Get, ["public", "chatstats"]) => Response::from_json(&self.chat_stats()?),
+            (Method::Get, ["public", "profile"]) => Response::from_json(&self.public_profile().await?),
             (Method::Get, ["public", "commands"]) => match self.public_commands()? {
                 Some(p) => Response::from_json(&p),
                 None => Response::error("This channel's bot is off", 404),
@@ -946,6 +954,10 @@ impl DurableObject for ChannelDo {
                     "giveaway_entries",
                     "tips",
                     "tts",
+                    "chat_meta",
+                    "chat_users",
+                    "chat_emotes",
+                    "chat_commands",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
@@ -1273,6 +1285,11 @@ impl ChannelDo {
         if !is_chat {
             self.run_chat_alerts(&stored.event).await;
         }
+        if !stored.event.id.starts_with("sylva:test:") {
+            if let Err(e) = self.chat_stream(&stored_raw, received_at) {
+                console_error!("Chat stats could not note the stream: {e}");
+            }
+        }
         if stored_raw == "stream.offline" {
             if let Err(e) = self.save_recap(received_at) {
                 console_error!("The stream summary could not be saved: {e}");
@@ -1292,6 +1309,8 @@ impl ChannelDo {
                     console_error!("Could not note the chatter: {e}");
                 }
                 self.run_bot(&stored).await;
+                let command = self.chat_command(stored.event.message.as_deref());
+                self.count_chat(&stored, command).await;
             }
             // Chat can make a timer due; only then does the alarm need moving.
             let bot = self.bot_settings()?;

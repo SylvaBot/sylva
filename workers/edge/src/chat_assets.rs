@@ -121,7 +121,7 @@ fn badges(out: &mut Map<String, Value>, v: &Value) {
     }
 }
 
-async fn build(env: &Env, user_id: &str) -> Value {
+pub(crate) async fn build(env: &Env, user_id: &str) -> Value {
     let mut b = Map::new();
     if let Ok(app) = App::new(env).await {
         for path in [

@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, type Me } from './api';
 import { ChannelProvider } from './channel';
-import { PublicCommandsPage } from './commandsPage';
+import { ChannelPage, ChatStatsPage, type ChannelTab } from './channelPage';
 import { DevicePage } from './device';
 import { Landing } from './Landing';
 import { navigate, usePath } from './router';
@@ -21,6 +21,9 @@ const SIGNIN_ERRORS: Record<string, string> = {
   scopes: 'Twitch did not give Sylva every permission it needs. Try again and allow all of them.',
   failed: 'Twitch did not finish the sign in. Try again in a minute.',
 };
+
+/** First path words the site uses itself, so they are never channel pages. */
+const RESERVED = new Set(['app', 'device', 'privacy', 's', 'c', 'tip', 'overlay', 'overlay-frame', 'media', 'tts', 'auth', 'v1', 'assets', 'kokoro', 'health']);
 
 export function App() {
   const path = usePath();
@@ -49,7 +52,7 @@ export function App() {
   }, [inApp, me]);
 
   useEffect(() => {
-    if (!inApp && path !== '/device' && path !== '/privacy' && !path.startsWith('/s/') && !path.startsWith('/c/') && !path.startsWith('/tip/')) document.title = 'Sylva: alerts, overlays and activity for Twitch';
+    if (path === '/') document.title = 'Sylva: alerts, overlays and activity for Twitch';
   }, [inApp, path]);
 
   if (path === '/device') return <DevicePage me={me} />;
@@ -58,8 +61,12 @@ export function App() {
   if (store) return <PublicStorePage login={store[1].toLowerCase()} signedIn={!!me} />;
   const tip = /^\/tip\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
   if (tip) return <PublicTipPage login={tip[1].toLowerCase()} signedIn={!!me} />;
-  const commands = /^\/c\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
-  if (commands) return <PublicCommandsPage login={commands[1].toLowerCase()} signedIn={!!me} />;
+  const stats = /^\/c\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
+  if (stats) return <ChatStatsPage login={stats[1].toLowerCase()} signedIn={!!me} />;
+  const channel = /^\/([A-Za-z0-9_]{1,25})(?:\/(leaderboard|commands))?\/?$/.exec(path);
+  if (channel && !RESERVED.has(channel[1].toLowerCase())) {
+    return <ChannelPage login={channel[1].toLowerCase()} tab={(channel[2] || 'profile') as ChannelTab} signedIn={!!me} />;
+  }
   if (inApp) {
     if (!me) return <BootSkeleton numbers={path === '/app' || path.startsWith('/app/stats')} />;
     return (

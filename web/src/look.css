@@ -977,3 +977,54 @@ fieldset.grp:disabled .gr-main { opacity: .5; }
 /* !ask setup inside the built-in drawer */
 .ask-setup { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
 .ask-setup .chat-msg-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* Channel pages: /{login} and /c/{login} */
+.ch { padding-block: 32px 72px; }
+.ch-hero { margin-bottom: 24px; }
+.ch-banner { height: 200px; border-radius: 20px; background: var(--surface) center / cover no-repeat; }
+.ch-banner.empty { height: 96px; }
+.ch-id { display: flex; align-items: flex-end; gap: 16px; padding: 0 24px; margin-top: -40px; flex-wrap: wrap; }
+.ch-id .avatar.lg { width: 96px; height: 96px; font-size: 36px; box-shadow: 0 0 0 4px var(--bg); flex: none; }
+.ch-name { flex: 1 1 200px; min-width: 0; padding-bottom: 4px; }
+.ch-name h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; overflow-wrap: anywhere; }
+.ch-name p { display: flex; gap: 16px; align-items: center; margin-top: 4px; font-size: 14px; color: var(--muted); }
+.ch-name a { color: var(--muted); }
+.ch-name a:hover { color: var(--text); }
+.ch-live { color: #ff8a80; font-weight: 600; }
+.ch-actions { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 4px; }
+.ch-actions .btn { min-height: 44px; }
+.ch-tabs { display: flex; gap: 4px; margin-bottom: 24px; overflow-x: auto; }
+.ch-tabs a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 8px; color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.ch-tabs a:hover { color: var(--text); background: var(--row-hover); }
+.ch-tabs a[aria-current="page"] { color: var(--text); background: var(--surface-2); }
+.ch-tabs a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ch-profile { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.ch-bio { padding: 0 24px 16px; color: var(--text-2); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ch-bio:last-child { padding-bottom: 24px; }
+.ch-sum { padding: 0 24px 8px; font-size: 14px; color: var(--muted); }
+.ch-sum b { color: var(--text); font-variant-numeric: tabular-nums; }
+.ch .card-head code { font-family: var(--mono); font-size: .9em; }
+.ch-rank { list-style: none; margin: 0; padding: 0 8px 8px; }
+.ch-rank li { position: relative; display: flex; align-items: center; gap: 16px; min-height: 44px; padding: 8px 16px; border-radius: 12px; isolation: isolate; }
+.ch-bar { position: absolute; inset: 4px auto 4px 0; z-index: -1; border-radius: 12px; background: var(--sunken); }
+.ch-n { min-width: 24px; font-size: 13px; color: var(--faint); font-variant-numeric: tabular-nums; text-align: right; }
+.ch-label { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-label code { font-family: var(--mono); font-size: 13px; }
+.ch-val { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+img.ch-emote { width: 28px; height: 28px; object-fit: contain; flex: none; }
+.ch-totals { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; }
+.ch-totals > div { display: flex; flex-direction: column; gap: 8px; padding: 24px; border-radius: 20px; background: var(--surface); }
+.ch-big { font-size: 64px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ch-totals span { font-size: 15px; color: var(--muted); }
+.ch-note { margin: 16px 0 32px; font-size: 13px; color: var(--faint); }
+.ch-stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.ch-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.ch-side > :last-child { grid-column: 1 / -1; }
+@media (max-width: 1100px) { .ch-stats { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) {
+  .ch-profile, .ch-side, .ch-totals { grid-template-columns: minmax(0, 1fr); }
+  .ch-banner { height: 120px; }
+  .ch-id { padding: 0 16px; }
+  .ch-id .avatar.lg { width: 80px; height: 80px; }
+  .ch-big { font-size: 48px; }
+}

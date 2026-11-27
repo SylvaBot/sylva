@@ -241,9 +241,15 @@ impl ChannelDo {
     ) -> Result<String> {
         let channel = ask.channel;
         Ok(match name {
+            "chatstats" => match (self.config("site")?, self.channel_login()?) {
+                (Some(site), Some(login)) => {
+                    format!("Chat stats for {channel}: {site}/c/{login}")
+                }
+                _ => "Chat stats show up once the streamer opens their Sylva dashboard.".into(),
+            },
             "commands" => match (self.config("site")?, self.channel_login()?) {
                 (Some(site), Some(login)) => {
-                    format!("The commands for {channel} are at {site}/c/{login}")
+                    format!("The commands for {channel} are at {site}/{login}/commands")
                 }
                 _ => {
                     let list: Vec<String> = settings

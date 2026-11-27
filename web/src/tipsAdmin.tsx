@@ -275,9 +275,13 @@ export function TipsPage() {
         {tab === 'voice' && (
           <Gate on={ch.can.own}>
             <section className="ta-panel">
-              <PanelHead title="Text to speech" hint="The name, amount and message are read aloud on your overlay after the alert sound, in the voice the tipper picked. Links are skipped." />
+              <PanelHead title="Text to speech" hint="Tips are read aloud on your overlay after the alert sound, in the voice the tipper picked. Links are never read." />
               <Row label="Read tips aloud"><Switch on={draft.tts} label="Read tips aloud" set={(v) => set({ tts: v })} /></Row>
               <Row label="Only tips of at least"><NumField value={draft.ttsMin} suffix={draft.currency} onChange={(n) => set({ ttsMin: n })} /></Row>
+            </section>
+            <SpeechSettings draft={draft} set={set} />
+            <section className="ta-panel">
+              <PanelHead title="Voices" />
               <VoiceSettings view={view} draft={draft} set={set} />
             </section>
           </Gate>
@@ -504,6 +508,99 @@ function ImageMenu({ x, y, title, defaults, value, images, channel, onPick, onUp
 
 function PanelHead({ title, hint }: { title: string; hint?: string }) {
   return <div className="ta-panel-head"><h2>{title}</h2>{hint && <p>{hint}</p>}</div>;
+}
+
+const TTS_FULL = '{name} tipped {amount}. {message}';
+const TTS_MESSAGE = '{message}';
+
+/** What is read for a sample tip, as the server reads it. */
+function sampleSpeech(d: TipSettings) {
+  const fold = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const blocked = (w: string) => { const f = fold(w); return !!f && d.ttsWords.some((b) => f.includes(b)); };
+  let words = 'Love the stream, you earned a snack!'.split(' ');
+  if (words.some(blocked)) words = d.ttsWordMode === 'skip' ? [] : words.filter((w) => !blocked(w));
+  let msg = '';
+  for (const w of words) {
+    if ((msg ? msg.length + 1 : 0) + w.length > d.ttsMaxChars) { if (!msg) msg = w.slice(0, d.ttsMaxChars); break; }
+    msg += (msg ? ' ' : '') + w;
+  }
+  const out = (d.ttsTemplate.trim() || TTS_FULL)
+    .split('{name}').join('Ann').split('{amount}').join(d.currency === 'USD' ? '5 dollars' : `5 ${d.currency}`).split('{message}').join(msg)
+    .split(/\s+/).filter(Boolean).join(' ');
+  return /[\p{L}\p{N}]/u.test(out) ? out : '';
+}
+
+/** What is read, how loud and when, and which words are never read. */
+function SpeechSettings({ draft, set }: { draft: TipSettings; set(p: Partial<TipSettings>): void }) {
+  const mode = draft.ttsTemplate === TTS_FULL ? 'full' : draft.ttsTemplate === TTS_MESSAGE ? 'message' : 'custom';
+  const [template, setTemplate] = useState(draft.ttsTemplate);
+  useEffect(() => setTemplate(draft.ttsTemplate), [draft.ttsTemplate]);
+  const [words, setWords] = useState(draft.ttsWords.join(', '));
+  useEffect(() => setWords(draft.ttsWords.join(', ')), [draft.ttsWords]);
+  const commitWords = () => {
+    const list = [...new Set(words.split(/[,\n]/).map((w) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean))];
+    if (list.join() !== draft.ttsWords.join()) set({ ttsWords: list });
+    else setWords(draft.ttsWords.join(', '));
+  };
+  const commitTemplate = (t: string) => { const v = t.trim() || TTS_FULL; setTemplate(v); if (v !== draft.ttsTemplate) set({ ttsTemplate: v }); };
+  const insert = (tag: string) => commitTemplate(`${template.trim()} ${tag}`);
+  const sample = sampleSpeech(draft);
+  return <>
+    <section className="ta-panel">
+      <PanelHead title="What's read" />
+      <Row label="Read">
+        <Seg value={mode} onChange={(v) => {
+          if (v === 'full') set({ ttsTemplate: TTS_FULL });
+          else if (v === 'message') set({ ttsTemplate: TTS_MESSAGE });
+          else set({ ttsTemplate: draft.ttsTemplate === TTS_FULL ? '{name} says {message}' : draft.ttsTemplate === TTS_MESSAGE ? '{name}: {message}' : draft.ttsTemplate });
+        }} options={[['full', 'Name, amount and message'], ['message', 'Message only'], ['custom', 'Custom']]} />
+      </Row>
+      {mode === 'custom' && (
+        <Row label="Custom text" hint="Fill in {name}, {amount} and {message}." stack>
+          <div className="ta-tts-template">
+            <input className="ta-input" value={template} maxLength={200} aria-label="Custom text"
+              onChange={(e) => setTemplate(e.target.value)} onBlur={() => commitTemplate(template)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitTemplate(template); } }} />
+            {['{name}', '{amount}', '{message}'].map((t) => <button key={t} type="button" className="btn sm" onClick={() => insert(t)}>{t}</button>)}
+          </div>
+        </Row>
+      )}
+      <Row label="Longest message read" stack>
+        <div className="ta-range">
+          <input type="range" min={20} max={500} step={10} value={draft.ttsMaxChars} aria-label="Longest message read" onChange={(e) => set({ ttsMaxChars: Number(e.target.value) })} />
+          <span className="ta-value">{draft.ttsMaxChars} chars</span>
+        </div>
+      </Row>
+      <Row label="Example" hint="For a 5 tip from Ann that says “Love the stream, you earned a snack!”" stack>
+        <p className="ta-tts-sample">{sample ? `“${sample}”` : 'Nothing is read.'}</p>
+      </Row>
+    </section>
+    <section className="ta-panel">
+      <PanelHead title="Playback" />
+      <Row label="Voice volume" hint="Separate from the alert sound." stack>
+        <div className="ta-range">
+          <input type="range" min={0} max={100} step={5} value={draft.ttsVolume} aria-label="Voice volume" onChange={(e) => set({ ttsVolume: Number(e.target.value) })} />
+          <span className="ta-value">{draft.ttsVolume}%</span>
+        </div>
+      </Row>
+      <Row label="Wait after the alert sound" hint="Before the message is read." stack>
+        <div className="ta-range">
+          <input type="range" min={0} max={10000} step={500} value={draft.ttsDelayMs} aria-label="Wait after the alert sound" onChange={(e) => set({ ttsDelayMs: Number(e.target.value) })} />
+          <span className="ta-value">{(draft.ttsDelayMs / 1000).toFixed(1)} s</span>
+        </div>
+      </Row>
+    </section>
+    <section className="ta-panel">
+      <PanelHead title="Word filter" hint="Words that are never read aloud. Parts of words count, so “darn” also catches “darnit”. A tipper's name with one of them is read as “Someone”." />
+      <Row label="Words" hint="Separate them with commas." stack>
+        <textarea className="ta-input ta-tts-words" rows={3} value={words} placeholder="word, another word" aria-label="Filtered words"
+          onChange={(e) => setWords(e.target.value)} onBlur={commitWords} />
+      </Row>
+      <Row label="When a message has one">
+        <Seg value={draft.ttsWordMode} onChange={(v) => set({ ttsWordMode: v })} options={[['remove', 'Leave the word out'], ['skip', 'Skip the message']]} />
+      </Row>
+    </section>
+  </>;
 }
 
 /** The default voice and the voices tippers can pick. */

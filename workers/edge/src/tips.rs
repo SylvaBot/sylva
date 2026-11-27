@@ -1405,9 +1405,10 @@ impl ChannelDo {
 
     /// What is read aloud for a tip, when it is read at all.
     fn spoken(&self, s: &TipSettings, t: &TipRow) -> Option<String> {
-        (s.tts && t.base + 0.005 >= s.tts_min).then(|| {
-            rules::speech(&t.name, &rules::spoken_amount(t.paid_amount(), &t.currency), &t.message)
-        })
+        if !s.tts || t.base + 0.005 < s.tts_min {
+            return None;
+        }
+        s.speech(&t.name, &rules::spoken_amount(t.paid_amount(), &t.currency), &t.message)
     }
 
     fn tip_voice(&self, id: &str) -> String {

@@ -1727,7 +1727,7 @@ textarea.tip-input { height: auto; min-height: 88px; padding: 11px 13px 24px; re
 .ta-swatch.custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
 .ta-range { display: flex; align-items: center; gap: 14px; width: 100%; }
 .ta-range input { flex: 1; accent-color: var(--text); }
-.ta-range .ta-value { width: 56px; justify-content: flex-end; }
+.ta-range .ta-value { min-width: 56px; justify-content: flex-end; white-space: nowrap; }
 
 /* Tips list */
 .ta-tips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -1851,3 +1851,8 @@ textarea.tip-input { height: auto; min-height: 88px; padding: 11px 13px 24px; re
 .ta-voice-default { display: flex; align-items: center; gap: 8px; }
 .ta-voice-default .vp-play { margin: 0; }
 @media (prefers-reduced-motion: reduce) { .vp-item, .vp-play { transition: none; } }
+
+.ta-tts-template { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+.ta-tts-template .ta-input { flex: 1 1 260px; min-width: 0; }
+.ta-tts-words { width: 100%; height: auto; padding: 10px 12px; resize: vertical; line-height: 1.5; }
+.ta-tts-sample { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--sunken); color: var(--text); font-size: 13.5px; line-height: 1.5; }

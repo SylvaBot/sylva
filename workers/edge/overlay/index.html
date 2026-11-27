@@ -181,7 +181,8 @@
   const speak = (view) => {
     if (!view || !view.tts || soundOff) return;
     const t = new Audio(`${location.origin}/tts/${key}/${encodeURIComponent(view.tts)}`);
-    t.volume = Math.min(1, Math.max(0, (view.volume === undefined ? 70 : view.volume) / 100));
+    const vol = view.ttsVolume === undefined ? view.volume : view.ttsVolume;
+    t.volume = Math.min(1, Math.max(0, (vol === undefined ? 70 : vol) / 100));
     speaking = t;
     const p = t.play();
     if (p && p.catch) p.catch(() => {});
@@ -189,13 +190,20 @@
   const playSound = (view) => {
     stopSound();
     if (!view || soundOff) return;
-    if (!view.sound) { speakTimer = setTimeout(() => speak(view), 400); return; }
+    // The streamer's chosen wait between the alert sound and the message.
+    const wait = Math.min(10000, Math.max(0, Number(view.ttsDelayMs) || 0));
+    if (!view.sound) { speakTimer = setTimeout(() => speak(view), 400 + wait); return; }
     const a = audioFor(view.sound);
     a.volume = Math.min(1, Math.max(0, (view.volume === undefined ? 70 : view.volume) / 100));
     try { a.currentTime = 0; } catch (x) { /* not loaded yet */ }
     if (view.tts) {
       let done = false;
-      const next = () => { if (!done && playing === a) { done = true; speak(view); } };
+      const next = () => {
+        if (done || playing !== a) return;
+        done = true;
+        clearTimeout(speakTimer);
+        speakTimer = setTimeout(() => { if (playing === a) speak(view); }, wait);
+      };
       a.onended = next;
       // A long sound should not hold the message back for ever.
       speakTimer = setTimeout(next, 6000);

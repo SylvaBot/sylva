@@ -30,25 +30,16 @@ new_sqlite_classes = ["ChannelDo"]
 tag = "v2"
 new_sqlite_classes = ["AccountDo", "DirectoryDo"]
 
-# Kokoro text to speech: owns the Kokoro container (see src/kokoro.rs).
-[[durable_objects.bindings]]
-name = "KOKORO"
-class_name = "KokoroDo"
-
 [[migrations]]
 tag = "v3"
 new_sqlite_classes = ["KokoroDo"]
 
-# The Kokoro container. Off until the image can be pushed from where Sylva is
-# deployed (registry.cloudflare.com); tips use the stand-in voice meanwhile.
-# Usage fits in the Workers Paid plan's included Container time.
-# [[containers]]
-# class_name = "KokoroDo"
-# image = "../../containers/kokoro/Dockerfile"
-# max_instances = 1
-# instance_type = { vcpu = 1, memory_mib = 3072, disk_mb = 4000 }
+# Kokoro is gone: tips are read by Brian (Amazon Polly).
+[[migrations]]
+tag = "v4"
+deleted_classes = ["KokoroDo"]
 
-# Workers AI: the stand-in voice for tip messages, used when Kokoro cannot answer.
+# Workers AI: the stand-in voice for tip messages, used when Polly cannot answer.
 [ai]
 binding = "AI"
 

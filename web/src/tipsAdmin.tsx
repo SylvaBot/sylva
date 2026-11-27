@@ -9,7 +9,6 @@ import { ImageEditor, type ImageKind } from './imageEditor';
 import { countryName, methodName, money } from './tips';
 import { PageHead } from './pages';
 import { ArmedButton, errorText, Gate, Icon, SaveState, Seg as UiSeg, Sect, SkelCard, Switch as UiSwitch, Tile, useAutosave, useToast } from './ui';
-import { useDemo, VoiceGrid } from './voices';
 import { Select } from './dropdown';
 import { createPortal } from 'react-dom';
 
@@ -255,14 +254,14 @@ export function TipsPage() {
 
         {tab === 'voice' && (
           <Gate on={ch.can.own}>
-            <Sect title="Text to speech" desc="Tips are read aloud on your overlay after the alert sound, in the voice the tipper picked. Links are never read.">
+            <Sect title="Text to speech" desc="Every tip is read aloud by Brian on your overlay after the alert sound. Links are never read.">
               <Row label="Read tips aloud"><Switch on={draft.tts} label="Read tips aloud" set={(v) => set({ tts: v })} /></Row>
-              <Row label="Only tips of at least"><NumField value={draft.ttsMin} suffix={draft.currency} onChange={(n) => set({ ttsMin: n })} /></Row>
+              <Row label="Only tips of at least" hint="0 reads every tip."><NumField value={draft.ttsMin} suffix={draft.currency} onChange={(n) => set({ ttsMin: n })} /></Row>
+              {!view.brianReady && (
+                <p className="ta-note">Amazon Polly is not answering right now, so tips are read by a stand-in voice until it does. Sylva checks again every 10 minutes.</p>
+              )}
             </Sect>
             <SpeechSettings draft={draft} set={set} />
-            <Sect title="Voices">
-              <VoiceSettings view={view} draft={draft} set={set} />
-            </Sect>
           </Gate>
         )}
 
@@ -563,40 +562,6 @@ function SpeechSettings({ draft, set }: { draft: TipSettings; set(p: Partial<Tip
         <Seg value={draft.ttsWordMode} onChange={(v) => set({ ttsWordMode: v })} options={[['remove', 'Leave the word out'], ['skip', 'Skip the message']]} />
       </Row>
     </Sect>
-  </>;
-}
-
-/** The default voice and the voices tippers can pick. */
-function VoiceSettings({ view, draft, set }: { view: TipsView; draft: TipSettings; set(p: Partial<TipSettings>): void }) {
-  const demo = useDemo();
-  const all = view.voices.map((v) => v.id);
-  const allowed = draft.ttsVoices.length ? draft.ttsVoices : all;
-  const pickable = view.voices.filter((v) => allowed.includes(v.id));
-  const allow = (ids: string[]) => {
-    if (!ids.length) return;
-    const sorted = all.filter((id) => ids.includes(id));
-    set({
-      ttsVoices: sorted.length === all.length ? [] : sorted,
-      ttsVoice: sorted.includes(draft.ttsVoice) ? draft.ttsVoice : sorted[0],
-    });
-  };
-  const playing = demo.playing === draft.ttsVoice;
-  return <>
-    <Row label="Default voice" hint="Used when the tipper does not pick one.">
-      <span className="ta-voice-default">
-        <button type="button" className="vp-play" aria-label={`${playing ? 'Stop' : 'Play'} the default voice`} aria-pressed={playing} onClick={() => demo.toggle(draft.ttsVoice)}>
-          <Icon id={playing ? 'pause' : 'play'} />
-        </button>
-        <Select className="ta-select" label="Default voice" value={draft.ttsVoice} onChange={(v) => set({ ttsVoice: v })}
-          options={pickable.map((v) => ({ value: v.id, label: v.name }))} />
-      </span>
-    </Row>
-    {!view.brianReady && (
-      <p className="ta-note">Brian (Amazon Polly) is hidden from tippers until AWS lets Sylva use Polly. Tips set to Brian are read by the stand-in voice meanwhile.</p>
-    )}
-    <Row label="Voices tippers can pick" hint={`${allowed.length} of ${all.length} on. Press play to hear one.`} stack>
-      <VoiceGrid voices={view.voices} mode="allow" value={allowed} onChange={allow} first={9} label="Voices tippers can pick" />
-    </Row>
   </>;
 }
 

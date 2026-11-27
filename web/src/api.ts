@@ -27,14 +27,12 @@ export interface SylvaEvent {
   raw: Record<string, unknown> | null;
 }
 
-/** A Kokoro voice for tips. */
-export interface TipVoice { id: string; name: string; accent: 'us' | 'uk'; gender: 'f' | 'm' }
 export type HoldMode = 'off' | 'delay' | 'approve';
 export interface TipSettings {
   enabled: boolean; currency: string; min: number; max: number; suggested: number[];
   hold: HoldMode; holdOver: number; holdFirst: boolean; holdUnverified: boolean; delaySeconds: number;
   mismatch: 'allow' | 'hold' | 'block'; refundOnWarning: boolean; autoEvidence: boolean;
-  tts: boolean; ttsMin: number; ttsVoice: string; ttsVoices: string[];
+  tts: boolean; ttsMin: number; 
   ttsTemplate: string; ttsDelayMs: number; ttsVolume: number; ttsMaxChars: number; ttsWords: string[]; ttsWordMode: 'remove' | 'skip';
   note: string;
   avatar: string; banner: string; background: string; bgColor: string; bgTile: boolean; tileSize: number;
@@ -49,7 +47,7 @@ export interface Tip {
 export interface StripeAccount { id: string; country: string; chargesEnabled: boolean; detailsSubmitted: boolean; due: number; domain: string; stripeStatus?: string; reasons?: string[]; needs?: string[] }
 export interface TipsView {
   platformReady: boolean; testMode?: boolean; account: StripeAccount | null; settings: TipSettings; tips: Tip[];
-  pageUrl: string | null; currencies: string[]; countries: string[]; voices: TipVoice[]; brianReady?: boolean;
+  pageUrl: string | null; currencies: string[]; countries: string[]; brianReady?: boolean;
 }
 export interface TipCurrency { code: string; decimals: number; min: number; max: number; suggested: number[] }
 export interface PublicTipPage {
@@ -58,8 +56,6 @@ export interface PublicTipPage {
   login: string; name: string; avatar: string; publishableKey?: string; testMode?: boolean;
   top?: { name: string; amount: number }[];
   key?: string; banner?: string; look?: TipLook;
-  /** Set when tips are read aloud: the voices a tipper can pick. */
-  speech?: { min: number; voice: string; voices: TipVoice[] } | null;
 }
 export interface TipLook { avatar: string; banner: string; background: string; bgColor: string; bgTile: boolean; tileSize: number }
 
@@ -439,7 +435,7 @@ export const api = {
   tipAction: (key: string, id: string, action: 'approve' | 'reject' | 'refund' | 'block' | 'unblock') =>
     request<Tip>('POST', `${ch(key)}/tips/${encodeURIComponent(id)}/${action}`),
   publicTip: (login: string) => request<PublicTipPage>('GET', `/v1/public/${encodeURIComponent(login)}/tip`),
-  sendTip: (login: string, body: { amount: number; currency: string; name: string; message: string; voice?: string; agreed: boolean; confirmationToken: string }) =>
+  sendTip: (login: string, body: { amount: number; currency: string; name: string; message: string; agreed: boolean; confirmationToken: string }) =>
     request<{ id: string; status: string; clientSecret?: string }>('POST', `/v1/public/${encodeURIComponent(login)}/tip`, body),
   tipStatus: (login: string, id: string) =>
     request<{ status: 'pending' | 'paid' | 'failed' | 'closed'; note?: string }>('GET', `/v1/public/${encodeURIComponent(login)}/tip/${encodeURIComponent(id)}`),

@@ -427,7 +427,7 @@ function TipSpeech({ money }: { money(n: number): string }) {
   return (
     <div className="grp">
       <div className="gr">
-        <div className="gr-main"><div className="t1">Read the message aloud</div><div className="t2">{t && t.ttsMin > 0 ? `From ${money(t.ttsMin)}. ` : ''}The tipper picks a voice on your tip page</div></div>
+        <div className="gr-main"><div className="t1">Read the message aloud</div><div className="t2">{t && t.ttsMin > 0 ? `From ${money(t.ttsMin)}. ` : ''}Read by Brian</div></div>
         <div className="gr-ctl">{t ? <Switch label="Read the message aloud" on={t.tts} onChange={(v) => tips.set({ ...t, tts: v }, true)} /> : <Skel w={40} h={22} round />}</div>
       </div>
       <div className="gr">
@@ -435,7 +435,7 @@ function TipSpeech({ money }: { money(n: number): string }) {
         <div className="gr-ctl">{t ? <Range label="Voice volume" value={t.ttsVolume} disabled={!t.tts} onChange={(v) => tips.set({ ...t, ttsVolume: v })} /> : <Skel w={150} h={16} />}</div>
       </div>
       <div className="gr">
-        <div className="gr-main"><div className="t1">Voices, filters and timing</div></div>
+        <div className="gr-main"><div className="t1">What's read, filters and timing</div></div>
         <div className="gr-ctl"><Link className="btn sm" href="/app/tips">Open Tips</Link></div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-//! Amazon Polly's Brian, one of the voices tips can be read in. Needs the
+//! Amazon Polly's Brian, the voice tips are read in. Needs the
 //! Worker secrets `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (an IAM
 //! user allowed `polly:SynthesizeSpeech`); `AWS_REGION` is optional.
 
@@ -6,7 +6,7 @@ use serde_json::json;
 use sylva_core::speech;
 use worker::*;
 
-/// What tippers hear when they press play on Brian.
+/// A short line Polly reads to show it answers.
 const DEMO: &str = "Hi, I'm Brian. Thanks so much for the tip, have an awesome stream!";
 
 /// The access key id and its secret, when both are set.
@@ -28,7 +28,7 @@ thread_local! {
 /// Polly is asked again this long after it refused.
 const RETRY_MS: f64 = 10.0 * 60.0 * 1000.0;
 
-/// Brian's demo, made by Polly once per isolate. None while Polly refuses
+/// A short clip made by Polly once per isolate. None while Polly refuses
 /// (an AWS account on hold, a missing permission) or no keys are set.
 async fn probe(env: &Env) -> Option<Vec<u8>> {
     keys(env)?;
@@ -51,7 +51,7 @@ async fn probe(env: &Env) -> Option<Vec<u8>> {
     made
 }
 
-/// Whether Brian can be offered: the keys are set and Polly answers.
+/// Whether Brian works: the keys are set and Polly answers.
 pub(crate) async fn ready(env: &Env) -> bool {
     probe(env).await.is_some()
 }
@@ -114,15 +114,4 @@ pub(crate) async fn speak(env: &Env, text: &str) -> Result<Vec<u8>> {
         )));
     }
     res.bytes().await
-}
-
-/// Brian's demo for the play buttons.
-pub(crate) async fn demo(env: &Env) -> Result<Response> {
-    let Some(audio) = probe(env).await else {
-        return Response::error("Brian is not available", 503);
-    };
-    let headers = Headers::new();
-    headers.set("Content-Type", "audio/mpeg")?;
-    headers.set("Cache-Control", "public, max-age=86400")?;
-    Ok(Response::from_bytes(audio)?.with_headers(headers))
 }

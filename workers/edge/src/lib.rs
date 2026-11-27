@@ -47,7 +47,6 @@ mod games;
 mod giveaway;
 mod grants;
 mod import;
-mod kokoro;
 mod loyalty;
 mod media;
 mod moderation;
@@ -67,7 +66,6 @@ mod web;
 pub use account::{AccountDo, DirectoryDo};
 pub use channel::ChannelDo;
 use channel::{ACCESS_HEADER, CHANNEL_HEADER, TOKEN_HEADER};
-pub use kokoro::KokoroDo;
 use serde_json::json;
 use sylva_core::team::{self as roles, Role};
 use sylva_core::twitch::{self, WebhookHeaders, WebhookMessage};
@@ -345,7 +343,6 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 _ => Response::error("Not found", 404),
             }
         }
-        (Method::Get, ["kokoro", "demos", "polly_brian.mp3"]) => polly::demo(&env).await,
         (Method::Get | Method::Head, [first, ..])
             if !matches!(
                 *first,

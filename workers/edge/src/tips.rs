@@ -74,11 +74,7 @@ CREATE TABLE IF NOT EXISTS tts (
     ms         INTEGER NOT NULL,
     created_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS tip_voice (
-    id         TEXT PRIMARY KEY,
-    voice      TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-)";
+DROP TABLE IF EXISTS tip_voice";
 
 /// The stand-in voice for tips, made on the server.
 const TTS_FALLBACK: &str = "@cf/deepgram/aura-2-en";
@@ -500,9 +496,6 @@ struct NewTip {
     #[serde(default)]
     agreed: bool,
     confirmation_token: String,
-    /// The Kokoro voice the tipper picked.
-    #[serde(default)]
-    voice: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -655,7 +648,6 @@ impl ChannelDo {
     /// The tip page's data: limits and suggestions in each currency.
     pub(crate) async fn tips_public(&self, country: &str) -> Result<Value> {
         let s = self.tip_settings()?;
-        let brian = crate::polly::ready(&self.env).await;
         let account = self.stripe_account()?;
         let open = s.enabled && account.as_ref().is_some_and(|a| a.charges_enabled);
         let base = rules::currency(&s.currency).unwrap_or(&rules::CURRENCIES[0]);
@@ -733,16 +725,6 @@ impl ChannelDo {
             "messageMax": rules::MESSAGE_MAX,
             "nameMax": rules::NAME_MAX,
             "note": s.note,
-            // Tippers pick the voice that reads their message.
-            "speech": if s.tts {
-                json!({
-                    "min": s.tts_min,
-                    "voice": s.voice_for(""),
-                    "voices": s.voices().into_iter().filter(|v| v.id != rules::BRIAN || brian).collect::<Vec<_>>(),
-                })
-            } else {
-                Value::Null
-            },
             "look": {
                 "avatar": s.avatar,
                 "banner": s.banner,
@@ -902,10 +884,6 @@ impl ChannelDo {
             "DELETE FROM tips WHERE status IN ('pending', 'failed') AND created_at < ?",
             vec![((now - 3 * 86_400_000) as f64).into()],
         )?;
-        self.sql.exec(
-            "DELETE FROM tip_voice WHERE created_at < ?",
-            vec![((now - 30 * 86_400_000) as f64).into()],
-        )?;
         let id = if test_mode(&self.env) {
             format!("tip_test_{}", random_hex(12)?)
         } else {
@@ -934,18 +912,6 @@ impl ChannelDo {
                 (now as f64).into(),
             ],
         )?;
-        self.sql.exec(
-            "INSERT OR REPLACE INTO tip_voice (id, voice, created_at) VALUES (?, ?, ?)",
-            vec![
-                id.as_str().into(),
-                s.voice_for(&t.voice).into(),
-                (now as f64).into(),
-            ],
-        )?;
-        // Wake Kokoro while the tipper pays, so the message is read right away.
-        if s.tts {
-            crate::kokoro::warm(&self.env);
-        }
 
         let channel = self.channel_name()?;
         let mut form = Form::new()
@@ -1380,32 +1346,14 @@ impl ChannelDo {
             .map(|id| format!("https://clips.twitch.tv/{id}"))
     }
 
-    /// Read a tip's message aloud and keep the audio for its alert: Kokoro
-    /// in the voice the tipper picked, or the stand-in voice when Kokoro is
-    /// not set up or does not answer in time.
+    /// Read a tip's message aloud and keep the audio for its alert: Brian,
+    /// or the stand-in voice when Polly does not answer.
     async fn make_speech(&self, t: &TipRow, text: &str) {
-        let voice = self.tip_voice(&t.id);
-        let made = if voice == rules::BRIAN {
-            match crate::polly::speak(&self.env, text).await {
-                Ok(a) => Some(a).filter(|a| !a.is_empty()),
-                Err(e) => {
-                    console_error!(
-                        "Brian could not read {}, using the stand-in voice: {e}",
-                        t.id
-                    );
-                    None
-                }
-            }
-        } else {
-            match crate::kokoro::speak(&self.env, text, &voice).await {
-                Ok(a) => a.filter(|a| !a.is_empty()),
-                Err(e) => {
-                    console_error!(
-                        "Kokoro could not read {}, using the stand-in voice: {e}",
-                        t.id
-                    );
-                    None
-                }
+        let made = match crate::polly::speak(&self.env, text).await {
+            Ok(a) => Some(a).filter(|a| !a.is_empty()),
+            Err(e) => {
+                console_error!("Brian could not read {}, using the stand-in voice: {e}", t.id);
+                None
             }
         };
         let audio = match made {
@@ -1433,24 +1381,6 @@ impl ChannelDo {
             &rules::spoken_amount(t.paid_amount(), &t.currency),
             &t.message,
         )
-    }
-
-    fn tip_voice(&self, id: &str) -> String {
-        #[derive(Deserialize)]
-        struct Row {
-            voice: String,
-        }
-        let picked = self
-            .sql
-            .exec("SELECT voice FROM tip_voice WHERE id = ?", vec![id.into()])
-            .and_then(|c| c.to_array::<Row>())
-            .ok()
-            .and_then(|r| r.into_iter().next())
-            .map(|r| r.voice)
-            .unwrap_or_default();
-        self.tip_settings()
-            .map(|s| s.voice_for(&picked).to_string())
-            .unwrap_or_else(|_| rules::VOICES[0].id.to_string())
     }
 
     async fn stand_in(&self, text: &str) -> Result<Vec<u8>> {
@@ -1865,7 +1795,6 @@ impl ChannelDo {
             "pageUrl": if login.is_empty() { Value::Null } else { json!(format!("{origin}/tip/{login}")) },
             "currencies": rules::CURRENCIES.iter().map(|c| c.code).collect::<Vec<_>>(),
             "countries": rules::STRIPE_COUNTRIES,
-            "voices": rules::VOICES,
             "brianReady": brian,
         }))
     }

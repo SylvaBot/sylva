@@ -36,12 +36,6 @@ fn content_security_policy(tip_page: bool) -> String {
 /// when the link carries `?v=`, which changes with every build, so the file
 /// can be kept for a year.
 pub fn serve(path: &str, versioned: bool) -> Result<Response> {
-    if let Some(id) = path
-        .strip_prefix("/kokoro/demos/")
-        .and_then(|f| f.strip_suffix(".mp3"))
-    {
-        return demo(id);
-    }
     let asset_cache = if versioned {
         "public, max-age=31536000, immutable"
     } else {
@@ -126,43 +120,4 @@ pub fn serve(path: &str, versioned: bool) -> Result<Response> {
         )?;
     }
     Ok(res)
-}
-
-/// The short demo of a Kokoro voice played on the tip page and dashboard.
-fn demo(id: &str) -> Result<Response> {
-    let body: &[u8] = match id {
-        "af_alloy" => include_bytes!("../demos/af_alloy.mp3"),
-        "af_aoede" => include_bytes!("../demos/af_aoede.mp3"),
-        "af_bella" => include_bytes!("../demos/af_bella.mp3"),
-        "af_heart" => include_bytes!("../demos/af_heart.mp3"),
-        "af_jessica" => include_bytes!("../demos/af_jessica.mp3"),
-        "af_kore" => include_bytes!("../demos/af_kore.mp3"),
-        "af_nicole" => include_bytes!("../demos/af_nicole.mp3"),
-        "af_nova" => include_bytes!("../demos/af_nova.mp3"),
-        "af_river" => include_bytes!("../demos/af_river.mp3"),
-        "af_sarah" => include_bytes!("../demos/af_sarah.mp3"),
-        "af_sky" => include_bytes!("../demos/af_sky.mp3"),
-        "am_adam" => include_bytes!("../demos/am_adam.mp3"),
-        "am_echo" => include_bytes!("../demos/am_echo.mp3"),
-        "am_eric" => include_bytes!("../demos/am_eric.mp3"),
-        "am_fenrir" => include_bytes!("../demos/am_fenrir.mp3"),
-        "am_liam" => include_bytes!("../demos/am_liam.mp3"),
-        "am_michael" => include_bytes!("../demos/am_michael.mp3"),
-        "am_onyx" => include_bytes!("../demos/am_onyx.mp3"),
-        "am_puck" => include_bytes!("../demos/am_puck.mp3"),
-        "am_santa" => include_bytes!("../demos/am_santa.mp3"),
-        "bf_alice" => include_bytes!("../demos/bf_alice.mp3"),
-        "bf_emma" => include_bytes!("../demos/bf_emma.mp3"),
-        "bf_isabella" => include_bytes!("../demos/bf_isabella.mp3"),
-        "bf_lily" => include_bytes!("../demos/bf_lily.mp3"),
-        "bm_daniel" => include_bytes!("../demos/bm_daniel.mp3"),
-        "bm_fable" => include_bytes!("../demos/bm_fable.mp3"),
-        "bm_george" => include_bytes!("../demos/bm_george.mp3"),
-        "bm_lewis" => include_bytes!("../demos/bm_lewis.mp3"),
-        _ => return Response::error("Not found", 404),
-    };
-    let headers = Headers::new();
-    headers.set("Content-Type", "audio/mpeg")?;
-    headers.set("Cache-Control", "public, max-age=86400")?;
-    Ok(Response::from_bytes(body.to_vec())?.with_headers(headers))
 }

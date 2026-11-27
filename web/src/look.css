@@ -1028,3 +1028,13 @@ img.ch-emote { width: 28px; height: 28px; object-fit: contain; flex: none; }
   .ch-id .avatar.lg { width: 80px; height: 80px; }
   .ch-big { font-size: 48px; }
 }
+.ch-section { margin-left: 16px; padding: 0 8px; min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; font-weight: 600; color: var(--text-2); }
+.ch-section:hover { color: var(--text); }
+.ch-title { font-size: 48px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }
+.ch-top { margin-top: 32px; }
+.ch-who { display: inline-flex; align-items: center; gap: 8px; color: var(--text); max-width: 100%; }
+.ch-who .avatar { width: 28px; height: 28px; font-size: 12px; flex: none; }
+.ch-who:hover { text-decoration: underline; }
+.ch-who.on { color: var(--sage-ink); }
+.ch-side > :last-child { grid-column: auto; }
+.ch-profile { grid-template-columns: minmax(0, 1fr); max-width: 720px; }

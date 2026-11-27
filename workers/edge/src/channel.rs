@@ -385,6 +385,8 @@ pub struct ChannelDo {
     tests_cleared: Cell<bool>,
     /// The channel's third party emote names, for chat stats.
     pub(crate) emote_map: crate::chat_stats::EmoteMap,
+    /// When the chat total last went to the directory.
+    pub(crate) chat_reported: Cell<f64>,
 }
 
 impl DurableObject for ChannelDo {
@@ -415,6 +417,7 @@ impl DurableObject for ChannelDo {
             alert_settings: RefCell::new(None),
             tests_cleared: Cell::new(false),
             emote_map: RefCell::new(None),
+            chat_reported: Cell::new(0.0),
             env,
             bot: RefCell::new(None),
             tokens: RefCell::new(std::collections::HashMap::new()),
@@ -958,6 +961,8 @@ impl DurableObject for ChannelDo {
                     "chat_users",
                     "chat_emotes",
                     "chat_commands",
+                    "chat_hashtags",
+                    "chat_se",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }

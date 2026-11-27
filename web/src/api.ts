@@ -289,7 +289,7 @@ export interface Redemption {
   id: number; itemId: string; itemName: string; cost: number; userId: string; login: string; name: string;
   input: string; at: number; status: 'pending' | 'done' | 'refunded'; doneAt?: number;
 }
-export interface ImportResult { commands: number; timers: number; points: number; watchtime: number; streams: number; activities: number; skipped: { what: string; why: string }[] }
+export interface ImportResult { counters: number; rewards: number; loyalty: boolean; chatMessages: number; commands: number; timers: number; points: number; watchtime: number; streams: number; activities: number; skipped: { what: string; why: string }[] }
 export interface PublicCommand {
   name: string; aliases: string[]; text: string; usage: string; level: UserLevel; cooldown: number; builtin: boolean;
 }
@@ -307,7 +307,10 @@ export interface ChatStats {
   chatters: { login: string; name: string; messages: number }[];
   emotes: { twitch: ChatEmote[]; '7tv': ChatEmote[]; bttv: ChatEmote[]; ffz: ChatEmote[] };
   commands: { name: string; uses: number }[];
+  hashtags: { name: string; uses: number }[];
+  imported: { messages: number; chatters: number } | null;
 }
+export interface ChatTopRow { login: string; name: string; avatar?: string; total: number }
 export interface PublicViewer { name: string; balance: number; rank: number }
 export interface PublicStore {
   channel: string; pointsName: string; storeOn: boolean;
@@ -437,7 +440,7 @@ export const api = {
     request<{ redemptions: Redemption[] }>('GET', `${ch(key)}/loyalty/redemptions?status=${status}&limit=${status === 'pending' ? 200 : 50}${before ? `&before=${before}` : ''}`),
   settle: (key: string, id: number, action: 'done' | 'reopen' | 'refund') =>
     request<Redemption>('POST', `${ch(key)}/loyalty/redemptions/${id}/${action}`),
-  importStreamElements: (key: string, body: { token: string; commands: boolean; timers: boolean; points: boolean; watchtime: boolean }) =>
+  importStreamElements: (key: string, body: { token: string } & Record<string, boolean | string>) =>
     request<ImportResult>('POST', `${ch(key)}/import/streamelements`, body),
   tips: (key: string) => request<TipsView>('GET', `${ch(key)}/tips`),
   heldTips: (key: string) => request<Tip[]>('GET', `${ch(key)}/tips/held`),
@@ -452,6 +455,7 @@ export const api = {
   tipStatus: (login: string, id: string) =>
     request<{ status: 'pending' | 'paid' | 'failed' | 'closed'; note?: string }>('GET', `/v1/public/${encodeURIComponent(login)}/tip/${encodeURIComponent(id)}`),
   publicProfile: (login: string) => request<PublicProfile>('GET', `/v1/public/${encodeURIComponent(login)}/profile`),
+  chatTop: () => request<ChatTopRow[]>('GET', '/v1/chatstats/top'),
   chatStats: (login: string) => request<ChatStats>('GET', `/v1/public/${encodeURIComponent(login)}/chatstats`),
   publicCommands: (login: string) => request<PublicCommands>('GET', `/v1/public/${encodeURIComponent(login)}/commands`),
   publicStore: (login: string, viewer?: string) =>

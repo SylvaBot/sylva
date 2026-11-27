@@ -39,7 +39,7 @@ const PAGES: Page[] = [
 const SUBPAGES: Page[] = [
   { path: '/app/alerts/style', label: 'Alert style', icon: 'palette', view: AlertStylePage, group: 'Stream', nav: '/app/alerts' },
 ];
-/** Old addresses keep working: bookmarks, Sylva Desktop and older links. */
+/** Old addresses keep working: bookmarks, Sylva Control and older links. */
 const MOVED: Record<string, string> = {
   '/app/stats': '/app',
   '/app/overlay': '/app/overlays',

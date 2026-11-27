@@ -9,9 +9,9 @@ import './landing.css';
 
 const START = '/auth/twitch/start';
 
-/** Where the Sylva Desktop download buttons point. Set this once the
- * download page exists. */
-const DESKTOP_DOWNLOAD = '#desktop';
+/** Where the Sylva Control download buttons point: the latest GitHub
+ * Release, which lists the installer for each system. */
+const DESKTOP_DOWNLOAD = 'https://github.com/SylvaBot/sylva-control/releases/latest';
 
 export function Landing({ signedIn, error, notice, notFound }: {
   signedIn: boolean; error: string | null; notice: string | null; notFound: boolean;
@@ -40,7 +40,7 @@ export function Landing({ signedIn, error, notice, notFound }: {
           <nav className="lp-hide-m" aria-label="Sections" style={{ display: 'flex', gap: '2px', padding: '5px', borderRadius: '999px', background: 'rgba(255,255,255,.045)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.07)', backdropFilter: 'blur(14px)' }}>
             <a className="lp-navlink" href="#features">Features</a>
             <a className="lp-navlink" href="#tips">Tips</a>
-            <a className="lp-navlink" href="#desktop">Desktop</a>
+            <a className="lp-navlink" href="#desktop">Apps</a>
             <a className="lp-navlink" href="#switching">Switching</a>
             <a className="lp-navlink" href="#faq">FAQ</a>
           </nav>
@@ -94,7 +94,7 @@ export function Landing({ signedIn, error, notice, notFound }: {
           </a>
           <a className="lp-btn lp-btn-dark" href="#desktop">
             <svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
-            Get Sylva Desktop
+            Get Sylva Control
           </a>
         </div>
         <p className="lp-faint" style={{ margin: '16px 0 0', fontSize: '13px' }}>Free, always. Sign in with Twitch to get started.</p>
@@ -243,17 +243,18 @@ export function Landing({ signedIn, error, notice, notFound }: {
     <section id="desktop" className="lp-sec" style={{ padding: '104px 0', background: '#121211', borderTop: '1px solid rgba(255,255,255,.06)' }}>
       <div className="lp-wrap lp-g2" style={{ gap: '56px', alignItems: 'center' }}>
         <div>
-          <span className="lp-tag">/desktop</span>
-          <h2 className="lp-h2" style={{ margin: '18px 0 0', fontSize: '40px', lineHeight: '46px', fontWeight: '500', letterSpacing: '-0.03em' }}>Sylva Desktop. A companion for when you are live.</h2>
-          <p className="lp-muted" style={{ margin: '14px 0 0', fontSize: '17px', lineHeight: '27px' }}>Sylva runs in your browser. Sylva Desktop is an optional companion that sits next to your game, so you can see who just showed up and handle alerts without alt tabbing.</p>
+          <span className="lp-tag">/apps</span>
+          <h2 className="lp-h2" style={{ margin: '18px 0 0', fontSize: '40px', lineHeight: '46px', fontWeight: '500', letterSpacing: '-0.03em' }}>Sylva Control. A companion for when you are live.</h2>
+          <p className="lp-muted" style={{ margin: '14px 0 0', fontSize: '17px', lineHeight: '27px' }}>Sylva runs in your browser. Sylva Control is an optional companion that sits next to your game, so you can see who just showed up and handle alerts without alt tabbing.</p>
           <div className="lp-stack-m" style={{ display: 'flex', gap: '10px', marginTop: '32px' }}>
             <a className="lp-btn lp-btn-sage" href={DESKTOP_DOWNLOAD}><svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>Download for Windows</a>
             <a className="lp-btn lp-btn-dark" href={DESKTOP_DOWNLOAD}>macOS and Linux</a>
           </div>
+          <p className="lp-faint" style={{ margin: '24px 0 0', fontSize: '14px', lineHeight: '22px' }}>Sylva Chat, a light Twitch chat app with mod tools built in, is coming soon.</p>
         </div>
         <div style={{ position: 'relative' }}>
           <div aria-hidden="true" className="lp-blob lp-b2" style={{ width: '520px', height: '360px', left: '50%', top: '50%', margin: '-180px 0 0 -260px', background: 'radial-gradient(closest-side, rgba(128,166,98,.35), rgba(128,166,98,0))' }}></div>
-          <div aria-label="Sylva Desktop preview, coming soon" style={{ position: 'relative', borderRadius: '14px', background: '#10100f', border: '1px solid rgba(255,255,255,.1)', boxShadow: '0 30px 90px -30px rgba(0,0,0,.85)', overflow: 'hidden', maxWidth: '440px', margin: '0 auto' }}>
+          <div aria-label="Sylva Control preview, coming soon" style={{ position: 'relative', borderRadius: '14px', background: '#10100f', border: '1px solid rgba(255,255,255,.1)', boxShadow: '0 30px 90px -30px rgba(0,0,0,.85)', overflow: 'hidden', maxWidth: '440px', margin: '0 auto' }}>
             <div style={{ height: '40px', borderBottom: '1px solid rgba(255,255,255,.07)' }}></div>
             <div className="lp-blank-desk" style={{ height: '380px' }}></div>
           </div>
@@ -287,7 +288,7 @@ export function Landing({ signedIn, error, notice, notFound }: {
         <div className="lp-faq" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <details className="lp-card" open><summary>Is Sylva free?<svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary><p>Yes, and it stays free.</p></details>
           <details className="lp-card"><summary>Does Sylva take a cut of my tips?<svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary><p>No. Tips go straight to your Stripe account. Only Stripe's standard processing fees apply.</p></details>
-          <details className="lp-card"><summary>Do I need to download anything?<svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary><p>No. Sylva runs in your browser and works with OBS or any streaming software that supports browser sources. Sylva Desktop is optional.</p></details>
+          <details className="lp-card"><summary>Do I need to download anything?<svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary><p>No. Sylva runs in your browser and works with OBS or any streaming software that supports browser sources. Sylva Control is optional.</p></details>
           <details className="lp-card"><summary>Which platforms does Sylva support?<svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary><p>Twitch, with more on the way.</p></details>
           <details className="lp-card"><summary>Can my moderators help run things?<svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary><p>Yes. Invite them and choose what each person can see and change.</p></details>
           <details className="lp-card"><summary>Can I bring my StreamElements setup?<svg className="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary><p>Yes. Commands, timers, loyalty points and stream history come over in one step.</p></details>
@@ -317,7 +318,7 @@ export function Landing({ signedIn, error, notice, notFound }: {
               <svg width="30" height="30" style={{ width: '30px', height: '30px' }} viewBox="17 10 30 42" aria-hidden="true"><path d="M32 12c-9 8-13 17-13 25a13 13 0 0 0 26 0c0-8-4-17-13-25z" fill="#d6efc2"></path><path d="M32 22v30M32 38l-7-6M32 44l7-6" stroke="#0c0c0b" strokeWidth="2.6" strokeLinecap="round" fill="none"></path></svg>
               <p className="lp-muted" style={{ margin: '14px 0 0', fontSize: '14px', lineHeight: '22px', maxWidth: '240px' }}>The streamer toolkit for Twitch, on the web and on your desktop.</p>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}><span style={{ fontWeight: '600' }}>Product</span><a href="#features" style={{ color: '#a3a39e' }}>Features</a><a href="#tips" style={{ color: '#a3a39e' }}>Tips</a><a href="#desktop" style={{ color: '#a3a39e' }}>Desktop</a><a href="#switching" style={{ color: '#a3a39e' }}>Switching</a></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}><span style={{ fontWeight: '600' }}>Product</span><a href="#features" style={{ color: '#a3a39e' }}>Features</a><a href="#tips" style={{ color: '#a3a39e' }}>Tips</a><a href="#desktop" style={{ color: '#a3a39e' }}>Apps</a><a href="#switching" style={{ color: '#a3a39e' }}>Switching</a></div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}><span style={{ fontWeight: '600' }}>Account</span><a href={home} style={{ color: '#a3a39e' }}>Sign in</a><a href="/app" style={{ color: '#a3a39e' }}>Dashboard</a></div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}><span style={{ fontWeight: '600' }}>Legal</span><a href="/privacy" style={{ color: '#a3a39e' }}>Privacy</a></div>
           </div>

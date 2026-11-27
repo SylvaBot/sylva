@@ -1,4 +1,4 @@
-// /device: where a streamer approves an app, such as Sylva Desktop, that showed them
+// /device: where a streamer approves an app, such as Sylva Control, that showed them
 // a code. Signed out visitors sign in first and come back here.
 
 import { useEffect, useState, type FormEvent } from 'react';

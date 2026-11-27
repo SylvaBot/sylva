@@ -8,7 +8,7 @@
 //!    the log does not have.
 //! 2. The alert queue, also in SQLite, so pause, mute, the alert on screen and
 //!    the queue length are readable state that survives restarts.
-//! 3. The realtime sockets (overlays, dashboard, Sylva Desktop), accepted with the
+//! 3. The realtime sockets (overlays, dashboard, Sylva Control), accepted with the
 //!    hibernation API so idle overlays cost nothing.
 //!
 //! An alarm guards the alert on screen: if no overlay acknowledges it within

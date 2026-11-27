@@ -18,7 +18,7 @@ export type SettingsSection = 'account' | 'team' | 'apps' | 'import' | 'appearan
 const SECTIONS: { id: SettingsSection; label: string; icon: string; owner?: boolean; words: string }[] = [
   { id: 'account', label: 'Account', icon: 'user', words: 'profile twitch events permissions delete account sign out' },
   { id: 'team', label: 'Team', icon: 'team', owner: true, words: 'moderators editors viewers people roles' },
-  { id: 'apps', label: 'Connected apps', icon: 'plug', words: 'sylva desktop device tokens remove' },
+  { id: 'apps', label: 'Connected apps', icon: 'plug', words: 'sylva control chat desktop device tokens remove' },
   { id: 'import', label: 'Import from another service', icon: 'import', owner: true, words: 'move migrate switch streamelements streamlabs nightbot fossabot moobot wizebot csv commands timers points watch time tips history jwt' },
   { id: 'appearance', label: 'Appearance', icon: 'palette', words: 'theme dark light system density compact clock 12 24 hour motion animation' },
 ];
@@ -259,7 +259,7 @@ function ConnectedApps() {
   return (
     <Sect
       title="Apps you allowed to use your Sylva"
-      foot={<>To connect one, such as Sylva Desktop, sign in from the app and enter its code at <Link href="/device">{location.host}/device</Link>.</>}
+      foot={<>To connect one, such as Sylva Control, sign in from the app and enter its code at <Link href="/device">{location.host}/device</Link>.</>}
     >
       {apps === null && <SkelRows n={1} tile={false} />}
       {apps && apps.length === 0 && <Row title="No apps yet" desc="Apps you connect show up here, and you can remove them any time." />}

@@ -495,6 +495,10 @@ struct AccountState {
     /// Things Stripe still needs before payouts or payments work.
     due: u32,
     domain: String,
+    /// Stripe's own card payments status (active, pending, restricted...).
+    stripe_status: String,
+    /// Stripe's reason codes when card payments are not active yet.
+    reasons: Vec<String>,
 }
 
 fn error(message: &str, status: u16) -> Result<Response> {
@@ -1428,50 +1432,98 @@ impl ChannelDo {
         Ok(())
     }
 
-    /// Bring the account's state up to date from Stripe's account object.
-    /// Read the account from Stripe's Accounts v2 API. Card payments being
-    /// `active` on the merchant configuration means tips can be taken.
+    /// Bring the account's state up to date straight from Stripe. Reads the
+    /// Accounts v2 object (card payments `active` on the merchant
+    /// configuration means tips can be taken). If that read fails or has no
+    /// card payments status, the v1 view of the same account is used.
     async fn refresh_account(&self, a: &mut AccountState) -> Result<()> {
         let (status, obj) = stripe_v2(
             &self.env,
             Method::Get,
             &format!(
-                "/core/accounts/{}?include[0]=configuration.merchant&include[1]=identity&include[2]=requirements",
+                "/core/accounts/{}?include=configuration.merchant&include=identity&include=requirements",
                 a.id
             ),
             None,
         )
         .await?;
-        if status != 200 {
-            console_warn!("Reading the Stripe account failed: {}", stripe_error(&obj));
-            return Ok(());
-        }
         let card = &obj["configuration"]["merchant"]["capabilities"]["card_payments"];
-        a.charges_enabled = card["status"].as_str() == Some("active");
-        let details = card["status_details"]
-            .as_array()
-            .map_or(0, |d| d.len() as u32);
-        let entries = obj["requirements"]["entries"].as_array().map_or(0, |e| {
-            e.iter()
-                .filter(|x| x["minimum_deadline"]["status"].as_str() != Some("eventually_due"))
-                .count() as u32
-        });
-        a.due = if a.charges_enabled {
-            entries
-        } else {
-            details.max(entries)
-        };
-        // Onboarding was sent in once Stripe has anything beyond "fill this in".
-        a.details_submitted = a.charges_enabled
-            || card["status_details"].as_array().is_some_and(|d| {
-                d.iter().all(|x| {
-                    x["code"].as_str() != Some("requirements_past_due")
-                        && x["resolution"].as_str() != Some("provide_info")
+        if status == 200 && card["status"].is_string() {
+            let state = card["status"].as_str().unwrap_or_default();
+            a.charges_enabled = state == "active";
+            a.stripe_status = state.into();
+            a.reasons = card["status_details"]
+                .as_array()
+                .map(|d| {
+                    d.iter()
+                        .filter_map(|x| x["code"].as_str().map(str::to_string))
+                        .collect()
                 })
+                .unwrap_or_default();
+            let entries = obj["requirements"]["entries"].as_array().map_or(0, |e| {
+                e.iter()
+                    .filter(|x| {
+                        x["minimum_deadline"]["status"].as_str() != Some("eventually_due")
+                    })
+                    .count() as u32
             });
-        if let Some(c) = obj["identity"]["country"].as_str() {
-            a.country = c.to_ascii_uppercase();
+            a.due = if a.charges_enabled {
+                entries
+            } else {
+                (a.reasons.len() as u32).max(entries)
+            };
+            // Sent in once nothing Stripe lists is waiting on the streamer.
+            a.details_submitted = a.charges_enabled
+                || card["status_details"].as_array().is_some_and(|d| {
+                    d.iter().all(|x| {
+                        x["code"].as_str() != Some("requirements_past_due")
+                            && x["resolution"].as_str() != Some("provide_info")
+                    })
+                });
+            if let Some(c) = obj["identity"]["country"].as_str() {
+                a.country = c.to_ascii_uppercase();
+            }
+        } else {
+            if status != 200 {
+                console_warn!("Reading the Stripe account (v2) failed: {}", stripe_error(&obj));
+            }
+            let (status, v) = stripe(
+                &self.env,
+                Method::Get,
+                &format!("/accounts/{}", a.id),
+                None,
+                None,
+                None,
+            )
+            .await?;
+            if status != 200 {
+                console_warn!("Reading the Stripe account failed: {}", stripe_error(&v));
+                return Ok(());
+            }
+            a.charges_enabled = v["charges_enabled"].as_bool() == Some(true);
+            a.details_submitted = v["details_submitted"].as_bool() == Some(true);
+            a.stripe_status = v["capabilities"]["card_payments"]
+                .as_str()
+                .unwrap_or_default()
+                .into();
+            let req = &v["requirements"];
+            let count = |k: &str| req[k].as_array().map_or(0, |x| x.len());
+            a.due = (count("currently_due") + count("past_due")) as u32;
+            a.reasons = req["disabled_reason"]
+                .as_str()
+                .map(|r| vec![r.to_string()])
+                .unwrap_or_default();
+            if let Some(c) = v["country"].as_str() {
+                a.country = c.to_ascii_uppercase();
+            }
         }
+        console_log!(
+            "Stripe account {}: card payments {}, due {}, reasons {:?}",
+            a.id,
+            a.stripe_status,
+            a.due,
+            a.reasons
+        );
         self.save_account(a)?;
         Ok(())
     }

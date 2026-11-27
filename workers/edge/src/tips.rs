@@ -185,6 +185,8 @@ pub(crate) struct PublicChannel {
     pub login: String,
     pub name: String,
     pub avatar: String,
+    /// The Twitch offline image, the closest thing Twitch's API has to a banner.
+    pub banner: String,
 }
 
 /// `GET /v1/public/{login}/tip`: what the tip page needs.
@@ -200,6 +202,8 @@ pub(crate) async fn public_config(req: &Request, env: &Env, ch: PublicChannel) -
     v["login"] = json!(ch.login);
     v["name"] = json!(ch.name);
     v["avatar"] = json!(ch.avatar);
+    v["banner"] = json!(ch.banner);
+    v["key"] = json!(ch.key);
     let ready = platform_ready(env);
     v["open"] = json!(ready && v["open"].as_bool().unwrap_or(false));
     v["testMode"] = json!(test_mode(env));
@@ -654,8 +658,8 @@ impl ChannelDo {
                     "code": c.code,
                     "decimals": c.decimals,
                     "min": pick(s.min, true),
-                    "max": if exact { s.max } else { rules::nice(conv(s.max), c, false).min(conv(s.max)) },
-                    "firstMax": if exact { s.first_max } else { rules::nice(conv(s.first_max), c, false).min(conv(s.first_max)) },
+                    "max": (if exact { s.max } else { rules::nice(conv(s.max), c, false).min(conv(s.max)) }).min(rules::stripe_max(c)),
+                    "firstMax": (if exact { s.first_max } else { rules::nice(conv(s.first_max), c, false).min(conv(s.first_max)) }).min(rules::stripe_max(c)),
                     "suggested": s.suggested.iter().map(|x| pick(*x, false)).collect::<Vec<_>>(),
                 })
             })
@@ -709,6 +713,14 @@ impl ChannelDo {
             "messageMax": rules::MESSAGE_MAX,
             "nameMax": rules::NAME_MAX,
             "note": s.note,
+            "look": {
+                "avatar": s.avatar,
+                "banner": s.banner,
+                "background": s.background,
+                "bgColor": s.bg_color,
+                "bgTile": s.bg_tile,
+                "tileSize": s.tile_size,
+            },
         }))
     }
 
@@ -1701,6 +1713,11 @@ impl ChannelDo {
         s: TipSettings,
     ) -> std::result::Result<TipSettings, String> {
         let s = s.validate().map_err(|e| e.0)?;
+        for id in s.images() {
+            if !self.media_exists(id).map_err(|e| e.to_string())? {
+                return Err("That image is no longer in your files. Pick another one.".into());
+            }
+        }
         self.set_config(
             "tip_settings",
             &serde_json::to_string(&s).map_err(|e| e.to_string())?,

@@ -101,7 +101,9 @@ pub struct Currency {
     pub usd: f64,
 }
 
-/// Currencies the tip page offers. The rates are approximate (late 2025)
+/// Currencies the tip page offers. Every one is a Stripe presentment
+/// currency; the zero-decimal ones (JPY, KRW, VND, CLP) match Stripe's list.
+/// The rates are approximate (late 2025)
 /// and only move limits and totals, so they do not need to be exact.
 pub const CURRENCIES: &[Currency] = &[
     Currency {
@@ -214,6 +216,121 @@ pub const CURRENCIES: &[Currency] = &[
         decimals: 2,
         usd: 0.057,
     },
+    Currency {
+        code: "IDR",
+        decimals: 2,
+        usd: 6e-05,
+    },
+    Currency {
+        code: "KRW",
+        decimals: 0,
+        usd: 0.00069,
+    },
+    Currency {
+        code: "TWD",
+        decimals: 2,
+        usd: 0.032,
+    },
+    Currency {
+        code: "CNY",
+        decimals: 2,
+        usd: 0.14,
+    },
+    Currency {
+        code: "VND",
+        decimals: 0,
+        usd: 3.8e-05,
+    },
+    Currency {
+        code: "AED",
+        decimals: 2,
+        usd: 0.272,
+    },
+    Currency {
+        code: "SAR",
+        decimals: 2,
+        usd: 0.266,
+    },
+    Currency {
+        code: "QAR",
+        decimals: 2,
+        usd: 0.274,
+    },
+    Currency {
+        code: "ILS",
+        decimals: 2,
+        usd: 0.3,
+    },
+    Currency {
+        code: "TRY",
+        decimals: 2,
+        usd: 0.024,
+    },
+    Currency {
+        code: "HUF",
+        decimals: 2,
+        usd: 0.003,
+    },
+    Currency {
+        code: "RON",
+        decimals: 2,
+        usd: 0.227,
+    },
+    Currency {
+        code: "COP",
+        decimals: 2,
+        usd: 0.00026,
+    },
+    Currency {
+        code: "CLP",
+        decimals: 0,
+        usd: 0.00106,
+    },
+    Currency {
+        code: "PEN",
+        decimals: 2,
+        usd: 0.296,
+    },
+    Currency {
+        code: "NGN",
+        decimals: 2,
+        usd: 0.00069,
+    },
+    Currency {
+        code: "KES",
+        decimals: 2,
+        usd: 0.0077,
+    },
+    Currency {
+        code: "EGP",
+        decimals: 2,
+        usd: 0.021,
+    },
+    Currency {
+        code: "PKR",
+        decimals: 2,
+        usd: 0.0036,
+    },
+    Currency {
+        code: "BDT",
+        decimals: 2,
+        usd: 0.0082,
+    },
+    Currency {
+        code: "UAH",
+        decimals: 2,
+        usd: 0.024,
+    },
+    Currency {
+        code: "KZT",
+        decimals: 2,
+        usd: 0.0019,
+    },
+    Currency {
+        code: "MAD",
+        decimals: 2,
+        usd: 0.108,
+    },
 ];
 
 pub fn currency(code: &str) -> Option<&'static Currency> {
@@ -223,6 +340,13 @@ pub fn currency(code: &str) -> Option<&'static Currency> {
 }
 
 /// The currency a viewer in this country most likely pays in, if offered.
+/// The largest amount Stripe takes in one payment: eight digits in the
+/// smallest unit, twelve for IDR.
+pub fn stripe_max(c: &Currency) -> f64 {
+    let digits = if c.code == "IDR" { 12 } else { 8 };
+    (10f64.powi(digits) - 1.0) / 10f64.powi(c.decimals as i32)
+}
+
 pub fn currency_for_country(country: &str) -> Option<&'static str> {
     let c = country.to_ascii_uppercase();
     Some(match c.as_str() {
@@ -250,6 +374,29 @@ pub fn currency_for_country(country: &str) -> Option<&'static str> {
         "BR" => "BRL",
         "MX" => "MXN",
         "ZA" => "ZAR",
+        "ID" => "IDR",
+        "KR" => "KRW",
+        "TW" => "TWD",
+        "CN" => "CNY",
+        "VN" => "VND",
+        "AE" => "AED",
+        "SA" => "SAR",
+        "QA" => "QAR",
+        "IL" => "ILS",
+        "TR" => "TRY",
+        "HU" => "HUF",
+        "RO" => "RON",
+        "CO" => "COP",
+        "CL" => "CLP",
+        "PE" => "PEN",
+        "NG" => "NGN",
+        "KE" => "KES",
+        "EG" => "EGP",
+        "PK" => "PKR",
+        "BD" => "BDT",
+        "UA" => "UAH",
+        "KZ" => "KZT",
+        "MA" => "MAD",
         _ => return None,
     })
 }
@@ -378,6 +525,41 @@ pub struct TipSettings {
     pub tts_lang: String,
     /// Shown on the tip page above the form.
     pub note: String,
+    /// The tip page's picture: an uploaded image id, or empty for the
+    /// Twitch profile picture.
+    pub avatar: String,
+    /// The tip page's banner: an uploaded image id, empty for the Twitch
+    /// offline image, or `none`.
+    pub banner: String,
+    /// The page background image (an uploaded image id), or empty.
+    pub background: String,
+    /// The page background colour as `#rrggbb`, or empty for the default.
+    pub bg_color: String,
+    /// Repeat the background image as tiles instead of filling the page.
+    pub bg_tile: bool,
+    /// The width and height of one tile, in pixels.
+    pub tile_size: u32,
+}
+
+pub const TILE_MIN: u32 = 16;
+pub const TILE_MAX: u32 = 1024;
+
+fn image_id(id: &str) -> bool {
+    crate::media::valid_id(id)
+        && !id.ends_with(".mp3")
+        && !id.ends_with(".ogg")
+        && !id.ends_with(".wav")
+}
+
+impl TipSettings {
+    /// The uploaded images the page uses.
+    pub fn images(&self) -> Vec<&str> {
+        [&self.avatar, &self.banner, &self.background]
+            .into_iter()
+            .map(String::as_str)
+            .filter(|x| image_id(x))
+            .collect()
+    }
 }
 
 impl Default for TipSettings {
@@ -401,6 +583,12 @@ impl Default for TipSettings {
             tts_min: 3.0,
             tts_lang: "en".into(),
             note: String::new(),
+            avatar: String::new(),
+            banner: String::new(),
+            background: String::new(),
+            bg_color: String::new(),
+            bg_tile: true,
+            tile_size: 160,
         }
     }
 }
@@ -464,6 +652,21 @@ impl TipSettings {
             return bad("Pick one of the listed voices.");
         }
         self.note = self.note.trim().chars().take(300).collect();
+        if !(self.avatar.is_empty() || image_id(&self.avatar))
+            || !(self.banner.is_empty() || self.banner == "none" || image_id(&self.banner))
+            || !(self.background.is_empty() || image_id(&self.background))
+        {
+            return bad("Pick an image from your files.");
+        }
+        self.bg_color = self.bg_color.trim().to_ascii_lowercase();
+        if !self.bg_color.is_empty()
+            && !(self.bg_color.len() == 7
+                && self.bg_color.starts_with('#')
+                && self.bg_color[1..].bytes().all(|c| c.is_ascii_hexdigit()))
+        {
+            return bad("The background colour must look like #1a1a1a.");
+        }
+        self.tile_size = self.tile_size.clamp(TILE_MIN, TILE_MAX);
         Ok(self)
     }
 }
@@ -802,6 +1005,29 @@ pub fn spoken_amount(amount: f64, code: &str) -> String {
         "ZAR" => "rand",
         "MYR" => "ringgit",
         "THB" => "baht",
+        "IDR" => "rupiah",
+        "KRW" => "won",
+        "TWD" => "New Taiwan dollars",
+        "CNY" => "yuan",
+        "VND" => "dong",
+        "AED" => "dirhams",
+        "SAR" => "riyals",
+        "QAR" => "Qatari riyals",
+        "ILS" => "shekels",
+        "TRY" => "Turkish lira",
+        "HUF" => "forint",
+        "RON" => "lei",
+        "COP" => "Colombian pesos",
+        "CLP" => "Chilean pesos",
+        "PEN" => "soles",
+        "NGN" => "naira",
+        "KES" => "Kenyan shillings",
+        "EGP" => "Egyptian pounds",
+        "PKR" => "Pakistani rupees",
+        "BDT" => "taka",
+        "UAH" => "hryvnias",
+        "KZT" => "tenge",
+        "MAD" => "Moroccan dirhams",
         _ => return format!("{n} {code}"),
     };
     format!("{n} {word}")

@@ -3,12 +3,11 @@
 // page (/tip/{login}) is where viewers pay. Money goes straight to the
 // streamer's Stripe account; the rules live in crates/sylva-core/src/tips.rs.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, type PublicTipPage, type Tip, type TipSettings, type TipsView } from './api';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { api, mediaUrl, type MediaFile, type PublicTipPage, type Tip, type TipSettings, type TipsView } from './api';
 import { useChannel } from './channel';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
-import { SiteHeader } from './site';
 import { Avatar, errorText, Gate, Icon, SkelCard, SkelRows, useToast } from './ui';
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -55,6 +54,7 @@ export function TipsPage() {
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [country, setCountry] = useState('');
+  const [files, setFiles] = useState<MediaFile[]>([]);
 
   const load = useCallback(() => {
     api.tips(ch.key).then((v) => {
@@ -63,6 +63,21 @@ export function TipsPage() {
       setCountry((c) => c || v.account?.country || (v.countries.includes('US') ? 'US' : v.countries[0]));
     }).catch(() => setFailed(true));
   }, [ch.key]);
+
+  useEffect(() => {
+    if (ch.can.own) api.media(ch.key).then(setFiles).catch(() => {});
+  }, [ch.key, ch.can.own]);
+
+  const upload = async (f: File) => {
+    try {
+      const added = await api.uploadMedia(ch.key, f);
+      setFiles((x) => [added, ...x]);
+      return added;
+    } catch (x) {
+      toast(errorText(x), true);
+      return null;
+    }
+  };
 
   useEffect(() => {
     load();
@@ -219,6 +234,46 @@ export function TipsPage() {
               </div>
             </Card>
 
+            <Card title="Page look" desc="Your tip page uses your Twitch picture and offline image until you pick your own. Images come from your uploaded files.">
+              <div className="card-body tips-grid">
+                <ImagePick label="Picture" value={draft.avatar} files={files} defaults={[['', 'Twitch profile picture']]} onPick={(v) => set({ avatar: v })} upload={upload} />
+                <ImagePick label="Banner" value={draft.banner} files={files} defaults={[['', 'Twitch offline image'], ['none', 'No banner']]} onPick={(v) => set({ banner: v })} upload={upload} />
+                <ImagePick label="Background image" value={draft.background} files={files} defaults={[['', 'None']]} onPick={(v) => set({ background: v })} upload={upload} />
+                <div className="field">
+                  <span>Background colour</span>
+                  <span className="tip-color">
+                    <input type="color" aria-label="Pick a colour" value={draft.bgColor || '#0b0a0a'} onChange={(e) => set({ bgColor: e.target.value })} />
+                    <input className="input" value={draft.bgColor} placeholder="Default" maxLength={7} onChange={(e) => set({ bgColor: e.target.value.trim() })} />
+                    {draft.bgColor && <button className="btn ghost sm" type="button" onClick={() => set({ bgColor: '' })}>Reset</button>}
+                  </span>
+                </div>
+                {draft.background && <>
+                  <label className="field">Background style
+                    <select className="select" value={draft.bgTile ? 'tile' : 'fill'} onChange={(e) => set({ bgTile: e.target.value === 'tile' })}>
+                      <option value="tile">Tile (repeat a square image)</option>
+                      <option value="fill">Fill the page</option>
+                    </select>
+                  </label>
+                  {draft.bgTile && (
+                    <label className="field">Tile size: {draft.tileSize} px
+                      <input type="range" min={16} max={512} step={4} value={Math.min(draft.tileSize, 512)} onChange={(e) => set({ tileSize: Number(e.target.value) })} />
+                    </label>
+                  )}
+                  <div className="field wide">
+                    <span>Preview</span>
+                    <div className="tip-bg-preview" style={{
+                      backgroundColor: draft.bgColor || undefined,
+                      backgroundImage: `url("${mediaUrl(ch.key, draft.background)}")`,
+                      backgroundRepeat: draft.bgTile ? 'repeat' : 'no-repeat',
+                      backgroundSize: draft.bgTile ? `${draft.tileSize}px ${draft.tileSize}px` : 'cover',
+                      backgroundPosition: draft.bgTile ? 'center top' : 'center',
+                    }} />
+                    {draft.bgTile && <span className="field-hint">Tiles join without seams when the image is square and its edges match.</span>}
+                  </div>
+                </>}
+              </div>
+            </Card>
+
             <Card title="Chargeback protection" desc="Every card tip asks for 3D Secure. Methods that can be reversed for weeks, buy now pay later and PayPal are never offered. Anyone who disputes a tip on any Sylva channel can no longer tip anywhere on Sylva.">
               <div className="card-body tips-grid">
                 <label className="field">Hold tips before they show
@@ -268,6 +323,38 @@ export function TipsPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ImagePick({ label, value, files, defaults, onPick, upload }: {
+  label: string; value: string; files: MediaFile[]; defaults: [string, string][];
+  onPick(v: string): void; upload(f: File): Promise<MediaFile | null>;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const images = files.filter((f) => /\.(png|jpg|gif|webp)$/.test(f.id));
+  const missing = value && !defaults.some(([v]) => v === value) && !images.some((f) => f.id === value);
+  return (
+    <div className="field">
+      <span>{label}</span>
+      <span className="media-pick">
+        <select className="select" value={value} onChange={(e) => onPick(e.target.value)}>
+          {defaults.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+          {missing && <option value={value}>Deleted file</option>}
+          {images.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+        <button className="btn sm" type="button" disabled={busy} onClick={() => input.current?.click()}>{busy ? 'Uploading' : 'Upload'}</button>
+        <input ref={input} type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp" onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (!f) return;
+          setBusy(true);
+          const added = await upload(f);
+          setBusy(false);
+          if (added) onPick(added.id);
+        }} />
+      </span>
     </div>
   );
 }
@@ -494,22 +581,14 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
     }
   };
 
-  const header = (
-    <SiteHeader>
-      <span className="spacer" />
-      {typeof page === 'object' && page?.testMode && <span className="tip-test">Test mode</span>}
-    </SiteHeader>
-  );
-
   const left = useMemo(() => (typeof page === 'object' && page ? page.messageMax - [...message].length : 0), [page, message]);
 
   if (page === null || page === 'missing' || page === 'failed' || !page.open) {
     return (
-      <div className="site tip-site">
-        {header}
+      <div className="tip-site">
         <main id="content" className="tip-main">
-          {page === null ? <div className="tip-card"><SkelRows n={4} tile={false} /></div> : (
-            <div className="tip-card tip-done">
+          {page === null ? <div className="tip-card tip-pad"><SkelRows n={4} tile={false} /></div> : (
+            <div className="tip-card tip-pad tip-done">
               <h1>{page === 'failed' ? 'Something went wrong' : 'No tips here yet'}</h1>
               <p>{page === 'failed' ? 'Sylva could not be reached. Refresh to try again.' : `${typeof page === 'object' ? page.name : login} is not taking tips right now, or the link is mistyped.`}</p>
             </div>
@@ -519,31 +598,49 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
     );
   }
 
+  const look = page.look;
+  const file = (id?: string) => (id && page.key ? mediaUrl(page.key, id) : '');
+  const avatar = file(look?.avatar) || page.avatar;
+  const banner = look?.banner === 'none' ? '' : file(look?.banner) || page.banner || '';
+  const bg = file(look?.background);
+  const siteStyle: CSSProperties = {};
+  if (look?.bgColor) siteStyle.backgroundColor = look.bgColor;
+  if (bg) {
+    siteStyle.backgroundImage = `url("${bg}")`;
+    if (look?.bgTile) {
+      siteStyle.backgroundRepeat = 'repeat';
+      siteStyle.backgroundSize = `${look.tileSize}px ${look.tileSize}px`;
+      siteStyle.backgroundPosition = 'center top';
+    } else {
+      siteStyle.backgroundRepeat = 'no-repeat';
+      siteStyle.backgroundSize = 'cover';
+      siteStyle.backgroundPosition = 'center';
+      siteStyle.backgroundAttachment = 'fixed';
+    }
+  }
+
   const chips = cur?.suggested ?? [];
   const picked = chips.includes(amount) && !custom;
+  const other = custom || (!picked && amountText !== '');
   const top = page.top ?? [];
 
   return (
-    <div className="site tip-site">
-      {header}
+    <div className="tip-site" style={siteStyle}>
       <main id="content" className="tip-main">
         <div className="tip-layout">
           <section className="tip-card">
-            <div className="tip-banner" />
+            {banner ? <div className="tip-banner" style={{ backgroundImage: `url("${banner}")` }} /> : <div className="tip-banner plain" />}
             <div className="tip-who">
-              <Avatar name={page.name} url={page.avatar} large />
-              <div className="tip-id">
-                <h1>{page.name}</h1>
-                <a href={`https://twitch.tv/${page.login}`} target="_blank" rel="noreferrer">twitch.tv/{page.login}</a>
-              </div>
+              <Avatar name={page.name} url={avatar} large />
+              <h1>{page.name}</h1>
             </div>
             {page.note && <p className="tip-note">{page.note}</p>}
 
             {done === 'paid' ? (
               <div className="tip-done">
                 <Icon id="check" />
-                <h2>Thank you!</h2>
-                <p>Your tip went through and will show on stream soon. Your receipt is on its way by email.</p>
+                <h2>Thank you</h2>
+                <p>Your tip went through and will show on stream soon. The receipt is in your email.</p>
               </div>
             ) : done === 'pending' ? (
               <div className="tip-done">
@@ -552,6 +649,7 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
               </div>
             ) : (
               <form className="tip-form" onSubmit={(e) => { e.preventDefault(); void pay(); }}>
+                {page.testMode && <p className="tip-test">Test mode. Use a Stripe test card, no real money moves.</p>}
                 <div className="tip-section">
                   <div className="tip-label-row">
                     <span className="tip-label">Amount</span>
@@ -569,10 +667,10 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
                       <button key={v} type="button" className="tip-amount-btn" aria-pressed={picked && amount === v}
                         onClick={() => { setCustom(false); setAmountText(String(v)); }}>{money(v, currency)}</button>
                     ))}
-                    <button type="button" className="tip-amount-btn" aria-pressed={custom || (!picked && amountText !== '')}
+                    <button type="button" className="tip-amount-btn" aria-pressed={other}
                       onClick={() => { setCustom(true); setAmountText(''); }}>Other</button>
                   </div>
-                  {(custom || (!picked && amountText !== '')) && (
+                  {other && (
                     <input className="input tip-other" type="number" inputMode="decimal" autoFocus placeholder={cur ? `${money(cur.min, currency)} to ${money(cur.max, currency)}` : ''}
                       aria-label="Your amount" min={cur?.min} max={cur?.max} step={cur?.decimals ? 0.01 : 1}
                       value={amountText} onChange={(e) => setAmountText(e.target.value)} required />
@@ -580,17 +678,17 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
                 </div>
 
                 <div className="tip-fields">
-                  <label className="field">Your name
-                    <input className="input" maxLength={page.nameMax} value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" placeholder="Shown on stream" required />
+                  <label className="field">Name
+                    <input className="input" maxLength={page.nameMax} value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" required />
                   </label>
                   <label className="field">Email
-                    <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" placeholder="For your receipt only" required />
+                    <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
                   </label>
                 </div>
-                <label className="field">Message for {page.name}
+                <label className="field">Message
                   <span className="tip-message">
-                    <textarea className="input textarea" rows={3} maxLength={page.messageMax} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Say something nice" />
-                    <span className="tip-count" aria-live="polite">{left}</span>
+                    <textarea className="input textarea" rows={3} maxLength={page.messageMax} value={message} onChange={(e) => setMessage(e.target.value)} />
+                    <span className="tip-count" aria-hidden="true">{left}</span>
                   </span>
                 </label>
 
@@ -603,26 +701,25 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
                 </label>
                 {error && <p className="tip-error" role="alert">{error}</p>}
                 <button className="btn primary tip-submit" type="submit" disabled={busy || !ready}>
-                  {busy ? 'Working' : minor > 0 ? `Tip ${page.name} ${money(amount, currency)}` : `Tip ${page.name}`}
+                  {busy ? 'Working' : minor > 0 ? `Tip ${money(amount, currency)}` : 'Tip'}
                 </button>
-                <p className="tip-fine">Paid securely to {page.name} through Stripe. Sylva never sees your card.</p>
+                <p className="tip-fine">Your email is only for the receipt. Payments by Stripe, page by <Link href="/">Sylva</Link>.</p>
               </form>
             )}
           </section>
 
           {top.length > 0 && (
-            <aside className="tip-card tip-top" aria-label="Top tippers this week">
-              <h2>Top tippers this week</h2>
+            <aside className="tip-card tip-top" aria-labelledby="tip-top-h">
+              <h2 id="tip-top-h">Top this week</h2>
               <ol>
                 {top.map((t, i) => (
-                  <li key={i}><span className="tip-rank">{i + 1}</span><span className="tip-top-name">{t.name}</span><b>{money(t.amount, page.baseCurrency)}</b></li>
+                  <li key={i}><span className="tip-rank">{i + 1}</span><span className="tip-top-name">{t.name}</span><span className="tip-top-amt">{money(t.amount, page.baseCurrency)}</span></li>
                 ))}
               </ol>
             </aside>
           )}
         </div>
       </main>
-      <footer className="tip-foot"><Link href="/">Powered by Sylva</Link></footer>
     </div>
   );
 }

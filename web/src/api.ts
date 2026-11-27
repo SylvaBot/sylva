@@ -45,7 +45,7 @@ export interface Tip {
 export interface StripeAccount { id: string; country: string; chargesEnabled: boolean; detailsSubmitted: boolean; due: number; domain: string; stripeStatus?: string; reasons?: string[]; needs?: string[] }
 export interface TipsView {
   platformReady: boolean; testMode?: boolean; account: StripeAccount | null; settings: TipSettings; tips: Tip[];
-  pageUrl: string | null; currencies: string[]; countries: string[]; ttsLangs: string[];
+  pageUrl: string | null; currencies: string[]; countries: string[]; ttsBrian: boolean;
 }
 export interface TipCurrency { code: string; decimals: number; min: number; max: number; firstMax: number; suggested: number[] }
 export interface PublicTipPage {

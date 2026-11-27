@@ -19,6 +19,7 @@ pub mod media;
 pub mod moderation;
 pub mod protocol;
 pub mod scene;
+pub mod speech;
 pub mod store;
 pub mod team;
 pub mod tips;

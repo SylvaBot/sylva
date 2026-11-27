@@ -75,7 +75,71 @@ CREATE TABLE IF NOT EXISTS tts (
     created_at INTEGER NOT NULL
 )";
 
-const TTS_MODEL: &str = "@cf/myshell-ai/melotts";
+/// Reads tips while no Amazon Polly keys are set.
+const TTS_FALLBACK: &str = "@cf/deepgram/aura-2-en";
+
+/// Amazon Polly keys: an access key id and its secret, from Worker secrets.
+fn polly_keys(env: &Env) -> Option<(String, String)> {
+    let get = |k: &str| env.secret(k).ok().map(|v| v.to_string()).filter(|v| !v.is_empty());
+    Some((get("AWS_ACCESS_KEY_ID")?, get("AWS_SECRET_ACCESS_KEY")?))
+}
+
+/// `text` read by Amazon Polly's Brian, as MP3.
+async fn polly(env: &Env, text: &str) -> Result<Vec<u8>> {
+    let (access, secret) = polly_keys(env).ok_or_else(|| Error::RustError("no Polly keys".into()))?;
+    let region = env
+        .var("AWS_REGION")
+        .map(|v| v.to_string())
+        .ok()
+        .filter(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+        .unwrap_or_else(|| "us-east-1".into());
+    let host = format!("polly.{region}.amazonaws.com");
+    let body = json!({
+        "Engine": "standard",
+        "OutputFormat": "mp3",
+        "SampleRate": "22050",
+        "Text": text,
+        "TextType": "text",
+        "VoiceId": sylva_core::speech::POLLY_VOICE,
+    })
+    .to_string();
+    let date = sylva_core::speech::amz_date(&String::from(js_sys::Date::new_0().to_iso_string()));
+    let auth = sylva_core::speech::aws_authorization(
+        &sylva_core::speech::AwsRequest {
+            method: "POST",
+            host: &host,
+            path: "/v1/speech",
+            query: "",
+            headers: &[("content-type", "application/json")],
+            body: body.as_bytes(),
+            region: &region,
+            service: "polly",
+            date: &date,
+        },
+        &access,
+        &secret,
+    );
+    let headers = Headers::new();
+    headers.set("Content-Type", "application/json")?;
+    headers.set("X-Amz-Date", &date)?;
+    headers.set("Authorization", &auth)?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post)
+        .with_headers(headers)
+        .with_body(Some(body.into()));
+    let mut res = Fetch::Request(Request::new_with_init(&format!("https://{host}/v1/speech"), &init)?)
+        .send()
+        .await?;
+    if res.status_code() != 200 {
+        let why = res.text().await.unwrap_or_default();
+        return Err(Error::RustError(format!(
+            "Polly said {}: {}",
+            res.status_code(),
+            why.chars().take(300).collect::<String>()
+        )));
+    }
+    res.bytes().await
+}
 
 fn now() -> i64 {
     Date::now().as_millis() as i64
@@ -1259,7 +1323,7 @@ impl ChannelDo {
                 &rules::spoken_amount(amount, &t.currency),
                 &t.message,
             );
-            if let Err(e) = self.make_speech(&t.id, &text, &s.tts_lang).await {
+            if let Err(e) = self.make_speech(&t.id, &text).await {
                 console_error!("Text to speech for {} failed: {e}", t.id);
             }
         }
@@ -1343,16 +1407,25 @@ impl ChannelDo {
             .map(|id| format!("https://clips.twitch.tv/{id}"))
     }
 
-    async fn make_speech(&self, id: &str, text: &str, lang: &str) -> Result<()> {
-        let ai = self.env.ai("AI")?;
-        let out: Value = ai
-            .run(TTS_MODEL, json!({ "prompt": text, "lang": lang }))
-            .await?;
-        let Some(audio) = out["audio"].as_str().filter(|a| !a.is_empty()) else {
-            return Err(Error::RustError("no audio".into()));
+    async fn make_speech(&self, id: &str, text: &str) -> Result<()> {
+        let audio = if polly_keys(&self.env).is_some() {
+            polly(&self.env, text).await?
+        } else {
+            // Until Amazon keys are set, a Workers AI voice reads it.
+            let stream = self
+                .env
+                .ai("AI")?
+                .run_bytes(TTS_FALLBACK, json!({ "text": text, "speaker": "draco" }))
+                .await?;
+            Response::from_stream(stream)?.bytes().await?
         };
-        // About 65 ms a character, plus a breath.
-        let ms = (text.chars().count() as i64 * 65 + 800).min(30_000);
+        if audio.is_empty() {
+            return Err(Error::RustError("no audio".into()));
+        }
+        let ms = sylva_core::speech::mp3_ms(&audio)
+            .unwrap_or(text.chars().count() as u32 * 65 + 800)
+            .min(60_000) as i64;
+        let audio = sylva_core::media::b64_encode(&audio);
         let now = now();
         self.sql.exec(
             "DELETE FROM tts WHERE created_at < ?",
@@ -1739,7 +1812,7 @@ impl ChannelDo {
             "pageUrl": if login.is_empty() { Value::Null } else { json!(format!("{origin}/tip/{login}")) },
             "currencies": rules::CURRENCIES.iter().map(|c| c.code).collect::<Vec<_>>(),
             "countries": rules::STRIPE_COUNTRIES,
-            "ttsLangs": rules::TTS_LANGS,
+            "ttsBrian": polly_keys(&self.env).is_some(),
         }))
     }
 

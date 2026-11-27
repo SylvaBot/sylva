@@ -9,6 +9,7 @@ import { useChannel } from './channel';
 import { ImageEditor, type ImageKind } from './imageEditor';
 import { countryName, methodName, money } from './tips';
 import { errorText, Gate, Icon, SkelCard, useToast } from './ui';
+import { useDemo, VoiceGrid } from './voices';
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -274,12 +275,10 @@ export function TipsPage() {
         {tab === 'voice' && (
           <Gate on={ch.can.own}>
             <section className="ta-panel">
-              <PanelHead title="Text to speech" hint="Brian reads the name, amount and message aloud on your overlay after the alert sound. Links are skipped." />
+              <PanelHead title="Text to speech" hint="The name, amount and message are read aloud on your overlay after the alert sound, in the voice the tipper picked. Links are skipped." />
               <Row label="Read tips aloud"><Switch on={draft.tts} label="Read tips aloud" set={(v) => set({ tts: v })} /></Row>
               <Row label="Only tips of at least"><NumField value={draft.ttsMin} suffix={draft.currency} onChange={(n) => set({ ttsMin: n })} /></Row>
-              <Row label="Voice" hint={view.ttsBrian ? undefined : 'Brian starts once Amazon Polly is set up for Sylva. A stand-in voice reads tips until then.'}>
-                <span className="ta-value">{view.ttsBrian ? 'Brian' : 'Stand-in voice'}</span>
-              </Row>
+              <VoiceSettings view={view} draft={draft} set={set} />
             </section>
           </Gate>
         )}
@@ -443,7 +442,6 @@ function PageTab({ draft, set, files, upload, channel, name, twitchAvatar, twitc
           </Row>
           <Row label="Smallest tip"><NumField value={draft.min} suffix={draft.currency} onChange={(n) => set({ min: n })} /></Row>
           <Row label="Largest tip"><NumField value={draft.max} suffix={draft.currency} onChange={(n) => set({ max: n })} /></Row>
-          <Row label="Largest first tip" hint="Until someone has a tip here that went through."><NumField value={draft.firstMax} suffix={draft.currency} onChange={(n) => set({ firstMax: n })} /></Row>
         </section>
       </div>
 
@@ -506,6 +504,38 @@ function ImageMenu({ x, y, title, defaults, value, images, channel, onPick, onUp
 
 function PanelHead({ title, hint }: { title: string; hint?: string }) {
   return <div className="ta-panel-head"><h2>{title}</h2>{hint && <p>{hint}</p>}</div>;
+}
+
+/** The default voice and the voices tippers can pick. */
+function VoiceSettings({ view, draft, set }: { view: TipsView; draft: TipSettings; set(p: Partial<TipSettings>): void }) {
+  const demo = useDemo();
+  const all = view.voices.map((v) => v.id);
+  const allowed = draft.ttsVoices.length ? draft.ttsVoices : all;
+  const pickable = view.voices.filter((v) => allowed.includes(v.id));
+  const allow = (ids: string[]) => {
+    if (!ids.length) return;
+    const sorted = all.filter((id) => ids.includes(id));
+    set({
+      ttsVoices: sorted.length === all.length ? [] : sorted,
+      ttsVoice: sorted.includes(draft.ttsVoice) ? draft.ttsVoice : sorted[0],
+    });
+  };
+  const playing = demo.playing === draft.ttsVoice;
+  return <>
+    <Row label="Default voice" hint="Used when the tipper does not pick one.">
+      <span className="ta-voice-default">
+        <button type="button" className="vp-play" aria-label={`${playing ? 'Stop' : 'Play'} the default voice`} aria-pressed={playing} onClick={() => demo.toggle(draft.ttsVoice)}>
+          <Icon id={playing ? 'pause' : 'play'} />
+        </button>
+        <select className="ta-select" value={draft.ttsVoice} onChange={(e) => set({ ttsVoice: e.target.value })} aria-label="Default voice">
+          {pickable.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+      </span>
+    </Row>
+    <Row label="Voices tippers can pick" hint={`${allowed.length} of ${all.length} on. Press play to hear one.`} stack>
+      <VoiceGrid voices={view.voices} mode="allow" value={allowed} onChange={allow} first={9} label="Voices tippers can pick" />
+    </Row>
+  </>;
 }
 
 function Row({ label, hint, stack, children }: { label: string; hint?: string; stack?: boolean; children: ReactNode }) {

@@ -17,7 +17,7 @@
 //! 2. Every card tip asks for 3D Secure, which moves fraud liability to the
 //!    card's bank when the bank authenticates it.
 //! 3. Checks before charging ([`precheck`]): Sylva-wide blocklist, attempts
-//!    and declines per address, first tip limits, card country against the
+//!    and declines per address, card country against the
 //!    viewer's country.
 //! 4. Holds after paying ([`hold_reason`]): big tips, first tips, card tips
 //!    without 3D Secure and tips Stripe Radar finds risky wait for approval
@@ -526,8 +526,6 @@ pub struct TipSettings {
     pub max: f64,
     /// The buttons the tip page shows.
     pub suggested: Vec<f64>,
-    /// The most someone can tip before they have a tip here that went through.
-    pub first_max: f64,
     pub hold: HoldMode,
     /// Tips at or above this wait (0 means no amount holds).
     pub hold_over: f64,
@@ -545,8 +543,10 @@ pub struct TipSettings {
     pub tts: bool,
     /// Tips below this are not read aloud.
     pub tts_min: f64,
-    /// MeloTTS language: en, es, fr, zh, jp or kr.
-    pub tts_lang: String,
+    /// The Kokoro voice used when the tipper does not pick one.
+    pub tts_voice: String,
+    /// The voices tippers can pick from. Empty means all of them.
+    pub tts_voices: Vec<String>,
     /// Shown on the tip page above the form.
     pub note: String,
     /// The tip page's picture: an uploaded image id, or empty for the
@@ -594,7 +594,6 @@ impl Default for TipSettings {
             min: 1.0,
             max: 500.0,
             suggested: vec![3.0, 5.0, 10.0, 25.0],
-            first_max: 50.0,
             hold: HoldMode::Approve,
             hold_over: 50.0,
             hold_first: true,
@@ -605,7 +604,8 @@ impl Default for TipSettings {
             auto_evidence: true,
             tts: true,
             tts_min: 3.0,
-            tts_lang: "en".into(),
+            tts_voice: "af_heart".into(),
+            tts_voices: Vec::new(),
             note: String::new(),
             avatar: String::new(),
             banner: String::new(),
@@ -617,7 +617,64 @@ impl Default for TipSettings {
     }
 }
 
-pub const TTS_LANGS: &[&str] = &["en", "es", "fr", "zh", "jp", "kr"];
+/// A Kokoro-82M voice. The overlay speaks with it; the tip page plays its
+/// demo from `/kokoro/demos/{id}.mp3`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Voice {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// `us` or `uk`.
+    pub accent: &'static str,
+    /// `f` or `m`.
+    pub gender: &'static str,
+}
+
+const fn v(id: &'static str, name: &'static str) -> Voice {
+    let b = id.as_bytes();
+    Voice {
+        id,
+        name,
+        accent: if b[0] == b'b' { "uk" } else { "us" },
+        gender: if b[1] == b'm' { "m" } else { "f" },
+    }
+}
+
+/// Kokoro's English voices, the best sounding first.
+pub const VOICES: &[Voice] = &[
+    v("af_heart", "Heart"), v("af_bella", "Bella"), v("af_nicole", "Nicole"),
+    v("bf_emma", "Emma"), v("am_fenrir", "Fenrir"), v("am_michael", "Michael"),
+    v("am_puck", "Puck"), v("bm_george", "George"), v("bm_fable", "Fable"),
+    v("af_aoede", "Aoede"), v("af_kore", "Kore"), v("af_sarah", "Sarah"),
+    v("af_alloy", "Alloy"), v("af_nova", "Nova"), v("af_sky", "Sky"),
+    v("bf_isabella", "Isabella"), v("bm_lewis", "Lewis"), v("bm_daniel", "Daniel"),
+    v("bf_alice", "Alice"), v("bf_lily", "Lily"), v("af_jessica", "Jessica"),
+    v("af_river", "River"), v("am_echo", "Echo"), v("am_eric", "Eric"),
+    v("am_liam", "Liam"), v("am_onyx", "Onyx"), v("am_santa", "Santa"),
+    v("am_adam", "Adam"),
+];
+
+pub fn voice(id: &str) -> Option<&'static Voice> {
+    VOICES.iter().find(|v| v.id == id)
+}
+
+impl TipSettings {
+    /// The voices a tipper can pick, in list order.
+    pub fn voices(&self) -> Vec<&'static Voice> {
+        VOICES
+            .iter()
+            .filter(|v| self.tts_voices.is_empty() || self.tts_voices.iter().any(|x| x == v.id))
+            .collect()
+    }
+
+    /// The voice for a tip: the tipper's pick when allowed, else the default.
+    pub fn voice_for(&self, pick: &str) -> &'static str {
+        self.voices()
+            .into_iter()
+            .find(|v| v.id == pick)
+            .or_else(|| voice(&self.tts_voice))
+            .map_or(VOICES[0].id, |v| v.id)
+    }
+}
 
 impl TipSettings {
     /// Check settings from the dashboard, tidying what can be tidied.
@@ -633,7 +690,6 @@ impl TipSettings {
         let finite = [
             self.min,
             self.max,
-            self.first_max,
             self.hold_over,
             self.tts_min,
         ];
@@ -656,10 +712,6 @@ impl TipSettings {
                 cur.code
             )));
         }
-        if self.first_max < self.min {
-            return bad("The first tip limit must be at least the smallest tip.");
-        }
-        self.first_max = self.first_max.min(self.max);
         self.suggested.retain(|x| x.is_finite() && *x > 0.0);
         self.suggested.truncate(6);
         if self
@@ -672,8 +724,16 @@ impl TipSettings {
         if self.delay_seconds > 3600 {
             return bad("The delay can be up to an hour.");
         }
-        if !TTS_LANGS.contains(&self.tts_lang.as_str()) {
+        if voice(&self.tts_voice).is_none() || self.tts_voices.iter().any(|v| voice(v).is_none()) {
             return bad("Pick one of the listed voices.");
+        }
+        self.tts_voices.sort_by_key(|id| VOICES.iter().position(|v| v.id == id));
+        self.tts_voices.dedup();
+        if self.tts_voices.len() == VOICES.len() {
+            self.tts_voices.clear();
+        }
+        if !self.tts_voices.is_empty() && !self.tts_voices.contains(&self.tts_voice) {
+            return bad("The default voice must be one tippers can pick.");
         }
         self.note = self.note.trim().chars().take(300).collect();
         if !(self.avatar.is_empty() || image_id(&self.avatar))
@@ -734,12 +794,6 @@ pub fn precheck(s: &TipSettings, a: &Attempt) -> Result<(), String> {
     }
     if a.base > s.max * 1.001 + eps {
         return Err(format!("The largest tip is {} {}.", s.max, s.currency));
-    }
-    if !a.known && a.base > s.first_max * 1.001 + eps {
-        return Err(format!(
-            "Your first tip here can be up to about {} {}. After it goes through you can tip up to {} {}.",
-            s.first_max, s.currency, s.max, s.currency
-        ));
     }
     if a.card && s.mismatch == Mismatch::Block && mismatched(a) {
         return Err(
@@ -1134,17 +1188,9 @@ mod tests {
         };
         assert!(s.validate().is_err());
         let s = TipSettings {
-            first_max: 900.0,
-            ..TipSettings::default()
-        }
-        .validate()
-        .unwrap();
-        assert_eq!(s.first_max, 500.0);
-        let s = TipSettings {
             currency: "jpy".into(),
             min: 200.0,
             max: 50_000.0,
-            first_max: 5000.0,
             hold_over: 5000.0,
             suggested: vec![500.0],
             ..TipSettings::default()
@@ -1173,15 +1219,6 @@ mod tests {
             &s,
             &Attempt {
                 base: 80.0,
-                ..ok.clone()
-            }
-        )
-        .is_err());
-        assert!(precheck(
-            &s,
-            &Attempt {
-                base: 80.0,
-                known: true,
                 ..ok.clone()
             }
         )
@@ -1334,6 +1371,24 @@ mod tests {
         assert!(verify_stripe(secret, &header, body, 1_700_001_000).is_err());
         assert!(verify_stripe("whsec_other", &header, body, 1_700_000_100).is_err());
         assert!(verify_stripe(secret, &header, b"{}", 1_700_000_100).is_err());
+    }
+
+    #[test]
+    fn voices() {
+        assert_eq!(VOICES.len(), 28);
+        assert_eq!(voice("bm_george").map(|v| (v.accent, v.gender)), Some(("uk", "m")));
+        let mut s = TipSettings::default();
+        assert_eq!(s.voice_for("bm_george"), "bm_george");
+        assert_eq!(s.voice_for("nope"), "af_heart");
+        s.tts_voices = vec!["am_puck".into(), "af_heart".into(), "am_puck".into()];
+        let s = s.validate().unwrap();
+        assert_eq!(s.tts_voices, ["af_heart", "am_puck"]);
+        assert_eq!(s.voice_for("bm_george"), "af_heart");
+        assert_eq!(s.voice_for("am_puck"), "am_puck");
+        let bad = TipSettings { tts_voices: vec!["am_puck".into()], ..TipSettings::default() };
+        assert!(bad.validate().is_err());
+        let bad = TipSettings { tts_voice: "x".into(), ..TipSettings::default() };
+        assert!(bad.validate().is_err());
     }
 
     #[test]

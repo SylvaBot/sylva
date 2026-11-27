@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api, mediaUrl, type PublicTipPage } from './api';
 import { Link } from './router';
 import { Avatar, errorText, Icon, SkelRows } from './ui';
+import { VoiceGrid } from './voices';
 
 
 export function money(amount: number, currency: string) {
@@ -58,6 +59,7 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
   const [amountText, setAmountText] = useState('');
   const [name, setName] = useState('');
   const [message, setMessage] = useState('');
+  const [voice, setVoice] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [custom, setCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +75,7 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
       .then((p) => {
         setPage(p);
         setCurrency(p.currency);
+        if (p.speech) setVoice(p.speech.voice);
         const c = p.currencies.find((x) => x.code === p.currency);
         if (c?.suggested.length) setAmountText(String(c.suggested[Math.min(1, c.suggested.length - 1)]));
         document.title = `Tip ${p.name || login} · Sylva`;
@@ -180,7 +183,7 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
         params: { return_url: back },
       });
       if (e) { setError(e.message); return; }
-      const res = await api.sendTip(login, { amount, currency, name, message, agreed, confirmationToken: confirmationToken.id });
+      const res = await api.sendTip(login, { amount, currency, name, message, voice: voice || undefined, agreed, confirmationToken: confirmationToken.id });
       // Bank pages come back to this page with the tip's id.
       history.replaceState(null, '', `${location.pathname}?tip=${res.id}`);
       if (res.status === 'requires_action' && res.clientSecret) {
@@ -308,6 +311,16 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
                     <span className="tip-count" aria-hidden="true">{left}</span>
                   </span>
                 </label>
+
+                {page.speech && page.speech.voices.length > 0 && (
+                  <div className="tip-field">
+                    <span className="tip-label-row">
+                      <span className="tip-label">Voice</span>
+                      <span className="tip-voice-hint">Reads your message on stream{page.speech.min > 0 ? ` from ${money(page.speech.min, page.baseCurrency)}` : ''}</span>
+                    </span>
+                    <VoiceGrid voices={page.speech.voices} mode="pick" value={voice ? [voice] : []} onChange={(v) => setVoice(v[0])} label="Voice" />
+                  </div>
+                )}
 
                 <div className="tip-pay" ref={mount} />
                 {!ready && !error && <SkelRows n={2} tile={false} />}

@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use worker::*;
 
-use crate::channel::ChannelDo;
+use crate::channel::{ChannelDo, REAL_EVENTS};
 use crate::streams::Recap;
 use crate::twitch_api::App;
 
@@ -135,8 +135,8 @@ impl ChannelDo {
         Ok(self
             .sql
             .exec(
-                "SELECT 0 AS d, COUNT(DISTINCT json_extract(body, '$.actor.id')) AS n
-                 FROM events WHERE kind = 'chat' AND received_at >= ? AND received_at < ?",
+                &format!("SELECT 0 AS d, COUNT(DISTINCT json_extract(body, '$.actor.id')) AS n
+                 FROM {REAL_EVENTS} WHERE kind = 'chat' AND received_at >= ? AND received_at < ?"),
                 vec![(from as f64).into(), (to as f64).into()],
             )?
             .to_array::<CountRow>()?
@@ -160,11 +160,11 @@ impl ChannelDo {
         let rows: Vec<KindRow> = self
             .sql
             .exec(
-                "SELECT CAST((received_at - ?1) / 86400000 AS INTEGER) AS d,
+                &format!("SELECT CAST((received_at - ?1) / 86400000 AS INTEGER) AS d,
                         kind, COUNT(*) AS n, COALESCE(SUM(json_extract(body, '$.amount')), 0) AS amount
-                 FROM events WHERE received_at >= ?1 AND received_at < ?2
+                 FROM {REAL_EVENTS} WHERE received_at >= ?1 AND received_at < ?2
                    AND kind IN ('follow', 'subscriber', 'communityGift', 'cheer', 'raid', 'tip', 'redemption', 'chat')
-                 GROUP BY d, kind",
+                 GROUP BY d, kind"),
                 vec![(prev as f64).into(), (to as f64).into()],
             )?
             .to_array()?;
@@ -194,10 +194,10 @@ impl ChannelDo {
         let chatters: Vec<CountRow> = self
             .sql
             .exec(
-                "SELECT CAST((received_at - ?1) / 86400000 AS INTEGER) AS d,
+                &format!("SELECT CAST((received_at - ?1) / 86400000 AS INTEGER) AS d,
                         COUNT(DISTINCT json_extract(body, '$.actor.id')) AS n
-                 FROM events WHERE kind = 'chat' AND received_at >= ?1 AND received_at < ?2
-                 GROUP BY d",
+                 FROM {REAL_EVENTS} WHERE kind = 'chat' AND received_at >= ?1 AND received_at < ?2
+                 GROUP BY d"),
                 vec![(prev as f64).into(), (to as f64).into()],
             )?
             .to_array()?;
@@ -231,7 +231,7 @@ impl ChannelDo {
                 .exec(
                     &format!(
                         "SELECT MAX(json_extract(body, '$.actor.displayName')) AS name, {what} AS amount
-                         FROM events WHERE kind = ? AND received_at >= ? AND received_at < ?
+                         FROM {REAL_EVENTS} WHERE kind = ? AND received_at >= ? AND received_at < ?
                            AND json_extract(body, '$.actor.id') IS NOT NULL
                          GROUP BY json_extract(body, '$.actor.id') ORDER BY amount DESC LIMIT {limit}"
                     ),
@@ -254,12 +254,12 @@ impl ChannelDo {
         let commands: Vec<Ranked> = self
             .sql
             .exec(
-                "SELECT lower(CASE WHEN instr(m, ' ') > 0 THEN substr(m, 1, instr(m, ' ') - 1) ELSE m END) AS name,
+                &format!("SELECT lower(CASE WHEN instr(m, ' ') > 0 THEN substr(m, 1, instr(m, ' ') - 1) ELSE m END) AS name,
                         COUNT(*) AS amount
-                 FROM (SELECT ltrim(json_extract(body, '$.message')) AS m FROM events
+                 FROM (SELECT ltrim(json_extract(body, '$.message')) AS m FROM {REAL_EVENTS}
                        WHERE kind = 'chat' AND received_at >= ? AND received_at < ?)
                  WHERE m LIKE '!_%'
-                 GROUP BY name ORDER BY amount DESC LIMIT 12",
+                 GROUP BY name ORDER BY amount DESC LIMIT 12"),
                 range(),
             )?
             .to_array::<NameRow>()?
@@ -276,10 +276,10 @@ impl ChannelDo {
         let cells: Vec<CellRow> = self
             .sql
             .exec(
-                "SELECT (CAST((received_at - ?1) / 86400000 AS INTEGER) + 4) % 7 AS w,
+                &format!("SELECT (CAST((received_at - ?1) / 86400000 AS INTEGER) + 4) % 7 AS w,
                         CAST((received_at - ?1) / 3600000 AS INTEGER) % 24 AS h, COUNT(*) AS n
-                 FROM events WHERE kind = 'chat' AND received_at >= ?2 AND received_at < ?3
-                 GROUP BY w, h",
+                 FROM {REAL_EVENTS} WHERE kind = 'chat' AND received_at >= ?2 AND received_at < ?3
+                 GROUP BY w, h"),
                 vec![
                     (tz_ms as f64).into(),
                     (from as f64).into(),
@@ -299,10 +299,10 @@ impl ChannelDo {
         let firsts: Vec<FirstRow> = self
             .sql
             .exec(
-                "SELECT COALESCE(SUM(first >= ?1), 0) AS now, COALESCE(SUM(first >= ?2 AND first < ?1), 0) AS before
-                 FROM (SELECT MIN(received_at) AS first FROM events WHERE kind = 'chat'
+                &format!("SELECT COALESCE(SUM(first >= ?1), 0) AS now, COALESCE(SUM(first >= ?2 AND first < ?1), 0) AS before
+                 FROM (SELECT MIN(received_at) AS first FROM {REAL_EVENTS} WHERE kind = 'chat'
                        AND json_extract(body, '$.actor.id') IS NOT NULL
-                       GROUP BY json_extract(body, '$.actor.id'))",
+                       GROUP BY json_extract(body, '$.actor.id'))"),
                 vec![(from as f64).into(), (prev as f64).into()],
             )?
             .to_array()?;

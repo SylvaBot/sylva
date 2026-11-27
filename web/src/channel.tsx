@@ -144,7 +144,8 @@ function OpenChannel({ me, open, switchTo, onSignedOut, children }: {
               if (e.platform === 'sylva') arrived.current.set(e.seq, Date.now());
               setEvents((list) => (list.some((x) => x.seq === e.seq) ? list : [e, ...list]));
             }
-            setSummary((s) => s && {
+            // Test alerts show in the feed but never count toward totals.
+            if (e.platform !== 'sylva') setSummary((s) => s && {
               ...s,
               counts: { ...s.counts, [e.kind]: (s.counts[e.kind] || 0) + 1 },
               bits: s.bits + (e.kind === 'cheer' ? e.amount || 0 : 0),

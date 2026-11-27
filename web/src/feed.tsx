@@ -221,7 +221,8 @@ export function lastDay(events: SylvaEvent[]): { counts: Record<string, number>;
   let total = 0;
   const now = Date.now();
   for (const e of events) {
-    if (now - Date.parse(e.createdAt) >= DAY) continue;
+    // Test alerts never count toward real numbers.
+    if (e.platform === 'sylva' || now - Date.parse(e.createdAt) >= DAY) continue;
     counts[groupOf(e.kind).id]++;
     total++;
   }

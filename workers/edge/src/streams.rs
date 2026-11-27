@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use worker::*;
 
-use crate::channel::ChannelDo;
+use crate::channel::{ChannelDo, REAL_EVENTS};
 
 /// Summaries kept, newest first.
 const KEEP: i64 = 1000;
@@ -86,8 +86,8 @@ impl ChannelDo {
         let rows: Vec<KindRow> = self
             .sql
             .exec(
-                "SELECT kind, COUNT(*) AS n, COALESCE(SUM(json_extract(body, '$.amount')), 0) AS amount
-                 FROM events WHERE received_at >= ? AND received_at <= ? GROUP BY kind",
+                &format!("SELECT kind, COUNT(*) AS n, COALESCE(SUM(json_extract(body, '$.amount')), 0) AS amount
+                 FROM {REAL_EVENTS} WHERE received_at >= ? AND received_at <= ? GROUP BY kind"),
                 range(),
             )?
             .to_array()?;
@@ -116,8 +116,8 @@ impl ChannelDo {
         r.chatters = self
             .sql
             .exec(
-                "SELECT COUNT(DISTINCT json_extract(body, '$.actor.id')) AS n FROM events
-                 WHERE kind = 'chat' AND received_at >= ? AND received_at <= ?",
+                &format!("SELECT COUNT(DISTINCT json_extract(body, '$.actor.id')) AS n FROM {REAL_EVENTS}
+                 WHERE kind = 'chat' AND received_at >= ? AND received_at <= ?"),
                 range(),
             )?
             .to_array::<CountRow>()?
@@ -134,7 +134,7 @@ impl ChannelDo {
                 .exec(
                     &format!(
                         "SELECT json_extract(body, '$.actor.displayName') AS name, {what} AS amount
-                         FROM events WHERE kind = ? AND received_at >= ? AND received_at <= ?
+                         FROM {REAL_EVENTS} WHERE kind = ? AND received_at >= ? AND received_at <= ?
                            AND json_extract(body, '$.actor.id') IS NOT NULL
                          GROUP BY json_extract(body, '$.actor.id') ORDER BY amount DESC LIMIT 1"
                     ),
@@ -185,6 +185,38 @@ impl ChannelDo {
                (SELECT started_at FROM stream_recaps ORDER BY started_at DESC LIMIT ?)",
             vec![(KEEP as f64).into()],
         )?;
+        Ok(())
+    }
+
+    /// Works out again every stream summary Sylva saved itself, from the log
+    /// as it is now. Imported StreamElements streams are left alone, and so
+    /// are viewer numbers whose samples are gone.
+    pub(crate) fn redo_recaps(&self) -> Result<()> {
+        let saved: Vec<Recap> = self
+            .sql
+            .exec("SELECT body FROM stream_recaps", None)?
+            .to_array::<BodyRow>()?
+            .into_iter()
+            .filter_map(|b| serde_json::from_str(&b.body).ok())
+            .collect();
+        for old in saved {
+            if old.source.is_some() {
+                continue;
+            }
+            let Some(ended_at) = old.ended_at else {
+                continue;
+            };
+            let mut r = self.recap(old.started_at, Some(ended_at))?;
+            r.peak_viewers = r.peak_viewers.or(old.peak_viewers);
+            r.avg_viewers = r.avg_viewers.or(old.avg_viewers);
+            self.sql.exec(
+                "UPDATE stream_recaps SET body = ? WHERE started_at = ?",
+                vec![
+                    serde_json::to_string(&r)?.into(),
+                    old.started_at.into(),
+                ],
+            )?;
+        }
         Ok(())
     }
 

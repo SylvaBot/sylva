@@ -41,6 +41,15 @@ pub const TEST_EVENT_TTL_MS: i64 = 30_000;
 const NOT_OLD_TEST: &str =
     "AND NOT (event_id LIKE 'sylva:test:%' AND received_at < ?)";
 
+/// Every stored event except the "Try it" tests, for use as `FROM {REAL_EVENTS}`.
+/// Stats, stream summaries, goals and top labels read from this, so a test
+/// alert never counts toward a real number.
+pub(crate) const REAL_EVENTS: &str =
+    "(SELECT * FROM events WHERE event_id NOT LIKE 'sylva:test:%') AS events";
+
+/// Test events this old leave the log for good, unless an alert still needs them.
+const TEST_EVENT_KEEP_MS: i64 = 10 * 60_000;
+
 fn test_cutoff() -> i64 {
     Date::now().as_millis() as i64 - TEST_EVENT_TTL_MS
 }
@@ -373,6 +382,8 @@ pub struct ChannelDo {
     head: Cell<u64>,
     /// The alert settings, read once and kept while the object is awake.
     alert_settings: RefCell<Option<AlertSettings>>,
+    /// Whether old test events were cleared since the object woke.
+    tests_cleared: Cell<bool>,
 }
 
 impl DurableObject for ChannelDo {
@@ -395,6 +406,7 @@ impl DurableObject for ChannelDo {
             sql,
             head: Cell::new(head),
             alert_settings: RefCell::new(None),
+            tests_cleared: Cell::new(false),
             env,
             bot: RefCell::new(None),
             tokens: RefCell::new(std::collections::HashMap::new()),
@@ -417,6 +429,11 @@ impl DurableObject for ChannelDo {
                 | ["public", "commands"]
                 | ["public", "media", _]
         );
+        if !self.tests_cleared.replace(true) {
+            if let Err(e) = self.clear_tests() {
+                console_error!("Old test events could not be cleared: {e}");
+            }
+        }
         let access = self.access(&req)?;
         if let Some(k) = req.headers().get(CHANNEL_HEADER)? {
             self.remember_key(&k)?;
@@ -1335,10 +1352,10 @@ impl ChannelDo {
         let rows = self
             .sql
             .exec(
-                "SELECT kind, COUNT(*) AS n,
+                &format!("SELECT kind, COUNT(*) AS n,
                         COALESCE(SUM(CASE WHEN kind = 'cheer'
                                      THEN json_extract(body, '$.amount') END), 0) AS amount
-                 FROM events WHERE received_at >= ? GROUP BY kind",
+                 FROM {REAL_EVENTS} WHERE received_at >= ? GROUP BY kind"),
                 vec![since.into()],
             )?
             .to_array::<SummaryRow>()?;
@@ -1533,12 +1550,12 @@ impl ChannelDo {
             let rows = self
                 .sql
                 .exec(
-                    "SELECT json_extract(body, '$.actor.displayName') AS name,
+                    &format!("SELECT json_extract(body, '$.actor.displayName') AS name,
                             SUM(COALESCE(json_extract(body, '$.amount'), 0)) AS amount
-                     FROM events
+                     FROM {REAL_EVENTS}
                      WHERE kind = ? AND received_at >= ? AND json_extract(body, '$.actor') IS NOT NULL
                      GROUP BY json_extract(body, '$.actor.login')
-                     ORDER BY amount DESC, MIN(seq) ASC LIMIT 1",
+                     ORDER BY amount DESC, MIN(seq) ASC LIMIT 1"),
                     vec![kind.into(), since.into()],
                 )?
                 .to_array::<TopRow>()?;
@@ -1696,6 +1713,31 @@ impl ChannelDo {
             .unwrap_or_default();
         self.alert_settings.replace(Some(settings.clone()));
         Ok(settings)
+    }
+
+    /// Removes test events from the log once they have left the activity
+    /// feed and no queued or playing alert still needs them. The newest event
+    /// always stays so a sequence number is never handed out twice. Once per
+    /// channel, stream summaries saved while tests still counted are redone.
+    fn clear_tests(&self) -> Result<()> {
+        let cutoff = Date::now().as_millis() as i64 - TEST_EVENT_KEEP_MS;
+        let head = self.head.get() as i64;
+        let old = "SELECT seq FROM events
+                   WHERE event_id LIKE 'sylva:test:%' AND received_at < ? AND seq < ?
+                     AND seq NOT IN (SELECT event_seq FROM alerts WHERE status IN ('queued', 'playing'))";
+        self.sql.exec(
+            &format!("DELETE FROM alerts WHERE event_seq IN ({old})"),
+            vec![cutoff.into(), head.into()],
+        )?;
+        self.sql.exec(
+            &format!("DELETE FROM events WHERE seq IN ({old})"),
+            vec![cutoff.into(), head.into()],
+        )?;
+        if !self.setting("recaps_without_tests")? {
+            self.redo_recaps()?;
+            self.set_setting("recaps_without_tests", true)?;
+        }
+        Ok(())
     }
 
     fn setting(&self, key: &str) -> Result<bool> {

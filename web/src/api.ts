@@ -39,18 +39,18 @@ export interface Tip {
   method?: string; status: 'held' | 'shown' | 'rejected' | 'refunded' | 'disputed' | 'failed';
   verified: boolean; risk?: string; holdReason?: string; needsApproval: boolean; releaseAt?: number;
   createdAt: number; paidAt?: number; shownAt?: number; country?: string; cardCountry?: string;
-  clip?: string; disputeStatus?: string; evidenceSent: boolean; blocked: boolean; note?: string;
+  clip?: string; disputeStatus?: string; evidenceSent: boolean; blocked: boolean; note?: string; test?: boolean;
 }
-export interface StripeAccount { id: string; country: string; chargesEnabled: boolean; detailsSubmitted: boolean; due: number; domain: string; stripeStatus?: string; reasons?: string[] }
+export interface StripeAccount { id: string; country: string; chargesEnabled: boolean; detailsSubmitted: boolean; due: number; domain: string; stripeStatus?: string; reasons?: string[]; needs?: string[] }
 export interface TipsView {
-  platformReady: boolean; account: StripeAccount | null; settings: TipSettings; tips: Tip[];
+  platformReady: boolean; testMode?: boolean; account: StripeAccount | null; settings: TipSettings; tips: Tip[];
   pageUrl: string | null; currencies: string[]; countries: string[]; ttsLangs: string[];
 }
 export interface TipCurrency { code: string; decimals: number; min: number; max: number; firstMax: number; suggested: number[] }
 export interface PublicTipPage {
   open: boolean; account: string | null; currency: string; baseCurrency: string; currencies: TipCurrency[];
   excluded: string[]; order: string[]; messageMax: number; nameMax: number; note: string;
-  login: string; name: string; avatar: string; publishableKey?: string;
+  login: string; name: string; avatar: string; publishableKey?: string; testMode?: boolean;
 }
 
 export interface AlertState {

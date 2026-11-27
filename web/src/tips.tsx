@@ -129,7 +129,10 @@ export function TipsPage() {
 
   return (
     <div className="page">
-      <PageHead title="Tips" desc="Viewers tip you on your own page with cards, wallets and local payment methods from around the world. Money goes straight to your Stripe account." />
+      <PageHead title="Tips" desc="Viewers tip you on your own page with cards, wallets and local payment methods from around the world. Money goes straight to your Stripe account.">
+        {view?.testMode && <span className="pill test-mode" style={{ ['--g' as string]: 'var(--warn, #d97706)' }}>Test mode</span>}
+      </PageHead>
+      {view?.testMode && <div className="notice"><span>Test mode. Sylva is using Stripe test keys, so tips use test cards, no real money moves, and tips stay out of your stats.</span></div>}
       {failed && !view && <Card><div className="card-body"><p className="card-text">Could not load tips. Refresh to try again.</p></div></Card>}
       {!view && !failed && <SkelCard rows={4} />}
       {view && draft && (
@@ -157,6 +160,7 @@ export function TipsPage() {
                 <div className="notice">
                   <span>{acct.detailsSubmitted ? 'Stripe is checking your details. Tips open as soon as it is done.' : 'Finish your Stripe setup to start taking tips.'}
                     {acct.stripeStatus && <span className="field-hint"> Stripe says card payments are {acct.stripeStatus}{acct.reasons?.length ? ` (${acct.reasons.join(', ').replace(/_/g, ' ')})` : ''}.</span>}
+                    {acct.needs && acct.needs.length > 0 && <span className="field-hint"> Still needed: {acct.needs.join(', ').replace(/_/g, ' ')}.</span>}
                   </span>
                   {ch.can.own && <button className="btn primary sm" type="button" disabled={busy} onClick={() => void connect()}>{acct.detailsSubmitted ? 'Check with Stripe' : 'Finish setup'}</button>}
                 </div>
@@ -314,6 +318,7 @@ function TipRow({ t, canMod, canEdit, act }: { t: Tip; canMod: boolean; canEdit:
           <span className="tips-amount">{money(t.amount, t.currency)}</span>
           <span className="pill" style={{ ['--g' as string]: color }}>{label}</span>
           {t.blocked && <span className="pill" style={{ ['--g' as string]: 'var(--danger)' }}>Blocked</span>}
+          {t.test && <span className="pill" style={{ ['--g' as string]: 'var(--warn, #d97706)' }}>Test</span>}
         </div>
         {t.message && <p className="tips-msg">{t.message}</p>}
         <p className="field-hint">{facts.join(' · ')}</p>
@@ -523,6 +528,7 @@ export function PublicTipPage({ login, signedIn }: { login: string; signedIn: bo
             <h1>Tip {page.name}</h1>
           </div>
         </div>
+        {page.testMode && <div className="notice"><span>Test mode. This page takes Stripe test cards only, and no real money moves.</span></div>}
         {page.note && <p className="prose-lede">{page.note}</p>}
 
         {done === 'paid' ? (

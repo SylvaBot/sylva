@@ -175,7 +175,7 @@ export function describe(e: SylvaEvent): { title: ReactNode; pills: string[]; me
           title = e.actor ? <><b>{name}</b> {humanType(e.rawType).toLowerCase()}</> : <b>{humanType(e.rawType)}</b>;
       }
   }
-  if (e.platform === 'sylva') pills.push('Test');
+  if (e.platform === 'sylva' || e.id.startsWith('sylva:test:')) pills.push('Test');
   return { title, pills, message };
 }
 

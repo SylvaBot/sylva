@@ -73,73 +73,16 @@ CREATE TABLE IF NOT EXISTS tts (
     audio      TEXT NOT NULL,
     ms         INTEGER NOT NULL,
     created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tip_voice (
+    id         TEXT PRIMARY KEY,
+    voice      TEXT NOT NULL,
+    created_at INTEGER NOT NULL
 )";
 
-/// Reads tips while no Amazon Polly keys are set.
+/// The stand-in voice for tips, made on the server.
 const TTS_FALLBACK: &str = "@cf/deepgram/aura-2-en";
 
-/// Amazon Polly keys: an access key id and its secret, from Worker secrets.
-fn polly_keys(env: &Env) -> Option<(String, String)> {
-    let get = |k: &str| env.secret(k).ok().map(|v| v.to_string()).filter(|v| !v.is_empty());
-    Some((get("AWS_ACCESS_KEY_ID")?, get("AWS_SECRET_ACCESS_KEY")?))
-}
-
-/// `text` read by Amazon Polly's Brian, as MP3.
-async fn polly(env: &Env, text: &str) -> Result<Vec<u8>> {
-    let (access, secret) = polly_keys(env).ok_or_else(|| Error::RustError("no Polly keys".into()))?;
-    let region = env
-        .var("AWS_REGION")
-        .map(|v| v.to_string())
-        .ok()
-        .filter(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
-        .unwrap_or_else(|| "us-east-2".into());
-    let host = format!("polly.{region}.amazonaws.com");
-    let body = json!({
-        "Engine": "standard",
-        "OutputFormat": "mp3",
-        "SampleRate": "22050",
-        "Text": text,
-        "TextType": "text",
-        "VoiceId": sylva_core::speech::POLLY_VOICE,
-    })
-    .to_string();
-    let date = sylva_core::speech::amz_date(&String::from(js_sys::Date::new_0().to_iso_string()));
-    let auth = sylva_core::speech::aws_authorization(
-        &sylva_core::speech::AwsRequest {
-            method: "POST",
-            host: &host,
-            path: "/v1/speech",
-            query: "",
-            headers: &[("content-type", "application/json")],
-            body: body.as_bytes(),
-            region: &region,
-            service: "polly",
-            date: &date,
-        },
-        &access,
-        &secret,
-    );
-    let headers = Headers::new();
-    headers.set("Content-Type", "application/json")?;
-    headers.set("X-Amz-Date", &date)?;
-    headers.set("Authorization", &auth)?;
-    let mut init = RequestInit::new();
-    init.with_method(Method::Post)
-        .with_headers(headers)
-        .with_body(Some(body.into()));
-    let mut res = Fetch::Request(Request::new_with_init(&format!("https://{host}/v1/speech"), &init)?)
-        .send()
-        .await?;
-    if res.status_code() != 200 {
-        let why = res.text().await.unwrap_or_default();
-        return Err(Error::RustError(format!(
-            "Polly said {}: {}",
-            res.status_code(),
-            why.chars().take(300).collect::<String>()
-        )));
-    }
-    res.bytes().await
-}
 
 fn now() -> i64 {
     Date::now().as_millis() as i64
@@ -558,6 +501,9 @@ struct NewTip {
     #[serde(default)]
     agreed: bool,
     confirmation_token: String,
+    /// The Kokoro voice the tipper picked.
+    #[serde(default)]
+    voice: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -724,7 +670,6 @@ impl ChannelDo {
                     "decimals": c.decimals,
                     "min": pick(s.min, true),
                     "max": (if exact { s.max } else { rules::nice(conv(s.max), c, false).min(conv(s.max)) }).min(rules::stripe_max(c)),
-                    "firstMax": (if exact { s.first_max } else { rules::nice(conv(s.first_max), c, false).min(conv(s.first_max)) }).min(rules::stripe_max(c)),
                     "suggested": s.suggested.iter().map(|x| pick(*x, false)).collect::<Vec<_>>(),
                 })
             })
@@ -788,6 +733,16 @@ impl ChannelDo {
             "messageMax": rules::MESSAGE_MAX,
             "nameMax": rules::NAME_MAX,
             "note": s.note,
+            // Tippers pick the voice that reads their message.
+            "speech": if s.tts {
+                json!({
+                    "min": s.tts_min,
+                    "voice": s.voice_for(""),
+                    "voices": s.voices(),
+                })
+            } else {
+                Value::Null
+            },
             "look": {
                 "avatar": s.avatar,
                 "banner": s.banner,
@@ -947,6 +902,10 @@ impl ChannelDo {
             "DELETE FROM tips WHERE status IN ('pending', 'failed') AND created_at < ?",
             vec![((now - 3 * 86_400_000) as f64).into()],
         )?;
+        self.sql.exec(
+            "DELETE FROM tip_voice WHERE created_at < ?",
+            vec![((now - 30 * 86_400_000) as f64).into()],
+        )?;
         let id = if test_mode(&self.env) {
             format!("tip_test_{}", random_hex(12)?)
         } else {
@@ -975,6 +934,14 @@ impl ChannelDo {
                 (now as f64).into(),
             ],
         )?;
+        self.sql.exec(
+            "INSERT OR REPLACE INTO tip_voice (id, voice, created_at) VALUES (?, ?, ?)",
+            vec![id.as_str().into(), s.voice_for(&t.voice).into(), (now as f64).into()],
+        )?;
+        // Wake Kokoro while the tipper pays, so the message is read right away.
+        if s.tts {
+            crate::kokoro::warm(&self.env);
+        }
 
         let channel = self.channel_name()?;
         let mut form = Form::new()
@@ -1295,6 +1262,13 @@ impl ChannelDo {
                 if release_at.is_some() {
                     self.schedule().await?;
                 }
+                // Read the message now, so the alert is ready the moment
+                // the tip is let through.
+                if let Some(t) = self.tip(&t.id)? {
+                    if let Some(text) = self.spoken(&s, &t) {
+                        self.make_speech(&t, &text).await;
+                    }
+                }
             }
             None => {
                 if let Some(t) = self.tip(&t.id)? {
@@ -1316,15 +1290,10 @@ impl ChannelDo {
             "status = 'shown', released_at = ?, release_at = NULL",
             vec![(now as f64).into()],
         )?;
-        let amount = t.paid_amount();
-        if s.tts && t.base + 0.005 >= s.tts_min {
-            let text = rules::speech(
-                &t.name,
-                &rules::spoken_amount(amount, &t.currency),
-                &t.message,
-            );
-            if let Err(e) = self.make_speech(&t.id, &text).await {
-                console_error!("Text to speech for {} failed: {e}", t.id);
+        // Usually made already, when the payment went through.
+        if let Some(text) = self.spoken(&s, t) {
+            if !self.has_speech(&t.id) {
+                self.make_speech(t, &text).await;
             }
         }
         let login: String = t
@@ -1359,7 +1328,7 @@ impl ChannelDo {
                 login,
                 display_name: t.name.clone(),
             }),
-            amount: Some(amount),
+            amount: Some(t.paid_amount()),
             currency: Some(t.currency.clone()),
             message: Some(t.message.clone()).filter(|m| !m.is_empty()),
             tier: None,
@@ -1407,36 +1376,76 @@ impl ChannelDo {
             .map(|id| format!("https://clips.twitch.tv/{id}"))
     }
 
-    async fn make_speech(&self, id: &str, text: &str) -> Result<()> {
-        let brian = match polly_keys(&self.env) {
-            Some(_) => match polly(&self.env, text).await {
-                Ok(audio) => Some(audio),
-                Err(e) => {
-                    console_error!("Brian could not read {id}, using the stand-in voice: {e}");
-                    None
-                }
-            },
-            None => None,
-        };
-        let audio = match brian {
-            Some(audio) => audio,
-            None => {
-                // Without working Amazon keys, a Workers AI voice reads it.
-                let stream = self
-                    .env
-                    .ai("AI")?
-                    .run_bytes(TTS_FALLBACK, json!({ "text": text, "speaker": "draco" }))
-                    .await?;
-                Response::from_stream(stream)?.bytes().await?
+    /// Read a tip's message aloud and keep the audio for its alert: Kokoro
+    /// in the voice the tipper picked, or the stand-in voice when Kokoro is
+    /// not set up or does not answer in time.
+    async fn make_speech(&self, t: &TipRow, text: &str) {
+        let voice = self.tip_voice(&t.id);
+        let kokoro = match crate::kokoro::speak(&self.env, text, &voice).await {
+            Ok(a) => a.filter(|a| !a.is_empty()),
+            Err(e) => {
+                console_error!("Kokoro could not read {}, using the stand-in voice: {e}", t.id);
+                None
             }
         };
+        let audio = match kokoro {
+            Some(a) => a,
+            None => match self.stand_in(text).await {
+                Ok(a) => a,
+                Err(e) => {
+                    console_error!("Text to speech for {} failed: {e}", t.id);
+                    return;
+                }
+            },
+        };
+        if let Err(e) = self.keep_speech(&t.id, text, &audio) {
+            console_error!("Could not keep the speech for {}: {e}", t.id);
+        }
+    }
+
+    /// What is read aloud for a tip, when it is read at all.
+    fn spoken(&self, s: &TipSettings, t: &TipRow) -> Option<String> {
+        (s.tts && t.base + 0.005 >= s.tts_min).then(|| {
+            rules::speech(&t.name, &rules::spoken_amount(t.paid_amount(), &t.currency), &t.message)
+        })
+    }
+
+    fn tip_voice(&self, id: &str) -> String {
+        #[derive(Deserialize)]
+        struct Row {
+            voice: String,
+        }
+        let picked = self
+            .sql
+            .exec("SELECT voice FROM tip_voice WHERE id = ?", vec![id.into()])
+            .and_then(|c| c.to_array::<Row>())
+            .ok()
+            .and_then(|r| r.into_iter().next())
+            .map(|r| r.voice)
+            .unwrap_or_default();
+        self.tip_settings()
+            .map(|s| s.voice_for(&picked).to_string())
+            .unwrap_or_else(|_| rules::VOICES[0].id.to_string())
+    }
+
+    async fn stand_in(&self, text: &str) -> Result<Vec<u8>> {
+        let stream = self
+            .env
+            .ai("AI")?
+            .run_bytes(TTS_FALLBACK, json!({ "text": text, "speaker": "draco" }))
+            .await?;
+        let audio = Response::from_stream(stream)?.bytes().await?;
         if audio.is_empty() {
             return Err(Error::RustError("no audio".into()));
         }
+        Ok(audio)
+    }
+
+    fn keep_speech(&self, id: &str, text: &str, audio: &[u8]) -> Result<()> {
         let ms = sylva_core::speech::mp3_ms(&audio)
             .unwrap_or(text.chars().count() as u32 * 65 + 800)
             .min(60_000) as i64;
-        let audio = sylva_core::media::b64_encode(&audio);
+        let audio = sylva_core::media::b64_encode(audio);
         let now = now();
         self.sql.exec(
             "DELETE FROM tts WHERE created_at < ?",
@@ -1471,6 +1480,13 @@ impl ChannelDo {
             .ok()?;
         let ms = rows.first()?.value?;
         Some((id.to_string(), ms as u32))
+    }
+
+    fn has_speech(&self, id: &str) -> bool {
+        self.sql
+            .exec("SELECT ms AS value FROM tts WHERE id = ?", vec![id.into()])
+            .and_then(|c| c.to_array::<NumRow>())
+            .is_ok_and(|r| !r.is_empty())
     }
 
     pub(crate) fn tts_file(&self, id: &str) -> Result<Response> {
@@ -1823,7 +1839,7 @@ impl ChannelDo {
             "pageUrl": if login.is_empty() { Value::Null } else { json!(format!("{origin}/tip/{login}")) },
             "currencies": rules::CURRENCIES.iter().map(|c| c.code).collect::<Vec<_>>(),
             "countries": rules::STRIPE_COUNTRIES,
-            "ttsBrian": polly_keys(&self.env).is_some(),
+            "voices": rules::VOICES,
         }))
     }
 

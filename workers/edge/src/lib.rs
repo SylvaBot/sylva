@@ -46,6 +46,7 @@ mod games;
 mod giveaway;
 mod grants;
 mod import;
+mod kokoro;
 mod loyalty;
 mod media;
 mod moderation;
@@ -63,6 +64,7 @@ mod web;
 
 pub use account::{AccountDo, DirectoryDo};
 pub use channel::ChannelDo;
+pub use kokoro::KokoroDo;
 use channel::{ACCESS_HEADER, CHANNEL_HEADER, TOKEN_HEADER};
 use serde_json::json;
 use sylva_core::team::{self as roles, Role};

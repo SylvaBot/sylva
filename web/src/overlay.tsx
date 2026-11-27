@@ -10,7 +10,7 @@ import { useWidth } from './charts';
 import { CodeDialog, CustomFrame, FieldInput, parseFields, STARTER, testEvent, type Field, type Send } from './customWidget';
 import { Card, PageHead, remember } from './pages';
 import { Link } from './router';
-import { errorText, Icon, num, useToast } from './ui';
+import { errorText, Icon, num, Skel, useToast } from './ui';
 import { PILL_ALERTS, TWITCH_CHAT } from './widgets';
 
 const BUILTIN: Record<'alerts' | 'chat', CustomCode> = { alerts: PILL_ALERTS, chat: TWITCH_CHAT };
@@ -157,7 +157,7 @@ function Overlays() {
     <div className="page">
       <PageHead
         title="Overlays"
-        desc={<>Each overlay is one element. Add it to OBS as a Browser Source, then size and place it there.{connected > 0 && <> Alerts are on screen in {num(connected)} {connected === 1 ? 'place' : 'places'} now.</>}</>}
+        desc={<>Each overlay is one link. Add it to OBS as a browser source, then size and place it there.{connected > 0 && <> Alerts are on screen in {num(connected)} {connected === 1 ? 'place' : 'places'} now.</>}</>}
       >
         {ch.can.own && (
           <button className={'btn' + (armed ? ' armed' : '')} type="button" disabled={!url} onClick={replace} title="Make new links and stop the old ones">
@@ -178,31 +178,71 @@ function Overlays() {
         </div>
       </PageHead>
 
-      {!list && <div className="overlay-grid">{[0, 1].map((i) => <div key={i} className="card overlay-card"><div className="chart-skeleton overlay-thumb" /></div>)}</div>}
+      {!list && <div className="overlay-grid">{[0, 1, 2].map((i) => <div key={i} className="grp overlay-card"><div className="checker overlay-thumb" /><div className="overlay-meta"><Skel w={90} h={16} /><Skel w={160} h={12} /></div><div className="overlay-actions"><Skel w="100%" h={30} round /></div></div>)}</div>}
       {list && (
         <div className="overlay-grid">
           {list.map((o) => (
-            <article key={o.id} className="card overlay-card">
-              <button className="overlay-thumb" type="button" onClick={() => setOpen(o.id)} aria-label={`Edit ${o.name}`}>
+            <article key={o.id} className="grp overlay-card">
+              <button className="checker overlay-thumb" type="button" onClick={() => setOpen(o.id)} aria-label={`Edit ${o.name}`}>
                 <Preview code={codeOf(o)} demo />
               </button>
               <div className="overlay-meta">
-                <div>
-                  <h2>{o.name}</h2>
-                  <p>{o.builtin ? 'Built in' : 'Your code'}{codeOf(o).alerts ? ' · plays alerts' : ''}{o.sounds.length ? ` · ${o.sounds.length} sound${o.sounds.length === 1 ? '' : 's'}` : ''}</p>
-                </div>
-                <div className="overlay-actions">
-                  <button className="btn sm" type="button" onClick={() => setOpen(o.id)}>Edit</button>
-                  <button className="btn sm primary" type="button" disabled={!url} onClick={() => copy(o)}><Icon id="copy" />Copy link</button>
-                </div>
+                <h2 className="t1">{o.name}</h2>
+                <p className="t2">
+                  {o.builtin === 'alerts' ? 'Every alert, styled in Alert style' : o.builtin === 'chat' ? 'Your chat, with emotes and badges' : codeOf(o).alerts ? 'Your own code, plays alerts' : 'Your own code'}
+                  {o.sounds.length ? `, ${o.sounds.length} sound${o.sounds.length === 1 ? '' : 's'}` : ''}
+                </p>
+              </div>
+              <div className="overlay-actions">
+                <button className="btn sm primary" type="button" disabled={!url} onClick={() => copy(o)}><Icon id="copy" />Copy OBS link</button>
+                <button className="btn sm" type="button" onClick={() => setOpen(o.id)}><Icon id="edit" />Edit</button>
+                <MoreMenu link={linkOf(o)} name={o.name} onDelete={o.builtin ? undefined : () => { update(list.filter((x) => x.id !== o.id), true); toast(`${o.name} deleted`); }} />
               </div>
             </article>
           ))}
         </div>
       )}
-      <p className="overlay-hint">
-        In OBS: <b>Sources</b>, <b>+</b>, <b>Browser</b>, paste the link, set 1920 by 1080, then drag and resize it where you want it. Anyone with a link can show it, so keep links private.
-      </p>
+      <section className="sect overlay-steps" aria-labelledby="obs-steps">
+        <div className="sect-head"><div><h2 id="obs-steps">Adding an overlay to OBS</h2></div></div>
+        <ol className="grp steps">
+          <li className="gr"><span className="mono faint">1</span><span className="t1">Copy the overlay link</span></li>
+          <li className="gr"><span className="mono faint">2</span><span className="t1">In OBS, add a Browser source and paste the link</span></li>
+          <li className="gr"><span className="mono faint">3</span><span className="t1">Set it to 1920 by 1080, then drag and resize it where you want it</span></li>
+        </ol>
+        <p className="sect-foot">Links work without signing in, so keep them private. If one leaks, use New links at the top of this page.</p>
+      </section>
+    </div>
+  );
+}
+
+/** Open an overlay in a new tab, or delete one of your own. */
+function MoreMenu({ link, name, onDelete }: { link: string | null; name: string; onDelete?(): void }) {
+  const [open, setOpen] = useState(false);
+  const [armed, setArmed] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) { setArmed(false); return; }
+    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key); };
+  }, [open]);
+  return (
+    <div className="more-wrap" ref={box}>
+      <button className="btn sm icon" type="button" aria-label={`More for ${name}`} aria-expanded={open} onClick={() => setOpen(!open)}><Icon id="dots" /></button>
+      {open && (
+        <div className="menu more-menu" role="menu">
+          <a className="menu-item" role="menuitem" href={link ? link + '&debug' : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!link} onClick={() => setOpen(false)}>
+            <Icon id="external" />Open in a new tab
+          </a>
+          {onDelete && (
+            <button className={'menu-item' + (armed ? ' danger' : '')} role="menuitem" type="button" onClick={() => { if (armed) { setOpen(false); onDelete(); } else setArmed(true); }}>
+              <Icon id="trash" />{armed ? 'Click again to delete' : 'Delete'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

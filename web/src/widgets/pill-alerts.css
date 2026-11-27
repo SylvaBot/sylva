@@ -8,6 +8,9 @@
   --muted: #A3A3A3;
   --badge-text: #000000;
   --size: 26.4px;
+  --radius: 1em;
+  --pad: 0.9em;
+  --speed: 1;
 }
 
 html, body {
@@ -68,9 +71,9 @@ html, body {
   transform: scale(0.5);
   transform-origin: calc(1.45em + 1px) 50%;
   transition:
-    width 0.6s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.3s ease;
+    width calc(0.6s * var(--speed)) cubic-bezier(0.22, 1, 0.36, 1),
+    transform calc(0.4s * var(--speed)) cubic-bezier(0.22, 1, 0.36, 1),
+    opacity calc(0.3s * var(--speed)) ease;
 }
 
 .pill.pop {
@@ -80,9 +83,9 @@ html, body {
 
 .pill.closing {
   transition:
-    width 0.45s cubic-bezier(0.65, 0, 0.35, 1),
-    transform 0.3s cubic-bezier(0.55, 0, 0.75, 0),
-    opacity 0.25s ease 0.05s;
+    width calc(0.45s * var(--speed)) cubic-bezier(0.65, 0, 0.35, 1),
+    transform calc(0.3s * var(--speed)) cubic-bezier(0.55, 0, 0.75, 0),
+    opacity calc(0.25s * var(--speed)) ease calc(0.05s * var(--speed));
 }
 
 /* The row keeps a fixed width so nothing reflows during the animation */
@@ -243,3 +246,63 @@ html, body {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ---------- Look: set in the dashboard's Alert style ---------- */
+
+/* Pill padding follows the Padding setting (18px is the original look) */
+.row { padding: 0 calc(1.3em * var(--pad-k, 1)) 0 calc(0.4em * var(--pad-k, 1)); }
+.pill.has-badge .row { padding-right: calc(0.4em * var(--pad-k, 1)); }
+
+/* No icon */
+#stage.no-icon .icon { display: none; }
+#stage.no-icon .row { padding-left: calc(1.1em * var(--pad-k, 1)); }
+
+/* How it comes in and goes out. Pop is the circle that opens into the pill. */
+#stage.in-fade .pill:not(.pop) { transform: none; }
+#stage.in-slide .pill:not(.pop) { transform: translateY(0.9em); }
+#stage.v-bottom.in-slide .pill:not(.pop) { transform: translateY(0.9em); }
+#stage.v-top.in-slide .pill:not(.pop) { transform: translateY(-0.9em); }
+#stage.out-pop .pill.closing:not(.pop) { transform: scale(0.5); }
+#stage.out-fade .pill.closing:not(.pop) { transform: none; }
+#stage.out-slide .pill.closing:not(.pop) { transform: translateY(0.9em); }
+#stage.v-top.out-slide .pill.closing:not(.pop) { transform: translateY(-0.9em); }
+
+/* Card and banner: a box with the message inside, no opening animation */
+#stage.boxed .pill {
+  width: auto !important;
+  border-radius: var(--radius);
+  transform-origin: 50% 50%;
+}
+#stage.boxed .row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "icon text badge" "icon msg msg";
+  align-items: center;
+  column-gap: 0.65em;
+  row-gap: 0.15em;
+  height: auto;
+  min-height: 2.9em;
+  padding: var(--pad);
+  white-space: normal;
+  width: auto !important;
+}
+#stage.boxed .row .icon { grid-area: icon; width: 1.9em; height: 1.9em; border-radius: calc(var(--radius) * 0.6); background: var(--accent); box-shadow: none; color: var(--badge-text); align-self: center; }
+#stage.boxed .row .text { grid-area: text; opacity: 1; transform: none; flex-wrap: wrap; row-gap: 0; }
+#stage.boxed .row .badge { grid-area: badge; display: block; opacity: 1; transform: none; margin: 0; }
+#stage.boxed .row .badge:empty { display: none; }
+#stage.boxed .row .msg {
+  grid-area: msg; margin: 0; padding: 0; width: auto; max-width: 22em; background: none; border: 0;
+  font-size: 0.72em; color: var(--muted); opacity: 1; transform: none; -webkit-line-clamp: 2;
+}
+#stage.boxed .name, #stage.boxed .target { max-width: 12em; }
+#stage.boxed .pill { opacity: 0; }
+#stage.boxed .pill.pop { opacity: 1; }
+#stage.boxed.in-pop .pill:not(.pop) { transform: scale(0.85); }
+#stage.boxed.out-pop .pill.closing:not(.pop) { transform: scale(0.85); }
+
+/* Banner: the full width of the canvas, centered */
+#stage.banner .alert, #stage.banner .pill { width: 100% !important; align-self: stretch; }
+#stage.banner .row { grid-template-columns: auto auto auto; justify-content: center; }
+#stage.banner .row .msg { max-width: none; text-align: center; }
+#stage.banner.no-icon .row { grid-template-areas: "text badge" "msg msg"; grid-template-columns: auto auto; }
+#stage.boxed.no-icon .row { grid-template-areas: "text badge" "msg msg"; grid-template-columns: minmax(0, 1fr) auto; }

@@ -1,17 +1,16 @@
 // The dashboard's Tips page (/app/tips). Tabs keep it short: incoming tips,
-// the tip page itself (a live preview you click to change pictures), safety
-// rules, text to speech and the Stripe account. Settings rows follow the
-// sidebar's look: soft panels, no hard borders, filled active states.
+// the tip page itself (a live preview you click to change pictures),
+// protection rules, text to speech and payouts. Saves as you go.
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, mediaUrl, type MediaFile, type Tip, type TipSettings, type TipsView } from './api';
 import { useChannel } from './channel';
 import { ImageEditor, type ImageKind } from './imageEditor';
 import { countryName, methodName, money } from './tips';
-import { errorText, Gate, Icon, SkelCard, useToast } from './ui';
+import { PageHead } from './pages';
+import { ArmedButton, errorText, Gate, Icon, SaveState, Seg as UiSeg, Sect, SkelCard, Switch as UiSwitch, Tile, useAutosave, useToast } from './ui';
 import { useDemo, VoiceGrid } from './voices';
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 
 const STATUS: Record<Tip['status'], [string, string]> = {
@@ -42,7 +41,9 @@ export function TipsPage() {
   const ch = useChannel();
   const toast = useToast();
   const [view, setView] = useState<TipsView | null>(null);
-  const [draft, setDraft] = useState<TipSettings | null>(null);
+  const tips = useAutosave<TipSettings>((d) => api.saveTipSettings(ch.key, d).then((s) => { setView((v) => v && { ...v, settings: s }); return s; }));
+  const draft = tips.value;
+  const loaded = useRef('');
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [country, setCountry] = useState('');
@@ -56,9 +57,10 @@ export function TipsPage() {
   const load = useCallback(() => {
     api.tips(ch.key).then((v) => {
       setView(v);
-      setDraft((d) => d ?? v.settings);
+      if (loaded.current !== ch.key) { loaded.current = ch.key; tips.reset(v.settings); }
       setCountry((c) => c || v.account?.country || (v.countries.includes('US') ? 'US' : v.countries[0]));
     }).catch(() => setFailed(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ch.key]);
 
   useEffect(() => {
@@ -78,23 +80,7 @@ export function TipsPage() {
     if (ch.login) api.publicTip(ch.login).then((p) => setTwitchBanner(p.banner || '')).catch(() => {});
   }, [ch.login]);
 
-  const changed = !!view && !!draft && !same(draft, view.settings);
-  const set = (p: Partial<TipSettings>) => setDraft((d) => (d ? { ...d, ...p } : d));
-
-  const save = async () => {
-    if (!draft) return;
-    setBusy(true);
-    try {
-      const s = await api.saveTipSettings(ch.key, draft);
-      setDraft(s);
-      setView((v) => v && { ...v, settings: s });
-      toast('Tip settings saved');
-    } catch (x) {
-      toast(errorText(x), true);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const set = (p: Partial<TipSettings>) => tips.set((d) => ({ ...d, ...p }));
 
   const connect = async () => {
     setBusy(true);
@@ -108,7 +94,6 @@ export function TipsPage() {
   };
 
   const disconnect = async () => {
-    if (!confirm('Disconnect Stripe? Your tip page closes until you connect again. Your Stripe account and its money are untouched.')) return;
     setBusy(true);
     try {
       await api.disconnectStripe(ch.key);
@@ -157,31 +142,31 @@ export function TipsPage() {
 
   return (
     <div className="page ta">
-      <header className="ta-head">
-        <div className="ta-title">
-          <h1>Tips</h1>
-          <div className="ta-status">
-            <span className="ta-dot" style={{ ['--c' as string]: status[1] }} />{status[0]}
-            {view?.testMode && <span className="ta-test" title="Sylva uses Stripe test keys. Tips use test cards, no real money moves, and they stay out of your stats.">Test mode, no real money</span>}
-          </div>
+      <PageHead title="Tips" desc="Your own tip page. Viewers pay by card, and the money goes straight to your Stripe account.">
+        <SaveState saving={tips.saving} savedAt={tips.savedAt} canUndo={tips.canUndo} onUndo={tips.undo} />
+        {acct?.chargesEnabled && view?.pageUrl && <a className="btn" href={view.pageUrl} target="_blank" rel="noreferrer"><Icon id="external" />Open tip page</a>}
+      </PageHead>
+      <div className="grp link-card">
+        <Tile icon="link" />
+        <div className="gr-main">
+          <div className="t1 mono">{view?.pageUrl && acct?.chargesEnabled ? view.pageUrl.replace(/^https?:\/\//, '') : 'Your tip page'}</div>
+          <div className="t2">{!view ? '\u00a0' : status[0]}{view?.testMode ? '. Test mode, so no real money moves and tips stay out of your stats' : acct?.chargesEnabled && draft?.enabled ? '. Put it in your panels and chat commands' : ''}</div>
         </div>
-        {acct?.chargesEnabled && view?.pageUrl && (
-          <div className="ta-link">
-            <span className="ta-link-url">{view.pageUrl.replace(/^https?:\/\//, '')}</span>
-            <button className="ta-icon" type="button" title="Copy link" aria-label="Copy link" onClick={() => { void navigator.clipboard.writeText(view.pageUrl!); toast('Link copied'); }}><Icon id="copy" /></button>
-            <a className="ta-icon" href={view.pageUrl} target="_blank" rel="noreferrer" title="Open your tip page" aria-label="Open your tip page"><Icon id="external" /></a>
-          </div>
-        )}
-      </header>
+        <div className="link-ctl">
+          {acct?.chargesEnabled && view?.pageUrl && (
+            <button className="btn sm primary" type="button" onClick={() => { void navigator.clipboard.writeText(view.pageUrl!).then(() => toast('Link copied'), () => toast('Could not copy the link.', true)); }}><Icon id="copy" />Copy link</button>
+          )}
+        </div>
+      </div>
 
-      {failed && !view && <div className="ta-panel ta-pad"><p className="ta-muted">Could not load tips. Refresh to try again.</p></div>}
+      {failed && !view && <div className="notice">Could not load tips. Refresh to try again.</div>}
       {!view && !failed && <SkelCard rows={4} />}
 
       {view && draft && <>
-        {!view.platformReady && <p className="ta-banner">Tips are almost ready. Sylva is finishing its own Stripe setup.</p>}
+        {!view.platformReady && <p className="notice">Tips are almost ready. Sylva is finishing its own Stripe setup.</p>}
 
         {!acct && (
-          <section className="ta-panel ta-hero">
+          <section className="grp ta-hero">
             <div>
               <h2>Take tips with your own Stripe account</h2>
               <p>Viewers pay with cards, Apple Pay, Google Pay and local methods from around the world. Money goes straight to you. Sylva never holds it and takes no cut.</p>
@@ -196,7 +181,7 @@ export function TipsPage() {
         )}
 
         {acct && !acct.chargesEnabled && (
-          <section className="ta-panel ta-hero">
+          <section className="grp ta-hero">
             <div>
               <h2>{acct.detailsSubmitted ? 'Stripe is checking your details' : 'Finish your Stripe setup'}</h2>
               <p>
@@ -209,28 +194,24 @@ export function TipsPage() {
           </section>
         )}
 
-        <nav className="ta-tabs" role="tablist" aria-label="Tips sections">
-          {([['tips', 'Tips'], ['page', 'Tip page'], ['safety', 'Safety'], ['voice', 'Voice'], ['stripe', 'Stripe']] as [Tab, string][]).map(([id, label]) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id} className="ta-tab" onClick={() => pick(id)}>
-              {label}{id === 'tips' && held.length > 0 && <span className="ta-count">{held.length}</span>}
-            </button>
-          ))}
-        </nav>
+        <div className="ta-tabs">
+          <UiSeg<Tab> label="Tips sections" options={([['tips', 'Tips'], ['page', 'Tip page'], ['safety', 'Protection'], ['voice', 'Voice'], ['stripe', 'Payouts']] as [Tab, string][]).map(([id, label]) => ({
+            id, label: <>{label}{id === 'tips' && held.length > 0 && <span className="ta-count">{held.length}</span>}</>,
+          }))} value={tab} onChange={pick} />
+        </div>
 
         {tab === 'tips' && (
           <div className="ta-stack">
             {held.length > 0 && (
-              <section className="ta-panel">
-                <PanelHead title="Waiting for you" hint="Paid, not shown yet. Send them to the stream or refund them in full." />
+              <Sect title="Waiting for you" desc="Paid, not shown yet. Send them to the stream or refund them in full.">
                 <ul className="ta-tips">{held.map((t) => <TipItem key={t.id} t={t} canMod={ch.can.moderate} canEdit={ch.can.edit} act={act} />)}</ul>
-              </section>
+              </Sect>
             )}
-            <section className="ta-panel">
-              <PanelHead title="Recent" />
+            <Sect title="Recent">
               {recent.length === 0
                 ? <p className="ta-empty">No tips yet. Share your tip page link to get the first one.</p>
                 : <ul className="ta-tips">{recent.map((t) => <TipItem key={t.id} t={t} canMod={ch.can.moderate} canEdit={ch.can.edit} act={act} />)}</ul>}
-            </section>
+            </Sect>
           </div>
         )}
 
@@ -242,8 +223,7 @@ export function TipsPage() {
 
         {tab === 'safety' && (
           <Gate on={ch.can.own}>
-            <section className="ta-panel">
-              <PanelHead title="Chargeback protection" hint="Every card tip asks for 3D Secure. Bank debits, buy now pay later and PayPal are never offered. Anyone who disputes a tip on any Sylva channel can't tip anywhere on Sylva again." />
+            <Sect title="Chargeback protection" desc="Every card tip asks for 3D Secure. Bank debits, buy now pay later and PayPal are never offered. Anyone who disputes a tip on any Sylva channel can't tip anywhere on Sylva again.">
               <Row label="Hold tips before they show">
                 <Seg value={draft.hold} onChange={(v) => set({ hold: v })} options={[['approve', 'Until I approve'], ['delay', 'For a delay'], ['off', 'Never']]} />
               </Row>
@@ -268,30 +248,27 @@ export function TipsPage() {
               <Row label="Answer disputes on their own" hint="Sends Stripe the message, times, IP country, 3D Secure result and a clip.">
                 <Switch on={draft.autoEvidence} label="Answer disputes on their own" set={(v) => set({ autoEvidence: v })} />
               </Row>
-            </section>
+            </Sect>
           </Gate>
         )}
 
         {tab === 'voice' && (
           <Gate on={ch.can.own}>
-            <section className="ta-panel">
-              <PanelHead title="Text to speech" hint="Tips are read aloud on your overlay after the alert sound, in the voice the tipper picked. Links are never read." />
+            <Sect title="Text to speech" desc="Tips are read aloud on your overlay after the alert sound, in the voice the tipper picked. Links are never read.">
               <Row label="Read tips aloud"><Switch on={draft.tts} label="Read tips aloud" set={(v) => set({ tts: v })} /></Row>
               <Row label="Only tips of at least"><NumField value={draft.ttsMin} suffix={draft.currency} onChange={(n) => set({ ttsMin: n })} /></Row>
-            </section>
+            </Sect>
             <SpeechSettings draft={draft} set={set} />
-            <section className="ta-panel">
-              <PanelHead title="Voices" />
+            <Sect title="Voices">
               <VoiceSettings view={view} draft={draft} set={set} />
-            </section>
+            </Sect>
           </Gate>
         )}
 
         {tab === 'stripe' && (
-          <section className="ta-panel">
-            <PanelHead title="Stripe account" hint="Payouts, receipts and taxes live in your Stripe dashboard." />
+          <Sect title="Stripe account" desc="Payouts, receipts and taxes live in your Stripe dashboard.">
             {acct ? <>
-              <Row label="Status"><span className="ta-value"><span className="ta-dot" style={{ ['--c' as string]: status[1] }} />{acct.chargesEnabled ? 'Card payments on' : 'Not ready yet'}</span></Row>
+              <Row label="Status"><span className="muted">{acct.chargesEnabled ? 'Card payments on' : 'Not ready yet'}</span></Row>
               <Row label="Country"><span className="ta-value">{countryName(acct.country)}</span></Row>
               <Row label="Account"><span className="ta-value mono">{acct.id}</span></Row>
               {acct.chargesEnabled && acct.due > 0 && (
@@ -302,20 +279,13 @@ export function TipsPage() {
               <Row label="Dashboard"><a className="btn sm" href="https://dashboard.stripe.com" target="_blank" rel="noreferrer"><Icon id="external" />Open Stripe</a></Row>
               {ch.can.own && (
                 <Row label="Disconnect" hint="Closes your tip page. Your Stripe account and its money are untouched.">
-                  <button className="btn sm ta-danger" type="button" disabled={busy} onClick={() => void disconnect()}>Disconnect</button>
+                  <ArmedButton className="sm danger" armedText="Click again to disconnect" disabled={busy} onConfirm={() => void disconnect()}>Disconnect</ArmedButton>
                 </Row>
               )}
             </> : <p className="ta-empty">Not connected yet.</p>}
-          </section>
+          </Sect>
         )}
 
-        {changed && (
-          <div className="save-bar" role="region" aria-label="Unsaved changes">
-            <span>You have changes that are not saved yet.</span>
-            <button className="btn ghost" type="button" disabled={busy} onClick={() => setDraft(view.settings)}>Discard</button>
-            <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>{busy ? 'Saving' : 'Save changes'}</button>
-          </div>
-        )}
       </>}
     </div>
   );
@@ -403,8 +373,7 @@ function PageTab({ draft, set, files, upload, channel, name, twitchAvatar, twitc
       </div>
 
       <div className="ta-stack">
-        <section className="ta-panel">
-          <PanelHead title="Look" />
+        <Sect title="Look">
           <Row label="Note" hint="Shown under your name." stack>
             <textarea className="ta-input ta-textarea" rows={2} maxLength={300} value={draft.note} placeholder="Thanks for supporting the stream!" onChange={(e) => set({ note: e.target.value })} />
           </Row>
@@ -431,10 +400,9 @@ function PageTab({ draft, set, files, upload, channel, name, twitchAvatar, twitc
               </Row>
             )}
           </>}
-        </section>
+        </Sect>
 
-        <section className="ta-panel">
-          <PanelHead title="Amounts" hint="Viewers paying in another currency see these converted and rounded." />
+        <Sect title="Amounts" desc="Viewers paying in another currency see these converted and rounded.">
           <Row label="Take tips"><Switch on={draft.enabled} label="Take tips" set={(v) => set({ enabled: v })} /></Row>
           <Row label="Your currency">
             <select className="ta-select" value={draft.currency} onChange={(e) => set({ currency: e.target.value })}>
@@ -446,7 +414,7 @@ function PageTab({ draft, set, files, upload, channel, name, twitchAvatar, twitc
           </Row>
           <Row label="Smallest tip"><NumField value={draft.min} suffix={draft.currency} onChange={(n) => set({ min: n })} /></Row>
           <Row label="Largest tip"><NumField value={draft.max} suffix={draft.currency} onChange={(n) => set({ max: n })} /></Row>
-        </section>
+        </Sect>
       </div>
 
       {menu && (
@@ -506,9 +474,6 @@ function ImageMenu({ x, y, title, defaults, value, images, channel, onPick, onUp
 
 /* ---------------- Building blocks ---------------- */
 
-function PanelHead({ title, hint }: { title: string; hint?: string }) {
-  return <div className="ta-panel-head"><h2>{title}</h2>{hint && <p>{hint}</p>}</div>;
-}
 
 const TTS_FULL = '{name} tipped {amount}. {message}';
 const TTS_MESSAGE = '{message}';
@@ -546,8 +511,7 @@ function SpeechSettings({ draft, set }: { draft: TipSettings; set(p: Partial<Tip
   const insert = (tag: string) => commitTemplate(`${template.trim()} ${tag}`);
   const sample = sampleSpeech(draft);
   return <>
-    <section className="ta-panel">
-      <PanelHead title="What's read" />
+    <Sect title="What's read">
       <Row label="Read">
         <Seg value={mode} onChange={(v) => {
           if (v === 'full') set({ ttsTemplate: TTS_FULL });
@@ -574,9 +538,8 @@ function SpeechSettings({ draft, set }: { draft: TipSettings; set(p: Partial<Tip
       <Row label="Example" hint="For a 5 tip from Ann that says “Love the stream, you earned a snack!”" stack>
         <p className="ta-tts-sample">{sample ? `“${sample}”` : 'Nothing is read.'}</p>
       </Row>
-    </section>
-    <section className="ta-panel">
-      <PanelHead title="Playback" />
+    </Sect>
+    <Sect title="Playback">
       <Row label="Voice volume" hint="Separate from the alert sound." stack>
         <div className="ta-range">
           <input type="range" min={0} max={100} step={5} value={draft.ttsVolume} aria-label="Voice volume" onChange={(e) => set({ ttsVolume: Number(e.target.value) })} />
@@ -589,9 +552,8 @@ function SpeechSettings({ draft, set }: { draft: TipSettings; set(p: Partial<Tip
           <span className="ta-value">{(draft.ttsDelayMs / 1000).toFixed(1)} s</span>
         </div>
       </Row>
-    </section>
-    <section className="ta-panel">
-      <PanelHead title="Word filter" hint="Words that are never read aloud. Parts of words count, so “darn” also catches “darnit”. A tipper's name with one of them is read as “Someone”." />
+    </Sect>
+    <Sect title="Word filter" desc="Words that are never read aloud. Parts of words count, so “darn” also catches “darnit”. A tipper's name with one of them is read as “Someone”.">
       <Row label="Words" hint="Separate them with commas." stack>
         <textarea className="ta-input ta-tts-words" rows={3} value={words} placeholder="word, another word" aria-label="Filtered words"
           onChange={(e) => setWords(e.target.value)} onBlur={commitWords} />
@@ -599,7 +561,7 @@ function SpeechSettings({ draft, set }: { draft: TipSettings; set(p: Partial<Tip
       <Row label="When a message has one">
         <Seg value={draft.ttsWordMode} onChange={(v) => set({ ttsWordMode: v })} options={[['remove', 'Leave the word out'], ['skip', 'Skip the message']]} />
       </Row>
-    </section>
+    </Sect>
   </>;
 }
 
@@ -637,23 +599,19 @@ function VoiceSettings({ view, draft, set }: { view: TipsView; draft: TipSetting
 
 function Row({ label, hint, stack, children }: { label: string; hint?: string; stack?: boolean; children: ReactNode }) {
   return (
-    <div className={'ta-row' + (stack ? ' stack' : '')}>
-      <div className="ta-row-text"><span className="ta-row-label">{label}</span>{hint && <span className="ta-row-hint">{hint}</span>}</div>
-      <div className="ta-row-ctl">{children}</div>
+    <div className={'gr' + (stack ? ' stack-sm' : '')}>
+      <div className="gr-main"><div className="t1">{label}</div>{hint && <div className="t2">{hint}</div>}</div>
+      <div className="gr-ctl">{children}</div>
     </div>
   );
 }
 
 function Switch({ on, label, set }: { on: boolean; label: string; set(v: boolean): void }) {
-  return <button className="switch" type="button" role="switch" aria-checked={on} aria-label={label} onClick={() => set(!on)} />;
+  return <UiSwitch label={label} on={on} onChange={set} />;
 }
 
 function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange(v: T): void }) {
-  return (
-    <div className="ta-seg" role="radiogroup">
-      {options.map(([v, t]) => <button key={v} type="button" role="radio" aria-checked={value === v} onClick={() => onChange(v)}>{t}</button>)}
-    </div>
-  );
+  return <UiSeg<T> label="Choose" small options={options.map(([id, label]) => ({ id, label }))} value={value} onChange={onChange} />;
 }
 
 function NumField({ value, suffix, step = 0.01, onChange }: { value: number; suffix?: string; step?: number; onChange(n: number): void }) {
@@ -666,8 +624,8 @@ function NumField({ value, suffix, step = 0.01, onChange }: { value: number; suf
     if (v !== value) onChange(v);
   };
   return (
-    <label className="ta-num">
-      <input type="number" inputMode="decimal" min={0} step={step} value={text}
+    <label className="prefixed ta-num">
+      <input className="input amount" type="number" inputMode="decimal" min={0} step={step} value={text}
         onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }} />
       {suffix && <span>{suffix}</span>}
     </label>

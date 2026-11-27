@@ -44,13 +44,22 @@ var targetEl = document.getElementById('target');
 var badgeEl = document.getElementById('badge');
 var msgEl = document.getElementById('msg');
 
-// Timing (milliseconds)
+// Timing (milliseconds), times the Speed setting
 var POP_IN = 380;      // circle appears
 var EXPAND = 650;      // pill opens and text fades in
 var TEXT_OUT = 220;    // text fades out
 var COLLAPSE = 450;    // pill closes to circle
 var POP_OUT = 320;     // circle disappears
 var GAP = 250;         // pause between queued alerts
+var SPEEDS = { slow: 1.5, normal: 1, fast: 0.6 };
+function ms(n) { return Math.round(n * (look ? look.speed : 1)); }
+
+// The look from the dashboard's Alert style. `kinds` lists the alerts that
+// use it; the rest keep the default pill.
+var look = null;
+var DEFAULT_LOOK = { layout: 'pill', radius: 20, padding: 18, showIcon: true, size: 1, animIn: 'pop', animOut: 'pop', speed: 1 };
+var SIZES = { S: 0.7, M: 0.85, L: 1 };
+var KIND_OF_ICON = { heart: 'follow', star: 'sub', gift: 'gift', dollar: 'tip', chat: 'tip', gem: 'cheer', zap: 'cheer', users: 'raid', tv: 'raid', sparkle: 'redemption' };
 
 var ICONS = {
   heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
@@ -133,14 +142,49 @@ function applyStyle() {
   root.setProperty('--muted', setting('mutedColor', '#A3A3A3'));
   root.setProperty('--badge-text', setting('badgeTextColor', '#000000'));
 
+  var pick = function (v, list, fallback) { return list.indexOf(v) >= 0 ? v : fallback; };
+  var kinds = String(setting('styleKinds', '')).toLowerCase().split(/[\s,]+/).filter(Boolean);
+  look = {
+    layout: pick(String(setting('layout', 'pill')), ['pill', 'card', 'banner'], 'pill'),
+    radius: Math.min(60, Math.max(0, num(setting('radius', 20), 20))),
+    padding: Math.min(60, Math.max(2, num(setting('padding', 18), 18))),
+    showIcon: setting('showIcon', true) !== false,
+    size: SIZES[String(setting('textSize', 'L'))] || 1,
+    animIn: pick(String(setting('animIn', 'pop')), ['fade', 'slide', 'pop'], 'pop'),
+    animOut: pick(String(setting('animOut', 'pop')), ['fade', 'slide', 'pop'], 'pop'),
+    speed: SPEEDS[String(setting('speed', 'normal'))] || 1,
+    kinds: kinds
+  };
+  useLook(null);
+
+  return loadFont(font);
+}
+
+// Put the look on the stage for one alert: the custom one, or the default
+// pill when the custom look is only for some kinds of alert.
+function useLook(kind) {
+  var custom = look || DEFAULT_LOOK;
+  var l = custom.kinds && custom.kinds.length && kind && custom.kinds.indexOf(kind) < 0 ? DEFAULT_LOOK : custom;
+  var root = document.documentElement.style;
+  root.setProperty('--radius', (l.radius / 20) + 'em');
+  root.setProperty('--pad', (l.padding / 20) + 'em');
+  root.setProperty('--pad-k', String(l.padding / 18));
+  root.setProperty('--speed', String(custom.speed));
   // position looks like "bottom-left", "middle-center", "top-right": where the
   // alert sits when the canvas has room left over after the fit
   var parts = String(setting('position', 'middle-center')).split('-');
-  stageEl.classList.remove('v-top', 'v-bottom', 'h-left', 'h-right');
-  if (parts[0] === 'top' || parts[0] === 'bottom') stageEl.classList.add('v-' + parts[0]);
-  if (parts[1] === 'left' || parts[1] === 'right') stageEl.classList.add('h-' + parts[1]);
-
-  return loadFont(font);
+  var c = [];
+  if (parts[0] === 'top' || parts[0] === 'bottom') c.push('v-' + parts[0]);
+  if (parts[1] === 'left' || parts[1] === 'right') c.push('h-' + parts[1]);
+  if (l.layout !== 'pill') c.push('boxed');
+  if (l.layout === 'banner') c.push('banner');
+  if (!l.showIcon) c.push('no-icon');
+  c.push('in-' + l.animIn, 'out-' + l.animOut);
+  stageEl.className = c.join(' ');
+  // The message sits inside a card or banner, and under the pill.
+  if (l.layout === 'pill') { if (msgEl.parentNode !== alertEl) alertEl.appendChild(msgEl); }
+  else if (msgEl.parentNode !== rowEl) rowEl.appendChild(msgEl);
+  return l;
 }
 
 // Load the font fully before any alert is measured, so text never gets cut off
@@ -286,7 +330,7 @@ function humanize(listener) {
 /* ---------- Event to alert ---------- */
 
 function A(icon, name, action, target, badge, msg) {
-  return { icon: icon, name: name, action: action, target: target || '', badge: badge || '', message: msg || '' };
+  return { icon: icon, kind: KIND_OF_ICON[icon] || 'other', name: name, action: action, target: target || '', badge: badge || '', message: msg || '' };
 }
 
 function buildAlert(listener, e) {
@@ -422,7 +466,23 @@ function playNext() {
 var MEASURE = 100;
 var PAD = 0.5; // #stage padding, in em
 function fit() {
+  var boxed = stageEl.classList.contains('boxed');
+  var banner = stageEl.classList.contains('banner');
+  var cap = (look && showing && showing.look ? showing.look.size : 1);
   document.documentElement.style.setProperty('--size', MEASURE + 'px');
+  if (boxed) {
+    // A card or banner is measured as it is; a banner then spans the canvas.
+    if (banner) stageEl.classList.remove('banner');
+    var box = alertEl.getBoundingClientRect();
+    var sc = stageEl.getBoundingClientRect().width / (stageEl.offsetWidth || 1) || 1;
+    var bw = box.width / sc / MEASURE + PAD * 2;
+    var bh = box.height / sc / MEASURE + PAD * 2;
+    if (banner) stageEl.classList.add('banner');
+    var fitted = Math.min(stageEl.clientWidth / bw, stageEl.clientHeight / bh) * cap;
+    if (!(fitted > 0)) fitted = 26;
+    document.documentElement.style.setProperty('--size', Math.max(4, fitted) + 'px');
+    return { open: 0, circle: 0 };
+  }
   pillEl.style.width = 'auto';
   rowEl.style.width = 'auto';
   pillEl.style.transform = 'none';
@@ -435,7 +495,7 @@ function fit() {
   var msgW = msgEl.textContent ? msgEl.getBoundingClientRect().width / scale / MEASURE : 0;
   var wEm = Math.max(msgW, openEm) + PAD * 2;
   var hEm = alertBox.height / scale / MEASURE + PAD * 2;
-  var size = Math.min(stageEl.clientWidth / wEm, stageEl.clientHeight / hEm);
+  var size = Math.min(stageEl.clientWidth / wEm, stageEl.clientHeight / hEm) * cap;
   if (!(size > 0)) size = 26;
   pillEl.style.transform = '';
   document.documentElement.style.setProperty('--size', Math.max(4, size) + 'px');
@@ -446,6 +506,7 @@ function fit() {
 var lastFit = null;
 window.addEventListener('resize', function () {
   if (!showing || !lastFit) return;
+  if (stageEl.classList.contains('boxed')) { fit(); return; }
   var opened = pillEl.classList.contains('open');
   pillEl.style.transition = 'none';
   lastFit = fit();
@@ -460,6 +521,8 @@ function showAlert(a) {
   hiding = false;
   clearTimers();
   showing = a;
+  a.look = useLook(a.kind);
+  var boxed = a.look.layout !== 'pill';
 
   iconEl.innerHTML = svg(a.icon);
   nameEl.textContent = a.name;
@@ -483,19 +546,28 @@ function showAlert(a) {
   playSound();
   if (sylva && a.sylvaId !== null && a.sylvaId !== undefined) sylva.shown(a.sylvaId);
 
+  if (boxed) {
+    // A card or banner comes in whole, then holds.
+    pillEl.style.width = '';
+    rowEl.style.width = '';
+    pillEl.classList.add('pop', 'open');
+    if (a.message) msgEl.classList.add('show');
+    later(ms(POP_IN) + seconds * 1000, hideAlert);
+    return;
+  }
   // 1. Circle pops in
   pillEl.classList.add('pop');
   // 2. Pill opens, text and badge fade in
-  later(POP_IN, function () {
+  later(ms(POP_IN), function () {
     pillEl.style.width = (lastFit ? lastFit.open : sizes.open) + 'em';
     pillEl.classList.add('open');
   });
   // 3. Message (if any)
-  later(POP_IN + EXPAND, function () {
+  later(ms(POP_IN + EXPAND), function () {
     if (a.message) msgEl.classList.add('show');
   });
   // 4. Hold, then close
-  later(POP_IN + EXPAND + seconds * 1000, hideAlert);
+  later(ms(POP_IN + EXPAND) + seconds * 1000, hideAlert);
 }
 
 function hideAlert() {
@@ -504,22 +576,30 @@ function hideAlert() {
   clearTimers();
 
   var circle = lastFit ? lastFit.circle + 'em' : rowEl.offsetHeight + 'px';
-  msgEl.classList.remove('show');
+  var l = (showing && showing.look) || DEFAULT_LOOK;
+  // Only a pill that goes out with Pop closes back into its circle first.
+  var collapse = l.layout === 'pill' && l.animOut === 'pop';
+  var boxed = l.layout !== 'pill';
+  if (!boxed) msgEl.classList.remove('show');
   pillEl.classList.add('closing');
-  pillEl.classList.remove('open');
+  if (!boxed) pillEl.classList.remove('open');
 
-  later(TEXT_OUT, function () {
-    pillEl.style.width = circle;
-  });
-  later(TEXT_OUT + COLLAPSE, function () {
+  var textOut = boxed ? 0 : ms(TEXT_OUT);
+  var shrink = collapse ? ms(COLLAPSE) : 0;
+  if (collapse) {
+    later(textOut, function () {
+      pillEl.style.width = circle;
+    });
+  }
+  later(textOut + shrink, function () {
     pillEl.classList.remove('pop');
   });
-  later(TEXT_OUT + COLLAPSE + POP_OUT, function () {
+  later(textOut + shrink + ms(POP_OUT), function () {
     var gone = showing;
     showing = null;
     if (sylva && gone && gone.sylvaId !== null && gone.sylvaId !== undefined) sylva.done(gone.sylvaId);
   });
-  later(TEXT_OUT + COLLAPSE + POP_OUT + GAP, function () {
+  later(textOut + shrink + ms(POP_OUT) + GAP, function () {
     busy = false;
     hiding = false;
     playNext();

@@ -1,10 +1,9 @@
-// The activity feed, after Sylva Desktop's: one color per kind of event, a mix bar
-// for the last 24 hours, filter chips, and one plain sentence per event with
-// small pills for the details.
+// The activity feed: one plain sentence per event with a solid tile for its
+// kind, the details on a quiet second line, and Replay on hover.
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Kind, SylvaEvent } from './api';
-import { ago, Icon, num, SkelRows } from './ui';
+import { ago, Icon, num, SkelRows, timeOf } from './ui';
 
 export interface Group { id: string; label: string; color: string; icon: string; kinds: Kind[] }
 
@@ -12,11 +11,11 @@ export const GROUPS: Group[] = [
   { id: 'follow', label: 'Follows', color: 'c-follow', icon: 'heart', kinds: ['follow'] },
   { id: 'sub', label: 'Subs', color: 'c-sub', icon: 'star', kinds: ['subscriber'] },
   { id: 'gift', label: 'Gifts', color: 'c-gift', icon: 'gift', kinds: ['giftedSub', 'communityGift'] },
-  { id: 'cheer', label: 'Bits', color: 'c-bits', icon: 'gem', kinds: ['cheer'] },
+  { id: 'cheer', label: 'Bits', color: 'c-bits', icon: 'zap', kinds: ['cheer'] },
+  { id: 'raid', label: 'Raids', color: 'c-raid', icon: 'raid', kinds: ['raid'] },
   { id: 'tip', label: 'Tips', color: 'c-tip', icon: 'tip', kinds: ['tip'] },
-  { id: 'redemption', label: 'Rewards', color: 'c-reward', icon: 'sparkles', kinds: ['redemption'] },
-  { id: 'raid', label: 'Raids', color: 'c-raid', icon: 'swords', kinds: ['raid'] },
-  { id: 'other', label: 'Other', color: 'c-other', icon: 'dot', kinds: ['other'] },
+  { id: 'redemption', label: 'Redemptions', color: 'c-reward', icon: 'gem', kinds: ['redemption'] },
+  { id: 'other', label: 'Other', color: 'c-other', icon: 'sparkles', kinds: ['other'] },
 ];
 
 const KNOWN = new Set<Kind>(GROUPS.flatMap((g) => g.kinds));
@@ -64,6 +63,10 @@ function humanType(t: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : 'Event';
 }
 
+function money(n: number, currency?: string): string {
+  try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD' }).format(n); } catch { return num(n); }
+}
+
 /** One sentence that says what happened, names in bold, plus pills for details. */
 export function describe(e: SylvaEvent): { title: ReactNode; pills: string[]; message?: string } {
   const name = e.actor?.displayName || 'Anonymous';
@@ -79,26 +82,25 @@ export function describe(e: SylvaEvent): { title: ReactNode; pills: string[]; me
       title = <><b>{name}</b> followed</>;
       break;
     case 'subscriber':
-      title = <><b>{name}</b> {has && n > 1 ? 'resubscribed' : 'subscribed'}</>;
-      if (tier) pills.push(tier);
-      if (has && n > 1) pills.push(num(n) + ' months');
+      title = <><b>{name}</b> {has && n > 1 ? `resubscribed for ${num(n)} months` : 'subscribed'}</>;
+      if (tier && tier !== 'Tier 1') pills.push(tier);
       break;
     case 'giftedSub':
       // Twitch does not say who gave it here; the matching gift event does.
       title = e.sender
         ? <><b>{e.sender}</b> gifted a sub to <b>{name}</b></>
         : <><b>{name}</b> got a gifted sub</>;
-      if (tier) pills.push(tier);
+      if (tier && tier !== 'Tier 1') pills.push(tier);
       break;
     case 'communityGift':
       title = <><b>{name}</b> {has && n !== 1 ? `gifted ${num(n)} subs` : 'gifted a sub'}</>;
-      if (tier) pills.push(tier);
+      if (tier && tier !== 'Tier 1') pills.push(tier);
       break;
     case 'cheer':
       title = <><b>{name}</b> {has ? `cheered ${num(n)} ${plural('bit', 'bits')}` : 'cheered'}</>;
       break;
     case 'tip':
-      title = <><b>{name}</b> tipped</>;
+      title = <><b>{name}</b> tipped{has ? ' ' + money(n, e.currency) : ''}</>;
       break;
     case 'redemption':
       title = <><b>{name}</b> redeemed <b>{e.redemption || 'a reward'}</b></>;
@@ -179,38 +181,39 @@ export function describe(e: SylvaEvent): { title: ReactNode; pills: string[]; me
   return { title, pills, message };
 }
 
-function Item({ e, fresh, onReplay }: { e: SylvaEvent; fresh: boolean; onReplay?(e: SylvaEvent): Promise<void> }) {
+export function FeedRow({ e, fresh, onReplay, clock, actions }: {
+  e: SylvaEvent; fresh: boolean; onReplay?(e: SylvaEvent): Promise<void>; clock?: boolean; actions?: ReactNode;
+}) {
   const [busy, setBusy] = useState(false);
   const g = groupOf(e.kind);
   const d = describe(e);
   const kind = KNOWN.has(e.kind) ? e.kind : 'other';
+  const second = [d.message, d.pills.join(', ')].filter(Boolean);
+  const at = Date.parse(e.createdAt);
   return (
     <li className={`item k-${kind}${fresh ? ' fresh' : ''}`}>
-      <span className="tile"><Icon id={g.icon} /></span>
+      <span className="tile" aria-hidden="true"><Icon id={g.icon} /></span>
       <div className="item-main">
         <div className="item-title">{d.title}</div>
-        {d.message && <p className="item-msg">{d.message}</p>}
-        {d.pills.length > 0 && (
-          <div className="pills">{d.pills.map((p) => <span key={p} className="pill">{p}</span>)}</div>
-        )}
+        {second.length > 0 && <p className="item-msg">{d.message}{d.message && d.pills.length > 0 ? ' · ' : ''}{d.pills.join(', ')}</p>}
       </div>
-      <div className="item-side">
-        <time dateTime={e.createdAt} title={new Date(e.createdAt).toLocaleString()}>{ago(e.createdAt)}</time>
-      </div>
+      {actions}
       {ALERT_KINDS.has(e.kind) && onReplay && (
         <button
           className="replay"
           type="button"
           title="Play this alert again"
+          aria-label="Replay this alert"
           disabled={busy}
           onClick={async () => {
             setBusy(true);
             try { await onReplay(e); } finally { setBusy(false); }
           }}
         >
-          <Icon id="replay" />Replay
+          <Icon id="replay" />
         </button>
       )}
+      <time dateTime={e.createdAt} title={new Date(at).toLocaleString()}>{clock ? timeOf(at) : ago(e.createdAt)}</time>
     </li>
   );
 }
@@ -229,7 +232,7 @@ export function lastDay(events: SylvaEvent[]): { counts: Record<string, number>;
   return { counts, total };
 }
 
-/** Re-render every 30 s so "5m ago" and 24 hour counts stay true. */
+/** Re-render every 30 s so "5m ago" stays true. */
 export function useTick() {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -238,103 +241,27 @@ export function useTick() {
   }, []);
 }
 
-export function MixBar({ counts, total }: { counts: Record<string, number>; total: number }) {
-  return (
-    <div className={'mix' + (total === 0 ? ' empty' : '')} aria-hidden="true">
-      {total === 0
-        ? <span style={{ flexGrow: 1 }} />
-        : GROUPS.filter((g) => counts[g.id] > 0).map((g) => (
-          <span key={g.id} className={g.color} style={{ flexGrow: counts[g.id] }} title={`${num(counts[g.id])} ${g.label.toLowerCase()}`} />
-        ))}
-    </div>
-  );
-}
+export const matchesShown = (shown: string) => (e: SylvaEvent) => shown === 'all' || groupOf(e.kind).id === shown;
 
-function loadShown(): Set<string> {
-  try {
-    const v = JSON.parse(localStorage.getItem('shownGroups') || '[]');
-    return new Set((Array.isArray(v) ? v : []).filter((g) => GROUPS.some((x) => x.id === g)));
-  } catch {
-    return new Set();
-  }
-}
-
-function saveShown(s: Set<string>) {
-  try { localStorage.setItem('shownGroups', JSON.stringify([...s])); } catch { /* private window */ }
-}
-
-/** Which groups are shown; empty means all. Remembered in this browser. */
-export function useShown(): [Set<string>, (id: string | null) => void] {
-  const [shown, setShown] = useState(loadShown);
-  const toggle = (id: string | null) => {
-    const next = new Set(shown);
-    if (id === null) next.clear();
-    else if (next.has(id)) next.delete(id);
-    else next.add(id);
-    saveShown(next);
-    setShown(next);
-  };
-  return [shown, toggle];
-}
-
-/** A Filter button that opens a checklist of kinds; the feed shows every kind when none is ticked. */
-export function Filters(props: { shown: Set<string>; toggle(id: string | null): void; counts?: Record<string, number>; total?: number }) {
-  const { shown, toggle, counts } = props;
-  const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: Event) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    addEventListener('pointerdown', away);
-    addEventListener('keydown', esc);
-    return () => { removeEventListener('pointerdown', away); removeEventListener('keydown', esc); };
-  }, [open]);
-  const groups = GROUPS.filter((g) => !OPTIONAL.has(g.id) || (counts?.[g.id] ?? 0) > 0 || shown.has(g.id));
-  return (
-    <div className="filter-wrap" ref={wrap}>
-      <button className={'btn sm' + (shown.size ? ' primary' : '')} type="button" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen(!open)}>
-        <Icon id="filter" />{shown.size ? `Filter (${shown.size})` : 'Filter'}
-      </button>
-      {open && (
-        <div className="filter-pop" role="group" aria-label="Show these kinds">
-          <button className="filter-opt" type="button" aria-pressed={shown.size === 0} onClick={() => toggle(null)}>
-            <span className="check"><Icon id="tick" /></span>Everything{props.total !== undefined && <span className="count">{num(props.total)}</span>}
-          </button>
-          {groups.map((g) => (
-            <button key={g.id} className={'filter-opt ' + g.color} type="button" aria-pressed={shown.has(g.id)} onClick={() => toggle(g.id)}>
-              <span className="check"><Icon id="tick" /></span><span className="bar" />{g.label}{counts && <span className="count">{num(counts[g.id])}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Kinds Twitch alone never sends, or Sylva does not subscribe to yet: their
-// filter only shows once there is something to filter.
-const OPTIONAL = new Set(['tip', 'redemption', 'other']);
-
-export const matchesShown = (shown: Set<string>) => (e: SylvaEvent) => !shown.size || shown.has(groupOf(e.kind).id);
-
+/** A list of events in a filled box, gray rows while the first ones load. */
 export function FeedList(props: {
   events: SylvaEvent[];
   freshFrom: number;
   /** Left out when the viewer's role cannot replay alerts. */
   onReplay?(e: SylvaEvent): Promise<void>;
   empty: ReactNode;
-  flush?: boolean;
   /** Still waiting for the first events: rows in gray instead of the empty note. */
   loading?: boolean;
+  clock?: boolean;
+  actions?(e: SylvaEvent): ReactNode;
 }) {
-  if (!props.events.length && props.loading) return <div className="feed-skel"><SkelRows n={6} /></div>;
-  if (!props.events.length) {
-    return <div className="empty"><Icon id="activity" />{props.empty}</div>;
-  }
+  if (!props.events.length && props.loading) return <SkelRows n={6} />;
+  if (!props.events.length) return <div className="empty"><Icon id="activity" />{props.empty}</div>;
   return (
-    <ol className={'feed' + (props.flush ? ' flush' : '')} aria-live="polite">
-      {props.events.map((e) => <Item key={e.seq} e={e} fresh={e.seq > props.freshFrom} onReplay={props.onReplay} />)}
+    <ol className="feed" aria-live="polite">
+      {props.events.map((e) => (
+        <FeedRow key={e.seq} e={e} fresh={e.seq > props.freshFrom} onReplay={props.onReplay} clock={props.clock} actions={props.actions?.(e)} />
+      ))}
     </ol>
   );
 }

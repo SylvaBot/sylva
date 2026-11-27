@@ -22,6 +22,91 @@
     },
     "group": "Position"
   },
+  "layout": {
+    "type": "dropdown",
+    "label": "Layout",
+    "value": "pill",
+    "options": {
+      "pill": "Pill",
+      "card": "Card",
+      "banner": "Banner"
+    },
+    "group": "Look"
+  },
+  "radius": {
+    "type": "slider",
+    "label": "Roundness of cards and banners (px)",
+    "value": 20,
+    "min": 0,
+    "max": 40,
+    "step": 1,
+    "group": "Look"
+  },
+  "padding": {
+    "type": "slider",
+    "label": "Padding (px)",
+    "value": 18,
+    "min": 6,
+    "max": 40,
+    "step": 1,
+    "group": "Look"
+  },
+  "showIcon": {
+    "type": "checkbox",
+    "label": "Show the icon",
+    "value": true,
+    "group": "Look"
+  },
+  "textSize": {
+    "type": "dropdown",
+    "label": "Size in the canvas",
+    "value": "L",
+    "options": {
+      "S": "Small",
+      "M": "Medium",
+      "L": "Large"
+    },
+    "group": "Look"
+  },
+  "animIn": {
+    "type": "dropdown",
+    "label": "Comes in",
+    "value": "pop",
+    "options": {
+      "fade": "Fade",
+      "slide": "Slide",
+      "pop": "Pop"
+    },
+    "group": "Animation"
+  },
+  "animOut": {
+    "type": "dropdown",
+    "label": "Goes out",
+    "value": "pop",
+    "options": {
+      "fade": "Fade",
+      "slide": "Slide",
+      "pop": "Pop"
+    },
+    "group": "Animation"
+  },
+  "speed": {
+    "type": "dropdown",
+    "label": "Speed",
+    "value": "normal",
+    "options": {
+      "slow": "Slow",
+      "normal": "Normal",
+      "fast": "Fast"
+    },
+    "group": "Animation"
+  },
+  "styleKinds": {
+    "type": "text",
+    "label": "Use this look for (empty means every alert; else a list like follow, sub, gift, tip, cheer, raid, redemption)",
+    "value": "",
+    "group": "Look"
+  },
   "fontFamily": {
     "type": "googleFont",
     "label": "Font",
@@ -30,31 +115,31 @@
   },
   "accentColor": {
     "type": "colorpicker",
-    "label": "Accent color (icons and badge)",
+    "label": "Accent (icon and amount)",
     "value": "#FFFFFF",
     "group": "Style"
   },
   "cardColor": {
     "type": "colorpicker",
-    "label": "Pill background",
-    "value": "#000000",
+    "label": "Background",
+    "value": "#161616",
     "group": "Style"
   },
   "textColor": {
     "type": "colorpicker",
-    "label": "Name color",
+    "label": "Text",
     "value": "#FFFFFF",
     "group": "Style"
   },
   "mutedColor": {
     "type": "colorpicker",
-    "label": "Action text color",
+    "label": "Second text",
     "value": "#A3A3A3",
     "group": "Style"
   },
   "badgeTextColor": {
     "type": "colorpicker",
-    "label": "Badge text color",
+    "label": "Text on the accent",
     "value": "#000000",
     "group": "Style"
   },

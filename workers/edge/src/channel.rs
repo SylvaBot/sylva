@@ -546,7 +546,8 @@ impl DurableObject for ChannelDo {
             (Method::Get, ["stats"]) => {
                 let days = q.get("days").and_then(|v| v.parse().ok()).unwrap_or(30);
                 let tz = q.get("tz").and_then(|v| v.parse().ok()).unwrap_or(0);
-                Response::from_json(&self.stats(days, tz)?)
+                let end = q.get("end").and_then(|v| v.parse().ok()).unwrap_or(0);
+                Response::from_json(&self.stats(days, tz, end)?)
             }
             (Method::Post, ["media"]) => {
                 let name = q.get("name").cloned().unwrap_or_default();

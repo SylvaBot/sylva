@@ -116,7 +116,7 @@ export function GamesTab() {
         <div className="card-body">
           <div className="notice">
             <span>{!s.enabled ? `Games use loyalty ${name}, which are off. Turn them on to play.` : 'Games answer only while the chat bot is on.'}</span>
-            {!s.enabled && <Link className="btn sm" href="/app/loyalty">Open Loyalty</Link>}
+            {!s.enabled && <Link className="btn sm" href="/app/points">Open Points</Link>}
           </div>
         </div>
       )}

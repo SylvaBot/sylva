@@ -125,7 +125,7 @@ export interface StatTotals {
 }
 export interface Ranked { name: string; amount: number }
 export interface Stats {
-  days: number; from: number;
+  days: number; end?: number; from: number;
   series: (StatTotals & { start: number })[];
   totals: StatTotals; previous: StatTotals;
   /** The period before, day for day, lined up with `series`. */
@@ -367,8 +367,9 @@ export const api = {
     request<{ seq: number; duplicate: boolean; alert: boolean }>('POST', `${ch(key)}/test-event`, e),
   overlays: (key: string) => request<Overlay[]>('GET', `${ch(key)}/overlays`),
   saveOverlays: (key: string, list: Overlay[]) => request<Overlay[]>('POST', `${ch(key)}/overlays`, list),
-  stats: (key: string, days: number) =>
-    request<Stats>('GET', `${ch(key)}/stats?days=${days}&tz=${new Date().getTimezoneOffset()}`),
+  /** `days` 0 is all time; `end` is how many days before today the range stops. */
+  stats: (key: string, days: number, end = 0) =>
+    request<Stats>('GET', `${ch(key)}/stats?days=${days}&end=${end}&tz=${new Date().getTimezoneOffset()}`),
   streams: (key: string) => request<{ live: Recap | null; past: Recap[] }>('GET', `${ch(key)}/streams`),
   media: (key: string) => request<MediaFile[]>('GET', `${ch(key)}/media`),
   uploadMedia: (key: string, file: File) =>

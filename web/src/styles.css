@@ -60,9 +60,9 @@
   --tint: 9%;
   --tint-border: 18%;
 
-  --r-xl: 18px;
-  --r-lg: 14px;
-  --r: 10px;
+  --r-xl: 20px;
+  --r-lg: 12px;
+  --r: 12px;
   --r-sm: 8px;
   --pill: 999px;
   --ease: cubic-bezier(.2, .7, .2, 1);
@@ -283,7 +283,7 @@ h1, h2, h3, p { margin: 0; }
   padding: 16px 18px; border-radius: 12px; --c: var(--sub);
   background: color-mix(in srgb, var(--c) 16%, var(--surface));
   border: 1px solid color-mix(in srgb, var(--c) 45%, var(--border));
-  animation: float 6s ease-in-out infinite;
+  animation: float 2.2s ease-in-out infinite;
 }
 .preview-alert .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, var(--c) 65%, var(--text)); font-weight: 600; }
 .preview-alert .name { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }

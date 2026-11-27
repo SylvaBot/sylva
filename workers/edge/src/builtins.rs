@@ -241,6 +241,16 @@ impl ChannelDo {
     ) -> Result<String> {
         let channel = ask.channel;
         Ok(match name {
+            "tip" => match (self.config("site")?, self.channel_login()?) {
+                (Some(site), Some(login)) if self.tips_open()? => {
+                    format!("Tip {channel} at {site}/tip/{login}")
+                }
+                _ => String::new(),
+            },
+            "profile" => match (self.config("site")?, self.channel_login()?) {
+                (Some(site), Some(login)) => format!("{channel} on Sylva: {site}/{login}"),
+                _ => String::new(),
+            },
             "chatstats" => match (self.config("site")?, self.channel_login()?) {
                 (Some(site), Some(login)) => {
                     format!("Chat stats for {channel}: {site}/c/{login}")

@@ -451,11 +451,16 @@ impl ChannelDo {
         None
     }
 
+    /// Whether viewers can tip right now.
+    pub(crate) fn tips_open(&self) -> Result<bool> {
+        Ok(self.tip_settings()?.enabled
+            && self.stripe_account()?.is_some_and(|a| a.charges_enabled))
+    }
+
     /// `GET /public/profile`: which parts of the channel page have something
     /// to show.
     pub(crate) async fn public_profile(&self) -> Result<Value> {
-        let tips = self.tip_settings()?.enabled
-            && self.stripe_account()?.is_some_and(|a| a.charges_enabled);
+        let tips = self.tips_open()?;
         Ok(json!({
             "bot": self.public_commands()?.is_some(),
             "points": self.loyalty_settings()?.enabled,

@@ -279,6 +279,28 @@ pub const BUILTINS: &[Builtin] = &[
             10,
         )
     },
+    Builtin {
+        aliases: &["donate", "tips", "donation"],
+        ..b(
+            "tip",
+            Info,
+            "Links to this channel's tip page, when tips are set up",
+            "!tip",
+            Everyone,
+            10,
+        )
+    },
+    Builtin {
+        aliases: &["page"],
+        ..b(
+            "profile",
+            Info,
+            "Links to this channel's Sylva page: profile, leaderboard and commands",
+            "!profile",
+            Everyone,
+            10,
+        )
+    },
     b(
         "uptime",
         Info,

@@ -506,7 +506,8 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
         mode: 'payment',
         amount: Math.max(minor, 1),
         currency: currency.toLowerCase(),
-        excludedPaymentMethodTypes: page.excluded,
+        // An allow list, so nothing Stripe turns on later (like Klarna) shows up.
+        ...(page.allowed?.length ? { allowedPaymentMethodTypes: page.allowed } : { excludedPaymentMethodTypes: page.excluded }),
         appearance: {
           theme: light ? 'stripe' : 'night',
           variables: {

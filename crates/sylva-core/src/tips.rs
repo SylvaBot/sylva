@@ -80,6 +80,30 @@ pub const METHOD_ORDER: &[&str] = &[
     "link",
 ];
 
+/// The only payment method types the tip page's form may show. An allow
+/// list, so a method Stripe adds or turns on later (Klarna, for one) never
+/// appears on its own. Apple Pay and Google Pay come with `card`. The
+/// server still sends EXCLUDED_METHODS when it charges.
+pub const ALLOWED_METHODS: &[&str] = &[
+    "card",
+    "link",
+    "ideal",
+    "bancontact",
+    "blik",
+    "eps",
+    "p24",
+    "twint",
+    "swish",
+    "pix",
+    "promptpay",
+    "paynow",
+    "grabpay",
+    "fpx",
+    "oxxo",
+    "boleto",
+    "konbini",
+];
+
 /// The Stripe API version Sylva is written against.
 pub const STRIPE_VERSION: &str = "2025-03-31.basil";
 
@@ -1069,6 +1093,14 @@ mod tests {
         assert_eq!(to_minor(500.0, jpy), Some(500));
         assert_eq!(to_minor(500.5, jpy), None);
         assert_eq!(from_minor(525, usd()), 5.25);
+    }
+
+    #[test]
+    fn allowed_never_excluded() {
+        for m in ALLOWED_METHODS {
+            assert!(!EXCLUDED_METHODS.contains(m), "{m} is both allowed and excluded");
+        }
+        assert!(EXCLUDED_METHODS.contains(&"klarna"));
     }
 
     #[test]

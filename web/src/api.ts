@@ -50,7 +50,7 @@ export interface TipsView {
 export interface TipCurrency { code: string; decimals: number; min: number; max: number; firstMax: number; suggested: number[] }
 export interface PublicTipPage {
   open: boolean; account: string | null; currency: string; baseCurrency: string; currencies: TipCurrency[];
-  excluded: string[]; order: string[]; messageMax: number; nameMax: number; note: string;
+  excluded: string[]; allowed?: string[]; order: string[]; messageMax: number; nameMax: number; note: string;
   login: string; name: string; avatar: string; publishableKey?: string; testMode?: boolean;
   top?: { name: string; amount: number }[];
   key?: string; banner?: string; look?: TipLook;

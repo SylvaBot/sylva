@@ -131,6 +131,32 @@ pub(crate) async fn stripe(
     Ok((status, body))
 }
 
+/// One call to Stripe's v2 API (JSON bodies), used for connected accounts.
+pub(crate) async fn stripe_v2(
+    env: &Env,
+    method: Method,
+    path: &str,
+    body: Option<&Value>,
+) -> Result<(u16, Value)> {
+    let key = env.secret("STRIPE_SECRET_KEY")?.to_string();
+    let headers = Headers::new();
+    headers.set("Authorization", &format!("Bearer {key}"))?;
+    headers.set("Stripe-Version", rules::STRIPE_V2_VERSION)?;
+    let mut init = RequestInit::new();
+    if let Some(b) = body {
+        headers.set("Content-Type", "application/json")?;
+        init.with_body(Some(serde_json::to_string(b)?.into()));
+    }
+    init.with_method(method).with_headers(headers);
+    let url = format!("https://api.stripe.com/v2{path}");
+    let mut res = Fetch::Request(Request::new_with_init(&url, &init)?)
+        .send()
+        .await?;
+    let status = res.status_code();
+    let body = res.json::<Value>().await.unwrap_or(Value::Null);
+    Ok((status, body))
+}
+
 fn stripe_error(v: &Value) -> String {
     v["error"]["message"]
         .as_str()
@@ -969,7 +995,7 @@ impl ChannelDo {
             "account.updated" => {
                 if let Some(mut a) = self.stripe_account()? {
                     if obj["id"].as_str() == Some(a.id.as_str()) {
-                        self.read_account(&mut a, obj).await?;
+                        self.refresh_account(&mut a).await?;
                     }
                 }
             }
@@ -1403,14 +1429,48 @@ impl ChannelDo {
     }
 
     /// Bring the account's state up to date from Stripe's account object.
-    async fn read_account(&self, a: &mut AccountState, obj: &Value) -> Result<()> {
-        a.charges_enabled = obj["charges_enabled"].as_bool().unwrap_or(false);
-        a.details_submitted = obj["details_submitted"].as_bool().unwrap_or(false);
-        a.due = obj["requirements"]["currently_due"]
+    /// Read the account from Stripe's Accounts v2 API. Card payments being
+    /// `active` on the merchant configuration means tips can be taken.
+    async fn refresh_account(&self, a: &mut AccountState) -> Result<()> {
+        let (status, obj) = stripe_v2(
+            &self.env,
+            Method::Get,
+            &format!(
+                "/core/accounts/{}?include[0]=configuration.merchant&include[1]=identity&include[2]=requirements",
+                a.id
+            ),
+            None,
+        )
+        .await?;
+        if status != 200 {
+            console_warn!("Reading the Stripe account failed: {}", stripe_error(&obj));
+            return Ok(());
+        }
+        let card = &obj["configuration"]["merchant"]["capabilities"]["card_payments"];
+        a.charges_enabled = card["status"].as_str() == Some("active");
+        let details = card["status_details"]
             .as_array()
             .map_or(0, |d| d.len() as u32);
-        if let Some(c) = obj["country"].as_str() {
-            a.country = c.into();
+        let entries = obj["requirements"]["entries"].as_array().map_or(0, |e| {
+            e.iter()
+                .filter(|x| x["minimum_deadline"]["status"].as_str() != Some("eventually_due"))
+                .count() as u32
+        });
+        a.due = if a.charges_enabled {
+            entries
+        } else {
+            details.max(entries)
+        };
+        // Onboarding was sent in once Stripe has anything beyond "fill this in".
+        a.details_submitted = a.charges_enabled
+            || card["status_details"].as_array().is_some_and(|d| {
+                d.iter().all(|x| {
+                    x["code"].as_str() != Some("requirements_past_due")
+                        && x["resolution"].as_str() != Some("provide_info")
+                })
+            });
+        if let Some(c) = obj["identity"]["country"].as_str() {
+            a.country = c.to_ascii_uppercase();
         }
         self.save_account(a)?;
         Ok(())
@@ -1455,18 +1515,7 @@ impl ChannelDo {
         let mut account = self.stripe_account()?;
         if let (true, Some(a)) = (ready, account.as_mut()) {
             if !a.charges_enabled || a.due > 0 {
-                let (status, obj) = stripe(
-                    &self.env,
-                    Method::Get,
-                    &format!("/accounts/{}", a.id),
-                    None,
-                    None,
-                    None,
-                )
-                .await?;
-                if status == 200 {
-                    self.read_account(a, &obj).await?;
-                }
+                self.refresh_account(a).await?;
             }
             self.register_domain(a, host).await?;
         }
@@ -1534,32 +1583,22 @@ impl ChannelDo {
                 if !rules::STRIPE_COUNTRIES.contains(&country.as_str()) {
                     return error("Pick the country you live in.", 400);
                 }
-                let login = self.config("channel_login")?.unwrap_or_default();
-                let mut form = Form::new()
-                    .add("country", &country)
-                    .add("controller[stripe_dashboard][type]", "full")
-                    .add("controller[fees][payer]", "account")
-                    .add("controller[losses][payments]", "stripe")
-                    .add(
-                        "business_profile[product_description]",
-                        "Tips from viewers of my Twitch stream",
-                    )
-                    .add("metadata[sylva_channel]", self.key().unwrap_or_default());
-                if !login.is_empty() {
-                    form.push(
-                        "business_profile[url]",
-                        format!("https://twitch.tv/{login}"),
-                    );
-                }
-                let (status, v) = stripe(
-                    &self.env,
-                    Method::Post,
-                    "/accounts",
-                    None,
-                    Some(&form),
-                    None,
-                )
-                .await?;
+                let name = self.channel_name()?;
+                let body = json!({
+                    "display_name": name,
+                    "dashboard": "full",
+                    "identity": { "country": country.to_ascii_lowercase() },
+                    "configuration": {
+                        "merchant": { "capabilities": { "card_payments": { "requested": true } } }
+                    },
+                    "defaults": {
+                        "responsibilities": { "fees_collector": "stripe", "losses_collector": "stripe" }
+                    },
+                    "metadata": { "sylva_channel": self.key().unwrap_or_default() },
+                    "include": ["configuration.merchant", "identity"],
+                });
+                let (status, v) =
+                    stripe_v2(&self.env, Method::Post, "/core/accounts", Some(&body)).await?;
                 if !(200..300).contains(&status) {
                     console_error!("Making a Stripe account failed: {}", stripe_error(&v));
                     return error(&format!("Stripe said: {}", stripe_error(&v)), 502);
@@ -1586,20 +1625,19 @@ impl ChannelDo {
                 a
             }
         };
-        let form = Form::new()
-            .add("account", &account.id)
-            .add("type", "account_onboarding")
-            .add("refresh_url", format!("{origin}/app/tips?stripe=again"))
-            .add("return_url", format!("{origin}/app/tips?stripe=back"));
-        let (status, v) = stripe(
-            &self.env,
-            Method::Post,
-            "/account_links",
-            None,
-            Some(&form),
-            None,
-        )
-        .await?;
+        let body = json!({
+            "account": account.id,
+            "use_case": {
+                "type": "account_onboarding",
+                "account_onboarding": {
+                    "configurations": ["merchant"],
+                    "refresh_url": format!("{origin}/app/tips?stripe=again"),
+                    "return_url": format!("{origin}/app/tips?stripe=back"),
+                }
+            }
+        });
+        let (status, v) =
+            stripe_v2(&self.env, Method::Post, "/core/account_links", Some(&body)).await?;
         if !(200..300).contains(&status) {
             return error(&format!("Stripe said: {}", stripe_error(&v)), 502);
         }

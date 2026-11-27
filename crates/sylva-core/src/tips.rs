@@ -83,6 +83,9 @@ pub const METHOD_ORDER: &[&str] = &[
 /// The Stripe API version Sylva is written against.
 pub const STRIPE_VERSION: &str = "2025-03-31.basil";
 
+/// The version sent with Stripe's v2 API (Accounts v2 for streamers' accounts).
+pub const STRIPE_V2_VERSION: &str = "2026-11-18.endive";
+
 /// Longest tip message, in characters.
 pub const MESSAGE_MAX: usize = 255;
 /// Longest tipper name, in characters.

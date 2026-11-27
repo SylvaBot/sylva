@@ -92,7 +92,7 @@ async fn polly(env: &Env, text: &str) -> Result<Vec<u8>> {
         .map(|v| v.to_string())
         .ok()
         .filter(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
-        .unwrap_or_else(|| "us-east-1".into());
+        .unwrap_or_else(|| "us-east-2".into());
     let host = format!("polly.{region}.amazonaws.com");
     let body = json!({
         "Engine": "standard",

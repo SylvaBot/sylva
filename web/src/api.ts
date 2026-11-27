@@ -33,6 +33,7 @@ export interface TipSettings {
   hold: HoldMode; holdOver: number; holdFirst: boolean; holdUnverified: boolean; delaySeconds: number;
   mismatch: 'allow' | 'hold' | 'block'; refundOnWarning: boolean; autoEvidence: boolean;
   tts: boolean; ttsMin: number; ttsLang: string; note: string;
+  avatar: string; banner: string; background: string; bgColor: string; bgTile: boolean; tileSize: number;
 }
 export interface Tip {
   id: string; name: string; message: string; amount: number; currency: string; base: number; email: string;
@@ -52,7 +53,9 @@ export interface PublicTipPage {
   excluded: string[]; order: string[]; messageMax: number; nameMax: number; note: string;
   login: string; name: string; avatar: string; publishableKey?: string; testMode?: boolean;
   top?: { name: string; amount: number }[];
+  key?: string; banner?: string; look?: TipLook;
 }
+export interface TipLook { avatar: string; banner: string; background: string; bgColor: string; bgTile: boolean; tileSize: number }
 
 export interface AlertState {
   paused: boolean;

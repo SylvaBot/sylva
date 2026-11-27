@@ -507,6 +507,7 @@ async fn public_channel(
         login: text("login"),
         name: text("display_name"),
         avatar: text("profile_image_url"),
+        banner: text("offline_image_url"),
     }))
 }
 

@@ -10,6 +10,8 @@ import { countryName, methodName, money } from './tips';
 import { PageHead } from './pages';
 import { ArmedButton, errorText, Gate, Icon, SaveState, Seg as UiSeg, Sect, SkelCard, Switch as UiSwitch, Tile, useAutosave, useToast } from './ui';
 import { useDemo, VoiceGrid } from './voices';
+import { Select } from './dropdown';
+import { createPortal } from 'react-dom';
 
 
 
@@ -172,9 +174,8 @@ export function TipsPage() {
               <p>Viewers pay with cards, Apple Pay, Google Pay and local methods from around the world. Money goes straight to you. Sylva never holds it and takes no cut.</p>
             </div>
             <Gate on={ch.can.own} className="ta-connect">
-              <select className="ta-select" aria-label="Where you live" value={country} onChange={(e) => setCountry(e.target.value)}>
-                {[...view.countries].sort((a, b) => countryName(a).localeCompare(countryName(b))).map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
-              </select>
+              <Select className="ta-select" label="Where you live" value={country} onChange={setCountry}
+                options={[...view.countries].sort((a, b) => countryName(a).localeCompare(countryName(b))).map((c) => ({ value: c, label: countryName(c) }))} />
               <button className="btn primary" type="button" disabled={busy || !view.platformReady} onClick={() => void connect()}>Connect Stripe</button>
             </Gate>
           </section>
@@ -405,9 +406,8 @@ function PageTab({ draft, set, files, upload, channel, name, twitchAvatar, twitc
         <Sect title="Amounts" desc="Viewers paying in another currency see these converted and rounded.">
           <Row label="Take tips"><Switch on={draft.enabled} label="Take tips" set={(v) => set({ enabled: v })} /></Row>
           <Row label="Your currency">
-            <select className="ta-select" value={draft.currency} onChange={(e) => set({ currency: e.target.value })}>
-              {currencies.map((c) => <option key={c}>{c}</option>)}
-            </select>
+            <Select className="ta-select" label="Currency" value={draft.currency} onChange={(v) => set({ currency: v })}
+              options={currencies.map((c) => ({ value: c, label: c }))} />
           </Row>
           <Row label="Buttons" hint="Up to 6 amounts." stack>
             <AmountChips values={draft.suggested} currency={draft.currency} onChange={(v) => set({ suggested: v })} />
@@ -449,7 +449,7 @@ function ImageMenu({ x, y, title, defaults, value, images, channel, onPick, onUp
     ref.current?.querySelector<HTMLElement>('button')?.focus();
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
   }, [onClose]);
-  return (
+  return createPortal(
     <div ref={ref} className="ta-menu" role="dialog" aria-label={title} style={{ left: x, top: y }}>
       <div className="ta-menu-title">{title}</div>
       <button type="button" className="ta-menu-item" onClick={onUpload}><Icon id="upload" />Upload and edit</button>
@@ -468,7 +468,8 @@ function ImageMenu({ x, y, title, defaults, value, images, channel, onPick, onUp
           ))}
         </div>
       </>}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -586,9 +587,8 @@ function VoiceSettings({ view, draft, set }: { view: TipsView; draft: TipSetting
         <button type="button" className="vp-play" aria-label={`${playing ? 'Stop' : 'Play'} the default voice`} aria-pressed={playing} onClick={() => demo.toggle(draft.ttsVoice)}>
           <Icon id={playing ? 'pause' : 'play'} />
         </button>
-        <select className="ta-select" value={draft.ttsVoice} onChange={(e) => set({ ttsVoice: e.target.value })} aria-label="Default voice">
-          {pickable.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
+        <Select className="ta-select" label="Default voice" value={draft.ttsVoice} onChange={(v) => set({ ttsVoice: v })}
+          options={pickable.map((v) => ({ value: v.id, label: v.name }))} />
       </span>
     </Row>
     <Row label="Voices tippers can pick" hint={`${allowed.length} of ${all.length} on. Press play to hear one.`} stack>

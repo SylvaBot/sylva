@@ -7,6 +7,7 @@ import { api, mediaUrl, type PublicTipPage } from './api';
 import { Link } from './router';
 import { Avatar, errorText, Icon, SkelRows } from './ui';
 import { VoiceGrid } from './voices';
+import { Select } from './dropdown';
 
 
 export function money(amount: number, currency: string) {
@@ -276,14 +277,12 @@ export function PublicTipPage({ login }: { login: string; signedIn?: boolean }) 
                 <div className="tip-section">
                   <div className="tip-label-row">
                     <span className="tip-label">Amount</span>
-                    <select className="tip-currency" aria-label="Currency" value={currency} onChange={(e) => {
-                      const next = page.currencies.find((c) => c.code === e.target.value);
-                      setCurrency(e.target.value);
+                    <Select className="sm tip-currency" label="Currency" value={currency} onChange={(code) => {
+                      const next = page.currencies.find((c) => c.code === code);
+                      setCurrency(code);
                       setCustom(false);
                       if (next?.suggested.length) setAmountText(String(next.suggested[Math.min(1, next.suggested.length - 1)]));
-                    }}>
-                      {page.currencies.map((c) => <option key={c.code}>{c.code}</option>)}
-                    </select>
+                    }} options={page.currencies.map((c) => ({ value: c.code, label: c.code }))} />
                   </div>
                   <div className="tip-amounts" role="group" aria-label="Amount">
                     {chips.map((v) => (

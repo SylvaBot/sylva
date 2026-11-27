@@ -4,12 +4,13 @@
 // can switch between tips, followers, subs, bits, raids and redemptions.
 // Numbers come from the channel's own log (workers/edge/src/stats.rs).
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type StatTotals, type Stats } from './api';
 import { useChannel } from './channel';
 import { niceMax, short, useWidth } from './charts';
 import { PageHead } from './pages';
 import { Icon, num, Seg, Skel } from './ui';
+import { Floating, Select } from './dropdown';
 
 type Range = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
 type Metric = 'tips' | 'follows' | 'subs' | 'bits' | 'raids' | 'redemptions';
@@ -112,6 +113,8 @@ export function HomePage() {
   const today = isoDay(new Date());
   const [custom, setCustom] = useState({ from: isoDay(addDays(new Date(), -13)), to: today });
   const [picking, setPicking] = useState(false);
+  const dateBtn = useRef<HTMLButtonElement>(null);
+  const closeDates = useCallback(() => setPicking(false), []);
   const [metric, setMetric] = useState<Metric>('follows');
   const [data, setData] = useState<{ key: string; stats: Stats; compare: StatTotals | null } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -181,17 +184,18 @@ export function HomePage() {
           onChange={(r) => { setRange(r); setPicking(false); }}
         />
         <div className="pop-wrap">
-          <button className={'btn' + (range === 'custom' ? ' primary' : '')} type="button" aria-expanded={picking} aria-label="Custom dates" onClick={() => setPicking(!picking)}>
+          <button ref={dateBtn} className={'btn' + (range === 'custom' ? ' primary' : '')} type="button" aria-expanded={picking} aria-label="Custom dates" onClick={() => setPicking(!picking)}>
             <Icon id="calendar" /><span className="wide-only">Custom dates</span>
           </button>
           {picking && (
+            <Floating anchor={dateBtn} onClose={closeDates}>
             <DatePop
               from={custom.from}
               to={custom.to}
               max={today}
-              onClose={() => setPicking(false)}
               onApply={(from, to) => { setCustom({ from, to }); setRange('custom'); setPicking(false); }}
             />
+            </Floating>
           )}
         </div>
       </PageHead>
@@ -288,12 +292,10 @@ function PerDay({ stats, metric, setMetric, money, today }: {
           <p>{!data ? <Skel w={220} h={11} /> : best ? `Best ${unit}: ${best.long}, ${fmt(best.value)}` : `No ${metric === 'tips' ? 'tips' : m.many} in this range yet`}</p>
         </div>
         <div className="wide-only"><Seg label="Chart shows" options={METRICS.map((x) => ({ id: x.id, label: x.label }))} value={metric} onChange={setMetric} /></div>
-        <label className="phone-only">
-          <span className="sr-only">Chart shows</span>
-          <select className="select sm" value={metric} onChange={(e) => setMetric(e.target.value as Metric)}>
-            {METRICS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-          </select>
-        </label>
+        <div className="phone-only">
+          <Select<Metric> className="sm" label="Chart shows" value={metric} onChange={setMetric}
+            options={METRICS.map((x) => ({ value: x.id, label: x.label }))} />
+        </div>
       </div>
       {table && data ? (
         <div className="per-day-table">
@@ -405,20 +407,12 @@ function Bars({ list, best, fmt, title, money }: { list: Bucket[] | null; best: 
 }
 
 /** From and to dates for a custom range. */
-function DatePop({ from, to, max, onApply, onClose }: { from: string; to: string; max: string; onApply(from: string, to: string): void; onClose(): void }) {
+function DatePop({ from, to, max, onApply }: { from: string; to: string; max: string; onApply(from: string, to: string): void }) {
   const [a, setA] = useState(from);
   const [b, setB] = useState(to);
-  const box = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    const away = (e: Event) => { if (!box.current?.parentElement?.contains(e.target as Node)) onClose(); };
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    addEventListener('pointerdown', away);
-    addEventListener('keydown', esc);
-    return () => { removeEventListener('pointerdown', away); removeEventListener('keydown', esc); };
-  }, [onClose]);
   const okay = a && b && a <= b && b <= max && daysBetween(fromIso(a), fromIso(b)) < 3660;
   return (
-    <form ref={box} className="pop date-pop" onSubmit={(e) => { e.preventDefault(); if (okay) onApply(a, b); }}>
+    <form className="pop date-pop" onSubmit={(e) => { e.preventDefault(); if (okay) onApply(a, b); }}>
       <label className="field">From<input className="input" type="date" value={a} max={b || max} onChange={(e) => setA(e.target.value)} required /></label>
       <label className="field">To<input className="input" type="date" value={b} min={a} max={max} onChange={(e) => setB(e.target.value)} required /></label>
       <button className="btn primary" type="submit" disabled={!okay}>Show these dates</button>

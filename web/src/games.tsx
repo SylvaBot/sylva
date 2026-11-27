@@ -11,6 +11,7 @@ import { NumberField } from './moderation';
 import { Card } from './pages';
 import { Link } from './router';
 import { errorText, Gate, num, SkelCard, useToast } from './ui';
+import { Select } from './dropdown';
 
 const MAX_BET = 10_000_000;
 type GameKey = 'gamble' | 'roulette' | 'slots' | 'blackjack' | 'duel';
@@ -151,9 +152,8 @@ export function GamesTab() {
                     <div className="game-fields">
                       <label className="field" htmlFor={`game-${k}-level`}>
                         Who can play
-                        <select id={`game-${k}-level`} className="select" value={l.level} onChange={(e) => setRule(k, { level: e.target.value as UserLevel })}>
-                          {LEVELS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-                        </select>
+                        <Select<UserLevel> id={`game-${k}-level`} value={l.level} onChange={(v) => setRule(k, { level: v })}
+                          options={LEVELS.map((x) => ({ value: x.id, label: x.label }))} />
                       </label>
                       <div className="field"><span>Seconds per viewer</span><NumberField label={`${CMD[k].cmd}: seconds per viewer`} value={l.cooldown} min={0} max={3600} onChange={(n) => setRule(k, { cooldown: n })} /></div>
                       <div className="field"><span>Seconds for everyone</span><NumberField label={`${CMD[k].cmd}: seconds for everyone`} value={l.globalCooldown} min={0} max={3600} onChange={(n) => setRule(k, { globalCooldown: n })} /></div>

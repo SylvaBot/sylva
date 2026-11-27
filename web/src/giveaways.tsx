@@ -9,6 +9,7 @@ import { NumberField } from './moderation';
 import { Card, PageHead } from './pages';
 import { Link } from './router';
 import { errorText, Gate, Icon, num, SkelCard, useToast } from './ui';
+import { Select } from './dropdown';
 
 const LEVELS: { id: UserLevel; label: string }[] = [
   { id: 'everyone', label: 'Everyone' },
@@ -96,15 +97,13 @@ function Start({ view, onView }: { view: GiveawaysView; onView(v: GiveawaysView)
         </label>
         <label className="field" htmlFor="give-level">
           Who can enter
-          <select id="give-level" className="select" value={draft.level} onChange={(e) => set({ level: e.target.value as UserLevel })}>
-            {LEVELS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-          </select>
+          <Select<UserLevel> id="give-level" value={draft.level} onChange={(v) => set({ level: v })}
+            options={LEVELS.map((l) => ({ value: l.id, label: l.label }))} />
         </label>
         <label className="field" htmlFor="give-luck">
           Subscriber luck
-          <select id="give-luck" className="select" value={draft.subLuck} onChange={(e) => set({ subLuck: Number(e.target.value) })}>
-            {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n === 1 ? 'Same chance as everyone' : `${n} times the chance`}</option>)}
-          </select>
+          <Select<number> id="give-luck" value={draft.subLuck} onChange={(v) => set({ subLuck: v })}
+            options={[1, 2, 3, 4, 5].map((n) => ({ value: n, label: n === 1 ? 'Same chance as everyone' : `${n} times the chance` }))} />
         </label>
         <div className="field">
           <span id="give-cost-label">Entry cost</span>

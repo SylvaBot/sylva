@@ -20,6 +20,7 @@ import { Link, navigate } from './router';
 import { SettingsWindow, type SettingsSection } from './settings';
 import { TipsPage } from './tipsAdmin';
 import { Avatar, errorText, Icon, Leaf, useToast } from './ui';
+import { Select } from './dropdown';
 
 interface Page { path: string; label: string; icon: string; view: ComponentType; group: string; nav?: string }
 
@@ -124,7 +125,7 @@ export function Shell({ path }: { path: string }) {
       <aside ref={side} className="side" aria-label="Sylva">
         <Link className="side-brand" href="/app" aria-label="Sylva home"><Leaf size={24} />Sylva</Link>
         <button className="side-search" type="button" onClick={() => setPalette(true)} aria-keyshortcuts="Control+K Meta+K">
-          <Icon id="search" /><span>Search or jump</span><span className="kbd">Ctrl K</span>
+          <Icon id="search" /><span>Search</span><span className="kbd">Ctrl K</span>
         </button>
         <nav className="side-nav" aria-label="Pages">
           {PAGES.map((p, i) => (
@@ -138,16 +139,10 @@ export function Shell({ path }: { path: string }) {
         </nav>
         <div className="side-foot">
           {ch.channels.length > 1 && (
-            <label className="side-channel">
-              <span className="sr-only">Channel</span>
-              <select className="select sm" value={ch.key} onChange={(e) => ch.switchTo(e.target.value)}>
-                {ch.channels.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {(c.name || c.login || 'Your channel') + (c.role === 'owner' ? '' : ` (${ROLE_NAMES[c.role]})`)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="side-channel">
+              <Select className="sm" style={{ width: '100%' }} label="Channel" value={ch.key} onChange={(k) => ch.switchTo(k)}
+                options={ch.channels.map((c) => ({ value: c.key, label: (c.name || c.login || 'Your channel') + (c.role === 'owner' ? '' : ` (${ROLE_NAMES[c.role]})`) }))} />
+            </div>
           )}
           <div className="side-me">
             <Avatar name={ch.you} url={ch.twitch?.avatar} />
@@ -165,7 +160,7 @@ export function Shell({ path }: { path: string }) {
             <Icon id="menu" />
           </button>
           <Link className="side-brand" href="/app" aria-label="Sylva home"><Leaf size={22} />Sylva</Link>
-          <button className="icon-btn" type="button" aria-label="Search or jump" onClick={() => setPalette(true)}>
+          <button className="icon-btn" type="button" aria-label="Search" onClick={() => setPalette(true)}>
             <Icon id="search" />
           </button>
         </header>
@@ -211,7 +206,7 @@ function Palette({ pages, onClose, openSettings }: { pages: Page[]; onClose(): v
   ];
   return (
     <div className="palette-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <Command className="palette" label="Search or jump" loop onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <Command className="palette" label="Search" loop onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="palette-input"><Icon id="search" /><Command.Input autoFocus placeholder="Search pages and actions" /></div>
         <Command.List>
           <Command.Empty>Nothing by that name.</Command.Empty>

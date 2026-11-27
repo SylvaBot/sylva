@@ -3,7 +3,7 @@
 // and Chat are built in. Any overlay can play sounds, and its settings are a
 // plain form. Saved as you go (workers/edge/src/overlays.rs).
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, isSound, mediaUrl, type CustomCode, type MediaFile, type Overlay, type OverlaySound, type SoundOn } from './api';
 import { useChannel } from './channel';
 import { useWidth } from './charts';
@@ -12,6 +12,7 @@ import { Card, PageHead, remember } from './pages';
 import { Link } from './router';
 import { errorText, Icon, num, Skel, useToast } from './ui';
 import { PILL_ALERTS, TWITCH_CHAT } from './widgets';
+import { Floating, Select } from './dropdown';
 
 const BUILTIN: Record<'alerts' | 'chat', CustomCode> = { alerts: PILL_ALERTS, chat: TWITCH_CHAT };
 const MAX = 24;
@@ -70,6 +71,8 @@ function Overlays() {
   const [save, setSave] = useState<'saved' | 'saving' | 'error'>('saved');
   const [armed, setArmed] = useState(false);
   const [adding, setAdding] = useState(false);
+  const addBtn = useRef<HTMLButtonElement>(null);
+  const closeAdding = useCallback(() => setAdding(false), []);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const disarm = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -165,15 +168,17 @@ function Overlays() {
           </button>
         )}
         <div className="filter-wrap">
-          <button className="btn primary" type="button" disabled={!list || list.length >= MAX} aria-expanded={adding} onClick={() => setAdding(!adding)}>
+          <button ref={addBtn} className="btn primary" type="button" disabled={!list || list.length >= MAX} aria-expanded={adding} onClick={() => setAdding(!adding)}>
             <Icon id="plus" />New overlay
           </button>
           {adding && (
+            <Floating anchor={addBtn} onClose={closeAdding}>
             <div className="filter-pop add-pop">
               <button className="filter-opt" type="button" onClick={() => add(PILL_ALERTS, 'Alerts copy')}><Icon id="bell" />Alerts<span className="count">Pill alerts</span></button>
               <button className="filter-opt" type="button" onClick={() => add(TWITCH_CHAT, 'Chat copy')}><Icon id="message" />Chat<span className="count">Twitch style</span></button>
               <button className="filter-opt" type="button" onClick={() => add(STARTER, 'My overlay')}><Icon id="code" />Your own code<span className="count">HTML, CSS, JS</span></button>
             </div>
+            </Floating>
           )}
         </div>
       </PageHead>
@@ -219,19 +224,14 @@ function Overlays() {
 function MoreMenu({ link, name, onDelete }: { link: string | null; name: string; onDelete?(): void }) {
   const [open, setOpen] = useState(false);
   const [armed, setArmed] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) { setArmed(false); return; }
-    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', key);
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key); };
-  }, [open]);
+  const btn = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useEffect(() => { if (!open) setArmed(false); }, [open]);
   return (
-    <div className="more-wrap" ref={box}>
-      <button className="btn sm icon" type="button" aria-label={`More for ${name}`} aria-expanded={open} onClick={() => setOpen(!open)}><Icon id="dots" /></button>
+    <div className="more-wrap">
+      <button ref={btn} className="btn sm icon" type="button" aria-label={`More for ${name}`} aria-expanded={open} onClick={() => setOpen(!open)}><Icon id="dots" /></button>
       {open && (
+        <Floating anchor={btn} onClose={close}>
         <div className="menu more-menu" role="menu">
           <a className="menu-item" role="menuitem" href={link ? link + '&debug' : undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!link} onClick={() => setOpen(false)}>
             <Icon id="external" />Open in a new tab
@@ -242,6 +242,7 @@ function MoreMenu({ link, name, onDelete }: { link: string | null; name: string;
             </button>
           )}
         </div>
+        </Floating>
       )}
     </div>
   );
@@ -367,13 +368,10 @@ function OverlayEditor({ o, link, save, onBack, onCopy, onChange, onDelete }: {
               <ul className="sound-list">
                 {o.sounds.map((s, i) => (
                   <li key={i}>
-                    <select className="select sm" aria-label="When" value={s.on} onChange={(e) => setSounds(o.sounds.map((x, j) => (j === i ? { ...x, on: e.target.value as SoundOn } : x)))}>
-                      {SOUND_ON.filter((x) => x.id !== 'alert' || code.alerts).map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-                    </select>
-                    <select className="select sm" aria-label="Sound" value={s.media} onChange={(e) => setSounds(o.sounds.map((x, j) => (j === i ? { ...x, media: e.target.value } : x)))}>
-                      {!sounds.some((m) => m.id === s.media) && <option value={s.media}>{s.media || 'Pick a sound'}</option>}
-                      {sounds.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                    </select>
+                    <Select<SoundOn> className="sm" label="When" value={s.on} onChange={(v) => setSounds(o.sounds.map((x, j) => (j === i ? { ...x, on: v } : x)))}
+                      options={SOUND_ON.filter((x) => x.id !== 'alert' || code.alerts).map((x) => ({ value: x.id, label: x.label }))} />
+                    <Select className="sm" label="Sound" value={s.media} onChange={(v) => setSounds(o.sounds.map((x, j) => (j === i ? { ...x, media: v } : x)))}
+                      options={[...(!sounds.some((m) => m.id === s.media) ? [{ value: s.media, label: s.media || 'Pick a sound' }] : []), ...sounds.map((m) => ({ value: m.id, label: m.name }))]} />
                     <input className="volume" type="range" min={0} max={1} step={0.05} aria-label="Volume" value={s.volume}
                       onChange={(e) => setSounds(o.sounds.map((x, j) => (j === i ? { ...x, volume: Number(e.target.value) } : x)))} />
                     <button className="icon-btn" type="button" aria-label="Play" disabled={!s.media}

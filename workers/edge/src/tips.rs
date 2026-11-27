@@ -709,7 +709,7 @@ impl ChannelDo {
         totals.sort_by(|a, b| b.2.total_cmp(&a.2));
         let top: Vec<Value> = totals
             .iter()
-            .take(3)
+            .take(5)
             .map(|t| json!({ "name": t.1, "amount": (t.2 * 100.0).round() / 100.0 }))
             .collect();
         Ok(json!({

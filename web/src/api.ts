@@ -289,6 +289,16 @@ export interface Redemption {
   id: number; itemId: string; itemName: string; cost: number; userId: string; login: string; name: string;
   input: string; at: number; status: 'pending' | 'done' | 'refunded'; doneAt?: number;
 }
+export interface MigrateBody {
+  source: 'nightbot' | 'fossabot' | 'file' | 'streamlabs' | 'other';
+  label: string;
+  login: string;
+  commands: { name: string; reply: string; level: 'everyone' | 'subscriber' | 'vip' | 'moderator' | 'broadcaster'; cooldown: number; userCooldown: number; aliases: string[]; enabled: boolean }[];
+  points: { login: string; n: number }[];
+  watchtime: { login: string; n: number }[];
+  tips: { name: string; amount: number; at: number }[];
+}
+export interface MigrateResult { commands: number; points: number; watchtime: number; tips: number; skipped: { what: string; why: string }[] }
 export interface ImportResult { counters: number; rewards: number; loyalty: boolean; chatMessages: number; commands: number; timers: number; points: number; watchtime: number; streams: number; activities: number; skipped: { what: string; why: string }[] }
 export interface PublicCommand {
   name: string; aliases: string[]; text: string; usage: string; level: UserLevel; cooldown: number; builtin: boolean;
@@ -442,6 +452,7 @@ export const api = {
     request<Redemption>('POST', `${ch(key)}/loyalty/redemptions/${id}/${action}`),
   importStreamElements: (key: string, body: { token: string } & Record<string, boolean | string>) =>
     request<ImportResult>('POST', `${ch(key)}/import/streamelements`, body),
+  importOther: (key: string, body: MigrateBody) => request<MigrateResult>('POST', `${ch(key)}/import/other`, body),
   tips: (key: string) => request<TipsView>('GET', `${ch(key)}/tips`),
   heldTips: (key: string) => request<Tip[]>('GET', `${ch(key)}/tips/held`),
   saveTipSettings: (key: string, s: TipSettings) => request<TipSettings>('POST', `${ch(key)}/tips/settings`, s),

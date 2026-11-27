@@ -50,6 +50,7 @@ mod grants;
 mod import;
 mod loyalty;
 mod media;
+mod migrate;
 mod moderation;
 mod nuke;
 mod overlays;
@@ -340,6 +341,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["overlays"])
                 | (Method::Post, ["scene", ..])
                 | (Method::Post, ["import", "streamelements"])
+                | (Method::Post, ["import", "other"])
                 | (Method::Get, ["tips"])
                 | (Method::Get, ["tips", "held"])
                 | (Method::Post, ["tips", ..])

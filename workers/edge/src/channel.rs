@@ -628,6 +628,15 @@ impl DurableObject for ChannelDo {
                     Err(m) => Response::error(m, 400),
                 }
             }
+            (Method::Post, ["import", "other"]) => {
+                let Ok(body) = req.json::<crate::migrate::MigrateRequest>().await else {
+                    return Response::error("That import could not be read", 400);
+                };
+                match self.import_other(body).await? {
+                    Ok(r) => Response::from_json(&r),
+                    Err(m) => Response::error(m, 400),
+                }
+            }
             (Method::Get, ["public", "chatstats"]) => Response::from_json(&self.chat_stats()?),
             (Method::Get, ["public", "profile"]) => Response::from_json(&self.public_profile().await?),
             (Method::Get, ["public", "commands"]) => match self.public_commands()? {

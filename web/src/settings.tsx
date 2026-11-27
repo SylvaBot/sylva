@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError, type AppToken, type FeatureStatus } from './api';
 import { useChannel } from './channel';
-import { ImportCard } from './import';
+import { MigrateCard } from './migrate';
 import { Link } from './router';
 import { TeamCard } from './team';
 import {
@@ -19,7 +19,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: string; owner?: bool
   { id: 'account', label: 'Account', icon: 'user', words: 'profile twitch events permissions delete account sign out' },
   { id: 'team', label: 'Team', icon: 'team', owner: true, words: 'moderators editors viewers people roles' },
   { id: 'apps', label: 'Connected apps', icon: 'plug', words: 'sylva desktop device tokens remove' },
-  { id: 'import', label: 'Import from StreamElements', icon: 'import', owner: true, words: 'move commands timers points watch time history jwt' },
+  { id: 'import', label: 'Import from another service', icon: 'import', owner: true, words: 'move migrate switch streamelements streamlabs nightbot fossabot moobot wizebot csv commands timers points watch time tips history jwt' },
   { id: 'appearance', label: 'Appearance', icon: 'palette', words: 'theme dark light system density compact clock 12 24 hour motion animation' },
 ];
 
@@ -86,7 +86,7 @@ export function SettingsWindow({ section, onSection, onClose }: { section: Setti
             {current.id === 'account' && <AccountSection />}
             {current.id === 'team' && <TeamCard />}
             {current.id === 'apps' && <ConnectedApps />}
-            {current.id === 'import' && <ImportCard />}
+            {current.id === 'import' && <MigrateCard />}
             {current.id === 'appearance' && <Appearance />}
           </div>
         </div>

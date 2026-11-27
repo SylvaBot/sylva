@@ -661,7 +661,44 @@ impl ChannelDo {
             })
             .collect();
         let guess = rules::currency_for_country(country).unwrap_or(base.code);
+        // Top tippers over the last 7 days, by total in the streamer's currency.
+        #[derive(Deserialize)]
+        struct Top {
+            name: String,
+            base: f64,
+            email_hash: String,
+        }
+        let rows = self
+            .sql
+            .exec(
+                "SELECT name, base, email_hash FROM tips WHERE status = 'shown' AND blocked = 0
+                   AND released_at > ? AND (? OR id NOT LIKE 'tip_test_%')
+                 ORDER BY released_at",
+                vec![
+                    ((now() - 7 * 86_400_000) as f64).into(),
+                    (if test_mode(&self.env) { 1.0 } else { 0.0 }).into(),
+                ],
+            )?
+            .to_array::<Top>()?;
+        let mut totals: Vec<(String, String, f64)> = Vec::new();
+        for r in rows {
+            match totals.iter_mut().find(|t| t.0 == r.email_hash) {
+                // The latest name they tipped under.
+                Some(t) => {
+                    t.1 = r.name;
+                    t.2 += r.base;
+                }
+                None => totals.push((r.email_hash, r.name, r.base)),
+            }
+        }
+        totals.sort_by(|a, b| b.2.total_cmp(&a.2));
+        let top: Vec<Value> = totals
+            .iter()
+            .take(3)
+            .map(|t| json!({ "name": t.1, "amount": (t.2 * 100.0).round() / 100.0 }))
+            .collect();
         Ok(json!({
+            "top": top,
             "open": open,
             "account": account.map(|a| a.id),
             "currency": guess,

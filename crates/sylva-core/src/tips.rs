@@ -547,6 +547,18 @@ pub struct TipSettings {
     pub tts_voice: String,
     /// The voices tippers can pick from. Empty means all of them.
     pub tts_voices: Vec<String>,
+    /// What is read: `{name}`, `{amount}` and `{message}` are filled in.
+    pub tts_template: String,
+    /// The wait after the alert sound before the message is read.
+    pub tts_delay_ms: u32,
+    /// How loud the message is read, 0 to 100.
+    pub tts_volume: u8,
+    /// Messages are cut to this many characters.
+    pub tts_max_chars: u32,
+    /// Words never read aloud.
+    pub tts_words: Vec<String>,
+    /// What happens to a message with one of `tts_words`.
+    pub tts_word_mode: WordMode,
     /// Shown on the tip page above the form.
     pub note: String,
     /// The tip page's picture: an uploaded image id, or empty for the
@@ -563,6 +575,22 @@ pub struct TipSettings {
     pub bg_tile: bool,
     /// The width and height of one tile, in pixels.
     pub tile_size: u32,
+}
+
+pub const TTS_TEMPLATE: &str = "{name} tipped {amount}. {message}";
+pub const TTS_DELAY_MAX: u32 = 10_000;
+pub const TTS_CHARS_MIN: u32 = 20;
+pub const TTS_CHARS_MAX: u32 = 500;
+
+/// What happens to a tip message with a filtered word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum WordMode {
+    /// Read the message without the word.
+    #[default]
+    Remove,
+    /// Do not read the message at all.
+    Skip,
 }
 
 pub const TILE_MIN: u32 = 16;
@@ -606,6 +634,12 @@ impl Default for TipSettings {
             tts_min: 3.0,
             tts_voice: "af_heart".into(),
             tts_voices: Vec::new(),
+            tts_template: TTS_TEMPLATE.into(),
+            tts_delay_ms: 0,
+            tts_volume: 80,
+            tts_max_chars: 200,
+            tts_words: Vec::new(),
+            tts_word_mode: WordMode::Remove,
             note: String::new(),
             avatar: String::new(),
             banner: String::new(),
@@ -664,6 +698,50 @@ impl TipSettings {
             .iter()
             .filter(|v| self.tts_voices.is_empty() || self.tts_voices.iter().any(|x| x == v.id))
             .collect()
+    }
+
+    /// What is read aloud for a tip, or None when there is nothing to read.
+    pub fn speech(&self, name: &str, amount: &str, message: &str) -> Option<String> {
+        let blocked = |w: &str| {
+            let f = fold(w);
+            !f.is_empty() && self.tts_words.iter().any(|b| f.contains(b.as_str()))
+        };
+        let name = if name.split_whitespace().any(blocked) { "Someone" } else { name };
+        let mut words: Vec<&str> = message
+            .split_whitespace()
+            .filter(|w| {
+                let l = w.to_ascii_lowercase();
+                !(l.starts_with("http://") || l.starts_with("https://") || l.starts_with("www."))
+            })
+            .collect();
+        if words.iter().any(|w| blocked(w)) {
+            match self.tts_word_mode {
+                WordMode::Remove => words.retain(|w| !blocked(w)),
+                WordMode::Skip => words.clear(),
+            }
+        }
+        let max = self.tts_max_chars.clamp(TTS_CHARS_MIN, TTS_CHARS_MAX) as usize;
+        let mut msg = String::new();
+        for w in words {
+            let len = msg.chars().count() + usize::from(!msg.is_empty()) + w.chars().count();
+            if len > max {
+                if msg.is_empty() {
+                    msg = w.chars().take(max).collect();
+                }
+                break;
+            }
+            if !msg.is_empty() {
+                msg.push(' ');
+            }
+            msg.push_str(w);
+        }
+        let template = if self.tts_template.trim().is_empty() { TTS_TEMPLATE } else { &self.tts_template };
+        let out = template
+            .replace("{name}", name)
+            .replace("{amount}", amount)
+            .replace("{message}", &msg);
+        let out = out.split_whitespace().collect::<Vec<_>>().join(" ");
+        out.chars().any(char::is_alphanumeric).then_some(out)
     }
 
     /// The voice for a tip: the tipper's pick when allowed, else the default.
@@ -735,6 +813,30 @@ impl TipSettings {
         if !self.tts_voices.is_empty() && !self.tts_voices.contains(&self.tts_voice) {
             return bad("The default voice must be one tippers can pick.");
         }
+        self.tts_template = self.tts_template.split_whitespace().collect::<Vec<_>>().join(" ");
+        if self.tts_template.is_empty() {
+            self.tts_template = TTS_TEMPLATE.into();
+        }
+        if self.tts_template.chars().count() > 200 {
+            return bad("What's read can be up to 200 characters.");
+        }
+        if self.tts_delay_ms > TTS_DELAY_MAX {
+            return bad("The wait before reading can be up to 10 seconds.");
+        }
+        self.tts_volume = self.tts_volume.min(100);
+        self.tts_max_chars = self.tts_max_chars.clamp(TTS_CHARS_MIN, TTS_CHARS_MAX);
+        let mut words: Vec<String> = self
+            .tts_words
+            .iter()
+            .map(|w| fold(w))
+            .filter(|w| !w.is_empty())
+            .collect();
+        words.sort();
+        words.dedup();
+        if words.len() > 200 || words.iter().any(|w| w.chars().count() > 40) {
+            return bad("Filter up to 200 words of up to 40 letters each.");
+        }
+        self.tts_words = words;
         self.note = self.note.trim().chars().take(300).collect();
         if !(self.avatar.is_empty() || image_id(&self.avatar))
             || !(self.banner.is_empty() || self.banner == "none" || image_id(&self.banner))
@@ -1112,20 +1214,9 @@ pub fn spoken_amount(amount: f64, code: &str) -> String {
 }
 
 /// The text read aloud for a tip: no links, at most 200 characters.
-pub fn speech(name: &str, amount: &str, message: &str) -> String {
-    let words: Vec<&str> = message
-        .split_whitespace()
-        .filter(|w| {
-            let l = w.to_ascii_lowercase();
-            !(l.starts_with("http://") || l.starts_with("https://") || l.starts_with("www."))
-        })
-        .collect();
-    let msg: String = words.join(" ").chars().take(200).collect();
-    if msg.is_empty() {
-        format!("{name} tipped {amount}.")
-    } else {
-        format!("{name} tipped {amount}. {msg}")
-    }
+/// A word as compared with the filter: lower case letters and digits only.
+fn fold(w: &str) -> String {
+    w.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
 }
 
 #[cfg(test)]
@@ -1395,11 +1486,26 @@ mod tests {
     fn form_and_speech() {
         let f = Form::new().add("a[b][]", "x y").add("n", 5);
         assert_eq!(f.encode(), "a%5Bb%5D%5B%5D=x%20y&n=5");
-        assert_eq!(
-            speech("Ann", "5 dollars", "hi https://x.y there"),
-            "Ann tipped 5 dollars. hi there"
-        );
-        assert_eq!(speech("Ann", "5 dollars", " "), "Ann tipped 5 dollars.");
+        let mut s = TipSettings::default();
+        let say = |s: &TipSettings, m: &str| s.speech("Ann", "5 dollars", m);
+        assert_eq!(say(&s, "hi https://x.y there").as_deref(), Some("Ann tipped 5 dollars. hi there"));
+        assert_eq!(say(&s, " ").as_deref(), Some("Ann tipped 5 dollars."));
+        s.tts_template = "{message}".into();
+        assert_eq!(say(&s, "hello"), Some("hello".into()));
+        assert_eq!(say(&s, " "), None);
+        s.tts_words = vec!["darn".into()];
+        assert_eq!(say(&s, "oh DARNIT ok"), Some("oh ok".into()));
+        s.tts_word_mode = WordMode::Skip;
+        assert_eq!(say(&s, "oh darn ok"), None);
+        s.tts_template = TTS_TEMPLATE.into();
+        assert_eq!(s.speech("darn_it", "5 dollars", "hi").as_deref(), Some("Someone tipped 5 dollars. hi"));
+        s.tts_max_chars = 20;
+        assert_eq!(say(&s, "aaaa bbbb cccc dddd eeee").as_deref(), Some("Ann tipped 5 dollars. aaaa bbbb cccc dddd"));
+        let v = TipSettings { tts_words: vec![" Foo! ".into(), "foo".into(), "".into()], tts_template: "  ".into(), ..TipSettings::default() }
+            .validate()
+            .unwrap();
+        assert_eq!(v.tts_words, ["foo"]);
+        assert_eq!(v.tts_template, TTS_TEMPLATE);
         assert_eq!(spoken_amount(5.0, "USD"), "5 dollars");
         assert_eq!(spoken_amount(1.0, "EUR"), "1 euro");
         assert_eq!(spoken_amount(2.5, "GBP"), "2.50 pounds");

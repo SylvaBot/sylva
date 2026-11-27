@@ -1866,9 +1866,12 @@ impl ChannelDo {
         let event = self.event(event_seq)?;
         let mut view = self.alert_settings()?.view(&event.event);
         if let Some((id, ms)) = self.tip_speech(&event.event) {
+            let s = self.tip_settings().unwrap_or_default();
             view.tts = Some(id);
+            view.tts_delay_ms = s.tts_delay_ms;
+            view.tts_volume = Some(s.tts_volume);
             // Keep the alert up while its message is read.
-            view.duration_ms = view.duration_ms.max(ms + 1500);
+            view.duration_ms = view.duration_ms.max(ms + s.tts_delay_ms + 1500);
         }
         let frame = ServerFrame::Play {
             alert_id,

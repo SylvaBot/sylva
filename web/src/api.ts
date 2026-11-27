@@ -34,7 +34,9 @@ export interface TipSettings {
   enabled: boolean; currency: string; min: number; max: number; suggested: number[];
   hold: HoldMode; holdOver: number; holdFirst: boolean; holdUnverified: boolean; delaySeconds: number;
   mismatch: 'allow' | 'hold' | 'block'; refundOnWarning: boolean; autoEvidence: boolean;
-  tts: boolean; ttsMin: number; ttsVoice: string; ttsVoices: string[]; note: string;
+  tts: boolean; ttsMin: number; ttsVoice: string; ttsVoices: string[];
+  ttsTemplate: string; ttsDelayMs: number; ttsVolume: number; ttsMaxChars: number; ttsWords: string[]; ttsWordMode: 'remove' | 'skip';
+  note: string;
   avatar: string; banner: string; background: string; bgColor: string; bgTile: boolean; tileSize: number;
 }
 export interface Tip {

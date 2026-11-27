@@ -224,6 +224,8 @@ impl AlertSettings {
             image: k.image,
             volume: k.volume,
             tts: None,
+            tts_delay_ms: 0,
+            tts_volume: None,
         }
     }
 }
@@ -249,6 +251,16 @@ pub struct AlertView {
     /// after the alert's sound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tts: Option<String>,
+    /// The wait after the alert sound before `tts` is read.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tts_delay_ms: u32,
+    /// How loud `tts` is read, 0 to 100. None: the alert's volume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_volume: Option<u8>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 fn amount_text(n: f64) -> String {

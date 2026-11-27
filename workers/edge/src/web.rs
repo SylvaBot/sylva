@@ -36,7 +36,10 @@ fn content_security_policy(tip_page: bool) -> String {
 /// when the link carries `?v=`, which changes with every build, so the file
 /// can be kept for a year.
 pub fn serve(path: &str, versioned: bool) -> Result<Response> {
-    if let Some(id) = path.strip_prefix("/kokoro/demos/").and_then(|f| f.strip_suffix(".mp3")) {
+    if let Some(id) = path
+        .strip_prefix("/kokoro/demos/")
+        .and_then(|f| f.strip_suffix(".mp3"))
+    {
         return demo(id);
     }
     let asset_cache = if versioned {

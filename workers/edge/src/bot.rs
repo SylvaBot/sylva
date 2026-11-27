@@ -50,6 +50,8 @@ pub struct BotView {
     /// Whether Sylva has the permissions some built-in commands need:
     /// `commands` and `moderation`, each `ok`, `missing` or `expired`.
     pub permissions: serde_json::Value,
+    /// `!ask`'s AI choice and the last four characters of its key.
+    pub ask: sylva_core::ask::AskView,
 }
 
 /// When a timer posts next, or what it waits for.
@@ -245,6 +247,7 @@ impl ChannelDo {
             live,
             builtins: sylva_core::builtins::BUILTINS,
             permissions: self.builtin_permissions().await?,
+            ask: self.ask_view()?,
         })
     }
 

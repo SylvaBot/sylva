@@ -636,6 +636,15 @@ impl DurableObject for ChannelDo {
                     Err(Invalid(message)) => Response::error(message, 400),
                 }
             }
+            (Method::Post, ["bot", "ask"]) => {
+                let Ok(body) = req.json::<sylva_core::ask::AskUpdate>().await else {
+                    return Response::error("Those !ask settings could not be read", 400);
+                };
+                match self.save_ask(body)? {
+                    Ok(_) => Response::from_json(&self.bot_view().await?),
+                    Err(message) => Response::error(message, 400),
+                }
+            }
             (Method::Post, ["bot", "timers", id, "send"]) => match self.send_timer_now(id).await? {
                 Ok(()) => Response::from_json(&self.bot_view().await?),
                 Err((status, message)) => Response::error(message, status),

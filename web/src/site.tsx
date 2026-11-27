@@ -79,6 +79,12 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             your channel and removed when you delete your account.
           </li>
           <li>
+            <b>Your AI API key, if you set up !ask:</b> encrypted with your channel and used only to send
+            questions from your chat to the AI company you pick (Anthropic, OpenAI or Google). Sylva never shows the key
+            again and forgets it when you remove it or delete your account. That company receives each question, the
+            viewer's name and your extra instructions, under its own privacy policy. Sylva does not keep the questions.
+          </li>
+          <li>
             <b>Tips, if a streamer takes them:</b> the tipper's name, message, amount, payment method type, country and
             IP address, and a coded form of their email and card that cannot be turned back into them. Sylva uses these
             to stop fraud and to answer chargebacks with evidence. Card details go only to Stripe; Sylva never sees them.

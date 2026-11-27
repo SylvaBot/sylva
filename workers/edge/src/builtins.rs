@@ -93,7 +93,7 @@ fn plural(n: usize, one: &str) -> String {
 }
 
 impl ChannelDo {
-    fn var(&self, name: &str) -> Option<String> {
+    pub(crate) fn var(&self, name: &str) -> Option<String> {
         self.env
             .var(name)
             .ok()
@@ -333,6 +333,7 @@ impl ChannelDo {
                 }
             }
             "weather" => self.weather(args).await,
+            "ask" => self.ask_reply(args, ask, who).await?,
             "dictionary" => {
                 let Some(word) = args.first().map(|w| w.to_lowercase()) else {
                     return Ok("Look up a word with !dictionary word.".into());

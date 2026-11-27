@@ -1856,3 +1856,4 @@ textarea.tip-input { height: auto; min-height: 88px; padding: 11px 13px 24px; re
 .ta-tts-template .ta-input { flex: 1 1 260px; min-width: 0; }
 .ta-tts-words { width: 100%; height: auto; padding: 10px 12px; resize: vertical; line-height: 1.5; }
 .ta-tts-sample { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--sunken); color: var(--text); font-size: 13.5px; line-height: 1.5; }
+.ta-note { margin: 4px 0 8px; padding: 10px 14px; border-radius: 10px; background: var(--sunken); color: var(--muted); font-size: 13px; line-height: 1.5; }

@@ -52,6 +52,7 @@ mod media;
 mod moderation;
 mod nuke;
 mod overlays;
+mod polly;
 mod stats;
 mod store;
 mod streams;
@@ -343,6 +344,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 _ => Response::error("Not found", 404),
             }
         }
+        (Method::Get, ["kokoro", "demos", "polly_brian.mp3"]) => polly::demo(&env).await,
         (Method::Get | Method::Head, [first, ..])
             if !matches!(
                 *first,

@@ -654,8 +654,9 @@ impl ChannelDo {
     }
 
     /// The tip page's data: limits and suggestions in each currency.
-    pub(crate) fn tips_public(&self, country: &str) -> Result<Value> {
+    pub(crate) async fn tips_public(&self, country: &str) -> Result<Value> {
         let s = self.tip_settings()?;
+        let brian = crate::polly::ready(&self.env).await;
         let account = self.stripe_account()?;
         let open = s.enabled && account.as_ref().is_some_and(|a| a.charges_enabled);
         let base = rules::currency(&s.currency).unwrap_or(&rules::CURRENCIES[0]);
@@ -738,7 +739,7 @@ impl ChannelDo {
                 json!({
                     "min": s.tts_min,
                     "voice": s.voice_for(""),
-                    "voices": s.voices(),
+                    "voices": s.voices().into_iter().filter(|v| v.id != rules::BRIAN || brian).collect::<Vec<_>>(),
                 })
             } else {
                 Value::Null
@@ -1381,14 +1382,24 @@ impl ChannelDo {
     /// not set up or does not answer in time.
     async fn make_speech(&self, t: &TipRow, text: &str) {
         let voice = self.tip_voice(&t.id);
-        let kokoro = match crate::kokoro::speak(&self.env, text, &voice).await {
-            Ok(a) => a.filter(|a| !a.is_empty()),
-            Err(e) => {
-                console_error!("Kokoro could not read {}, using the stand-in voice: {e}", t.id);
-                None
+        let made = if voice == rules::BRIAN {
+            match crate::polly::speak(&self.env, text).await {
+                Ok(a) => Some(a).filter(|a| !a.is_empty()),
+                Err(e) => {
+                    console_error!("Brian could not read {}, using the stand-in voice: {e}", t.id);
+                    None
+                }
+            }
+        } else {
+            match crate::kokoro::speak(&self.env, text, &voice).await {
+                Ok(a) => a.filter(|a| !a.is_empty()),
+                Err(e) => {
+                    console_error!("Kokoro could not read {}, using the stand-in voice: {e}", t.id);
+                    None
+                }
             }
         };
-        let audio = match kokoro {
+        let audio = match made {
             Some(a) => a,
             None => match self.stand_in(text).await {
                 Ok(a) => a,
@@ -1812,6 +1823,7 @@ impl ChannelDo {
     /// `GET tips`: the dashboard's Tips page.
     pub(crate) async fn tips_view(&self, origin: &str, host: &str) -> Result<Value> {
         let ready = platform_ready(&self.env);
+        let brian = crate::polly::ready(&self.env).await;
         let mut account = self.stripe_account()?;
         if let (true, Some(a)) = (ready, account.as_mut()) {
             if !a.charges_enabled || a.due > 0 {
@@ -1841,6 +1853,7 @@ impl ChannelDo {
             "currencies": rules::CURRENCIES.iter().map(|c| c.code).collect::<Vec<_>>(),
             "countries": rules::STRIPE_COUNTRIES,
             "voices": rules::VOICES,
+            "brianReady": brian,
         }))
     }
 

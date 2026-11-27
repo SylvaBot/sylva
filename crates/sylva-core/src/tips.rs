@@ -673,8 +673,13 @@ const fn v(id: &'static str, name: &'static str) -> Voice {
     }
 }
 
-/// Kokoro's English voices, the best sounding first.
+/// Amazon Polly's Brian, read through Polly rather than Kokoro.
+pub const BRIAN: &str = "polly_brian";
+
+/// The voices tips can be read in, the best sounding first: Brian, then
+/// Kokoro's English voices.
 pub const VOICES: &[Voice] = &[
+    Voice { id: BRIAN, name: "Brian", accent: "uk", gender: "m" },
     v("af_heart", "Heart"), v("af_bella", "Bella"), v("af_nicole", "Nicole"),
     v("bf_emma", "Emma"), v("am_fenrir", "Fenrir"), v("am_michael", "Michael"),
     v("am_puck", "Puck"), v("bm_george", "George"), v("bm_fable", "Fable"),
@@ -1466,7 +1471,8 @@ mod tests {
 
     #[test]
     fn voices() {
-        assert_eq!(VOICES.len(), 28);
+        assert_eq!(VOICES.len(), 29);
+        assert_eq!(voice(BRIAN).map(|v| (v.accent, v.gender)), Some(("uk", "m")));
         assert_eq!(voice("bm_george").map(|v| (v.accent, v.gender)), Some(("uk", "m")));
         let mut s = TipSettings::default();
         assert_eq!(s.voice_for("bm_george"), "bm_george");

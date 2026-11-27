@@ -591,6 +591,9 @@ function VoiceSettings({ view, draft, set }: { view: TipsView; draft: TipSetting
           options={pickable.map((v) => ({ value: v.id, label: v.name }))} />
       </span>
     </Row>
+    {!view.brianReady && (
+      <p className="ta-note">Brian (Amazon Polly) is hidden from tippers until AWS lets Sylva use Polly. Tips set to Brian are read by the stand-in voice meanwhile.</p>
+    )}
     <Row label="Voices tippers can pick" hint={`${allowed.length} of ${all.length} on. Press play to hear one.`} stack>
       <VoiceGrid voices={view.voices} mode="allow" value={allowed} onChange={allow} first={9} label="Voices tippers can pick" />
     </Row>

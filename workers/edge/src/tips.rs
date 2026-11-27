@@ -83,9 +83,13 @@ fn now() -> i64 {
 
 /// Whether whoever runs Sylva has set up the Stripe platform account.
 pub(crate) fn platform_ready(env: &Env) -> bool {
-    ["STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET"]
-        .iter()
-        .all(|k| env.secret(k).is_ok_and(|v| !v.to_string().is_empty()))
+    [
+        "STRIPE_SECRET_KEY",
+        "STRIPE_PUBLISHABLE_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+    ]
+    .iter()
+    .all(|k| env.secret(k).is_ok_and(|v| !v.to_string().is_empty()))
 }
 
 /// One call to Stripe's API. `account` makes the call on a streamer's
@@ -191,7 +195,10 @@ pub(crate) async fn public_create(mut req: Request, env: &Env, key: &str) -> Res
         .with_headers(headers)
         .with_body(Some(js_sys::Uint8Array::from(body.as_slice()).into()));
     crate::stub(env, key)?
-        .fetch_with_request(Request::new_with_init("https://channel/public/tips", &init)?)
+        .fetch_with_request(Request::new_with_init(
+            "https://channel/public/tips",
+            &init,
+        )?)
         .await
 }
 
@@ -234,7 +241,10 @@ pub(crate) async fn webhook(mut req: Request, env: &Env) -> Result<Response> {
     init.with_method(Method::Post)
         .with_body(Some(serde_json::to_string(&event)?.into()));
     let res = crate::stub(env, &channel)?
-        .fetch_with_request(Request::new_with_init("https://channel/stripe-event", &init)?)
+        .fetch_with_request(Request::new_with_init(
+            "https://channel/stripe-event",
+            &init,
+        )?)
         .await?;
     if res.status_code() >= 300 {
         // Stripe retries anything that is not 2xx.
@@ -256,7 +266,8 @@ pub(crate) async fn apple_pay_file() -> Result<Response> {
     let bytes = res.bytes().await?;
     let mut out = Response::from_bytes(bytes)?;
     out.headers_mut().set("Content-Type", "text/plain")?;
-    out.headers_mut().set("Cache-Control", "public, max-age=86400")?;
+    out.headers_mut()
+        .set("Cache-Control", "public, max-age=86400")?;
     Ok(out)
 }
 
@@ -532,7 +543,12 @@ impl ChannelDo {
     }
 
     /// Whether this person has a tip here that went through and stayed.
-    fn known_tipper(&self, email_hash: &str, card_hash: Option<&str>, except: &str) -> Result<bool> {
+    fn known_tipper(
+        &self,
+        email_hash: &str,
+        card_hash: Option<&str>,
+        except: &str,
+    ) -> Result<bool> {
         Ok(self.tip_count(
             "SELECT COUNT(*) AS n FROM tips WHERE status = 'shown' AND id != ?
                AND (email_hash = ? OR (card_hash IS NOT NULL AND card_hash = ?))",
@@ -560,7 +576,10 @@ impl ChannelDo {
     }
 
     fn held_count(&self) -> Result<u32> {
-        self.tip_count("SELECT COUNT(*) AS n FROM tips WHERE status = 'held'", vec![])
+        self.tip_count(
+            "SELECT COUNT(*) AS n FROM tips WHERE status = 'held'",
+            vec![],
+        )
     }
 
     /// Tell the dashboard and Cortex the held tips changed.
@@ -617,10 +636,18 @@ impl ChannelDo {
         let ip_country = header(&req, "X-Sylva-Country");
         let t: NewTip = match req.json().await {
             Ok(t) => t,
-            Err(_) => return error("Something in the form was not right. Refresh and try again.", 400),
+            Err(_) => {
+                return error(
+                    "Something in the form was not right. Refresh and try again.",
+                    400,
+                )
+            }
         };
         let s = self.tip_settings()?;
-        let Some(account) = self.stripe_account()?.filter(|a| a.charges_enabled && s.enabled) else {
+        let Some(account) = self
+            .stripe_account()?
+            .filter(|a| a.charges_enabled && s.enabled)
+        else {
             return error("This streamer is not taking tips right now.", 400);
         };
         if !t.agreed {
@@ -644,7 +671,12 @@ impl ChannelDo {
             return error("Enter an amount like 5 or 5.50.", 400);
         };
         let token = t.confirmation_token.trim();
-        if !token.starts_with("ctoken_") || token.len() > 120 || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        if !token.starts_with("ctoken_")
+            || token.len() > 120
+            || !token
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
             return error("The payment details were not ready. Try again.", 400);
         }
 
@@ -705,7 +737,8 @@ impl ChannelDo {
         let known = self.known_tipper(&email_hash, card_hash.as_deref(), "")?;
         let attempt = rules::Attempt {
             base,
-            ip_country: Some(ip_country.clone()).filter(|c| !c.is_empty() && c != "XX" && c != "T1"),
+            ip_country: Some(ip_country.clone())
+                .filter(|c| !c.is_empty() && c != "XX" && c != "T1"),
             card_country: card_country.clone(),
             card: is_card,
             blocked,
@@ -754,7 +787,10 @@ impl ChannelDo {
             .add("confirm", "true")
             .add("confirmation_token", token)
             .add("automatic_payment_methods[enabled]", "true")
-            .add("payment_method_options[card][request_three_d_secure]", "any")
+            .add(
+                "payment_method_options[card][request_three_d_secure]",
+                "any",
+            )
             .add("description", format!("Tip to {channel}"))
             .add("receipt_email", t.email.trim())
             .add("metadata[sylva_tip]", &id)
@@ -772,19 +808,30 @@ impl ChannelDo {
         )
         .await?;
         if !(200..300).contains(&status) {
-            self.set_tip(&id, "status = 'failed', note = ?", vec![stripe_error(&pi).into()])?;
+            self.set_tip(
+                &id,
+                "status = 'failed', note = ?",
+                vec![stripe_error(&pi).into()],
+            )?;
             let card_error = pi["error"]["type"].as_str() == Some("card_error");
             return if card_error {
                 error(&stripe_error(&pi), 402)
             } else {
                 console_error!("Creating a tip payment failed: {}", stripe_error(&pi));
-                error("The payment could not be started. Try again in a minute.", 502)
+                error(
+                    "The payment could not be started. Try again in a minute.",
+                    502,
+                )
             };
         }
         let intent = pi["id"].as_str().unwrap_or_default().to_string();
         let pi_status = pi["status"].as_str().unwrap_or_default().to_string();
         // The webhook may have come first and found nothing: only fill blanks.
-        self.set_tip(&id, "intent = COALESCE(intent, ?)", vec![intent.as_str().into()])?;
+        self.set_tip(
+            &id,
+            "intent = COALESCE(intent, ?)",
+            vec![intent.as_str().into()],
+        )?;
         if pi_status == "requires_payment_method" || pi_status == "canceled" {
             self.set_tip(&id, "status = 'failed'", vec![])?;
             return error("The payment was declined. Try another way to pay.", 402);
@@ -807,7 +854,9 @@ impl ChannelDo {
             "held" | "shown" => "paid",
             _ => "closed",
         };
-        Response::from_json(&json!({ "status": status, "note": if status == "failed" { t.note } else { None } }))
+        Response::from_json(
+            &json!({ "status": status, "note": if status == "failed" { t.note } else { None } }),
+        )
     }
 
     /// Events from the streamer's Stripe account (via the Worker's webhook).
@@ -819,14 +868,19 @@ impl ChannelDo {
             "payment_intent.payment_failed" | "payment_intent.canceled" => {
                 if let Some(t) = self.find_tip(obj["id"].as_str(), None).await? {
                     if t.status == "pending" {
-                        let why = obj["last_payment_error"]["message"].as_str().unwrap_or("Declined");
+                        let why = obj["last_payment_error"]["message"]
+                            .as_str()
+                            .unwrap_or("Declined");
                         self.set_tip(&t.id, "status = 'failed', note = ?", vec![why.into()])?;
                     }
                 }
             }
             "charge.refunded" => {
                 if obj["refunded"].as_bool() == Some(true) {
-                    if let Some(t) = self.find_tip(obj["payment_intent"].as_str(), obj["id"].as_str()).await? {
+                    if let Some(t) = self
+                        .find_tip(obj["payment_intent"].as_str(), obj["id"].as_str())
+                        .await?
+                    {
                         if !matches!(t.status.as_str(), "rejected" | "refunded" | "disputed") {
                             let was_held = t.status == "held";
                             self.set_tip(&t.id, "status = 'refunded'", vec![])?;
@@ -838,7 +892,10 @@ impl ChannelDo {
                 }
             }
             "charge.dispute.created" => {
-                let Some(t) = self.find_tip(obj["payment_intent"].as_str(), obj["charge"].as_str()).await? else {
+                let Some(t) = self
+                    .find_tip(obj["payment_intent"].as_str(), obj["charge"].as_str())
+                    .await?
+                else {
                     return Ok(());
                 };
                 let was_held = t.status == "held";
@@ -846,7 +903,10 @@ impl ChannelDo {
                 self.set_tip(
                     &t.id,
                     "status = 'disputed', dispute = ?, dispute_status = ?",
-                    vec![dispute.into(), obj["status"].as_str().unwrap_or("needs_response").into()],
+                    vec![
+                        dispute.into(),
+                        obj["status"].as_str().unwrap_or("needs_response").into(),
+                    ],
                 )?;
                 directory_block(&self.env, t.hashes(false), "dispute").await?;
                 if was_held {
@@ -859,21 +919,39 @@ impl ChannelDo {
                 }
             }
             "charge.dispute.closed" | "charge.dispute.updated" => {
-                if let Some(t) = self.find_tip(obj["payment_intent"].as_str(), obj["charge"].as_str()).await? {
-                    self.set_tip(&t.id, "dispute_status = ?", vec![obj["status"].as_str().unwrap_or("").into()])?;
+                if let Some(t) = self
+                    .find_tip(obj["payment_intent"].as_str(), obj["charge"].as_str())
+                    .await?
+                {
+                    self.set_tip(
+                        &t.id,
+                        "dispute_status = ?",
+                        vec![obj["status"].as_str().unwrap_or("").into()],
+                    )?;
                 }
             }
             "radar.early_fraud_warning.created" => {
-                let Some(t) = self.find_tip(obj["payment_intent"].as_str(), obj["charge"].as_str()).await? else {
+                let Some(t) = self
+                    .find_tip(obj["payment_intent"].as_str(), obj["charge"].as_str())
+                    .await?
+                else {
                     return Ok(());
                 };
                 directory_block(&self.env, t.hashes(false), "fraud warning").await?;
                 let actionable = obj["actionable"].as_bool().unwrap_or(false);
-                if actionable && self.tip_settings()?.refund_on_warning && !matches!(t.status.as_str(), "refunded" | "rejected" | "disputed") {
+                if actionable
+                    && self.tip_settings()?.refund_on_warning
+                    && !matches!(t.status.as_str(), "refunded" | "rejected" | "disputed")
+                {
                     match self.refund(&t, true).await? {
                         Ok(()) => {
                             let was_held = t.status == "held";
-                            self.set_tip(&t.id, "status = 'refunded', note = ?", vec!["Refunded on its own after the card's bank warned of fraud".into()])?;
+                            self.set_tip(
+                                &t.id,
+                                "status = 'refunded', note = ?",
+                                vec!["Refunded on its own after the card's bank warned of fraud"
+                                    .into()],
+                            )?;
                             if was_held {
                                 self.tips_changed()?;
                             }
@@ -881,7 +959,11 @@ impl ChannelDo {
                         Err(m) => console_error!("Refund after fraud warning failed: {m}"),
                     }
                 } else {
-                    self.set_tip(&t.id, "note = ?", vec!["The card's bank warned of fraud".into()])?;
+                    self.set_tip(
+                        &t.id,
+                        "note = ?",
+                        vec!["The card's bank warned of fraud".into()],
+                    )?;
                 }
             }
             "account.updated" => {
@@ -913,7 +995,15 @@ impl ChannelDo {
         let (Some(i), Some(a)) = (intent, self.stripe_account()?) else {
             return Ok(None);
         };
-        let (status, pi) = stripe(&self.env, Method::Get, &format!("/payment_intents/{i}"), Some(&a.id), None, None).await?;
+        let (status, pi) = stripe(
+            &self.env,
+            Method::Get,
+            &format!("/payment_intents/{i}"),
+            Some(&a.id),
+            None,
+            None,
+        )
+        .await?;
         if status != 200 {
             return Ok(None);
         }
@@ -943,9 +1033,15 @@ impl ChannelDo {
         let verified = !is_card
             || matches!(three_d, "authenticated" | "attempt_acknowledged")
             || matches!(wallet.as_deref(), Some("apple_pay" | "google_pay"));
-        let risk = ch["outcome"]["risk_level"].as_str().unwrap_or("normal").to_string();
+        let risk = ch["outcome"]["risk_level"]
+            .as_str()
+            .unwrap_or("normal")
+            .to_string();
         let method = wallet.clone().unwrap_or(kind.clone());
-        let card_country = card["country"].as_str().map(str::to_string).or(t.card_country.clone());
+        let card_country = card["country"]
+            .as_str()
+            .map(str::to_string)
+            .or(t.card_country.clone());
         let pepper = self.pepper()?;
         let card_hash = card["fingerprint"]
             .as_str()
@@ -989,7 +1085,11 @@ impl ChannelDo {
                 self.set_tip(
                     &t.id,
                     "status = 'held', hold_reason = ?, needs_ok = ?, release_at = ?",
-                    vec![reason.into(), (needs_ok as i64 as f64).into(), release_at.into()],
+                    vec![
+                        reason.into(),
+                        (needs_ok as i64 as f64).into(),
+                        release_at.into(),
+                    ],
                 )?;
                 self.tips_changed()?;
                 if release_at.is_some() {
@@ -1011,10 +1111,18 @@ impl ChannelDo {
         let now = now();
         // Claim it first, so a second release (approve twice, alarm and
         // approve at once) cannot alert twice.
-        self.set_tip(&t.id, "status = 'shown', released_at = ?, release_at = NULL", vec![(now as f64).into()])?;
+        self.set_tip(
+            &t.id,
+            "status = 'shown', released_at = ?, release_at = NULL",
+            vec![(now as f64).into()],
+        )?;
         let amount = t.paid_amount();
         if s.tts && t.base + 0.005 >= s.tts_min {
-            let text = rules::speech(&t.name, &rules::spoken_amount(amount, &t.currency), &t.message);
+            let text = rules::speech(
+                &t.name,
+                &rules::spoken_amount(amount, &t.currency),
+                &t.message,
+            );
             if let Err(e) = self.make_speech(&t.id, &text, &s.tts_lang).await {
                 console_error!("Text to speech for {} failed: {e}", t.id);
             }
@@ -1074,7 +1182,11 @@ impl ChannelDo {
         };
         let app = crate::twitch_api::App::user(&self.env, &token).ok()?;
         let (status, v) = app
-            .helix(Method::Post, &format!("/clips?broadcaster_id={broadcaster}"), None)
+            .helix(
+                Method::Post,
+                &format!("/clips?broadcaster_id={broadcaster}"),
+                None,
+            )
             .await
             .ok()?;
         v["data"][0]["id"]
@@ -1085,7 +1197,9 @@ impl ChannelDo {
 
     async fn make_speech(&self, id: &str, text: &str, lang: &str) -> Result<()> {
         let ai = self.env.ai("AI")?;
-        let out: Value = ai.run(TTS_MODEL, json!({ "prompt": text, "lang": lang })).await?;
+        let out: Value = ai
+            .run(TTS_MODEL, json!({ "prompt": text, "lang": lang }))
+            .await?;
         let Some(audio) = out["audio"].as_str().filter(|a| !a.is_empty()) else {
             return Err(Error::RustError("no audio".into()));
         };
@@ -1098,7 +1212,12 @@ impl ChannelDo {
         )?;
         self.sql.exec(
             "INSERT OR REPLACE INTO tts (id, audio, ms, created_at) VALUES (?, ?, ?, ?)",
-            vec![id.into(), audio.into(), (ms as f64).into(), (now as f64).into()],
+            vec![
+                id.into(),
+                audio.into(),
+                (ms as f64).into(),
+                (now as f64).into(),
+            ],
         )?;
         Ok(())
     }
@@ -1195,11 +1314,15 @@ impl ChannelDo {
             Some(&format!("refund-{}", t.id)),
         )
         .await?;
-        Ok(if (200..300).contains(&status) || v["error"]["code"].as_str() == Some("charge_already_refunded") {
-            Ok(())
-        } else {
-            Err(stripe_error(&v))
-        })
+        Ok(
+            if (200..300).contains(&status)
+                || v["error"]["code"].as_str() == Some("charge_already_refunded")
+            {
+                Ok(())
+            } else {
+                Err(stripe_error(&v))
+            },
+        )
     }
 
     /// Send Stripe everything Sylva knows about a disputed tip.
@@ -1210,8 +1333,13 @@ impl ChannelDo {
         let channel = self.channel_name()?;
         let login = self.config("channel_login")?.unwrap_or_default();
         let when = |ms: Option<f64>| {
-            ms.map(|m| js_sys::Date::new(&m.into()).to_iso_string().as_string().unwrap_or_default())
-                .unwrap_or_else(|| "not recorded".into())
+            ms.map(|m| {
+                js_sys::Date::new(&m.into())
+                    .to_iso_string()
+                    .as_string()
+                    .unwrap_or_default()
+            })
+            .unwrap_or_else(|| "not recorded".into())
         };
         let paid = when(t.paid_at);
         let amount = format!("{:.2} {}", t.paid_amount(), t.currency);
@@ -1257,7 +1385,15 @@ impl ChannelDo {
             let iso = when(Some(d));
             form.push("evidence[service_date]", iso.get(..10).unwrap_or(&iso));
         }
-        let (status, v) = stripe(&self.env, Method::Post, &format!("/disputes/{dispute}"), Some(&a.id), Some(&form), None).await?;
+        let (status, v) = stripe(
+            &self.env,
+            Method::Post,
+            &format!("/disputes/{dispute}"),
+            Some(&a.id),
+            Some(&form),
+            None,
+        )
+        .await?;
         if (200..300).contains(&status) {
             self.set_tip(id, "evidence_at = ?", vec![(now() as f64).into()])?;
         } else {
@@ -1270,7 +1406,9 @@ impl ChannelDo {
     async fn read_account(&self, a: &mut AccountState, obj: &Value) -> Result<()> {
         a.charges_enabled = obj["charges_enabled"].as_bool().unwrap_or(false);
         a.details_submitted = obj["details_submitted"].as_bool().unwrap_or(false);
-        a.due = obj["requirements"]["currently_due"].as_array().map_or(0, |d| d.len() as u32);
+        a.due = obj["requirements"]["currently_due"]
+            .as_array()
+            .map_or(0, |d| d.len() as u32);
         if let Some(c) = obj["country"].as_str() {
             a.country = c.into();
         }
@@ -1280,16 +1418,33 @@ impl ChannelDo {
 
     /// Apple Pay and Google Pay show only on domains registered on the account.
     async fn register_domain(&self, a: &mut AccountState, host: &str) -> Result<()> {
-        if !a.charges_enabled || a.domain == host || host.is_empty() || host.starts_with("localhost") {
+        if !a.charges_enabled
+            || a.domain == host
+            || host.is_empty()
+            || host.starts_with("localhost")
+        {
             return Ok(());
         }
         let form = Form::new().add("domain_name", host).add("enabled", "true");
-        let (status, v) = stripe(&self.env, Method::Post, "/payment_method_domains", Some(&a.id), Some(&form), None).await?;
-        if (200..300).contains(&status) || v["error"]["code"].as_str() == Some("resource_already_exists") {
+        let (status, v) = stripe(
+            &self.env,
+            Method::Post,
+            "/payment_method_domains",
+            Some(&a.id),
+            Some(&form),
+            None,
+        )
+        .await?;
+        if (200..300).contains(&status)
+            || v["error"]["code"].as_str() == Some("resource_already_exists")
+        {
             a.domain = host.into();
             self.save_account(a)?;
         } else {
-            console_warn!("Registering {host} for wallets failed: {}", stripe_error(&v));
+            console_warn!(
+                "Registering {host} for wallets failed: {}",
+                stripe_error(&v)
+            );
         }
         Ok(())
     }
@@ -1300,7 +1455,15 @@ impl ChannelDo {
         let mut account = self.stripe_account()?;
         if let (true, Some(a)) = (ready, account.as_mut()) {
             if !a.charges_enabled || a.due > 0 {
-                let (status, obj) = stripe(&self.env, Method::Get, &format!("/accounts/{}", a.id), None, None, None).await?;
+                let (status, obj) = stripe(
+                    &self.env,
+                    Method::Get,
+                    &format!("/accounts/{}", a.id),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
                 if status == 200 {
                     self.read_account(a, &obj).await?;
                 }
@@ -1334,17 +1497,26 @@ impl ChannelDo {
     pub(crate) fn tips_held(&self) -> Result<Vec<TipView>> {
         Ok(self
             .sql
-            .exec("SELECT * FROM tips WHERE status = 'held' ORDER BY paid_at", None)?
+            .exec(
+                "SELECT * FROM tips WHERE status = 'held' ORDER BY paid_at",
+                None,
+            )?
             .to_array::<TipRow>()?
             .iter()
             .map(TipRow::view)
             .collect())
     }
 
-    pub(crate) fn tips_save_settings(&self, s: TipSettings) -> std::result::Result<TipSettings, String> {
+    pub(crate) fn tips_save_settings(
+        &self,
+        s: TipSettings,
+    ) -> std::result::Result<TipSettings, String> {
         let s = s.validate().map_err(|e| e.0)?;
-        self.set_config("tip_settings", &serde_json::to_string(&s).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        self.set_config(
+            "tip_settings",
+            &serde_json::to_string(&s).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         Ok(s)
     }
 
@@ -1368,12 +1540,26 @@ impl ChannelDo {
                     .add("controller[stripe_dashboard][type]", "full")
                     .add("controller[fees][payer]", "account")
                     .add("controller[losses][payments]", "stripe")
-                    .add("business_profile[product_description]", "Tips from viewers of my Twitch stream")
+                    .add(
+                        "business_profile[product_description]",
+                        "Tips from viewers of my Twitch stream",
+                    )
                     .add("metadata[sylva_channel]", self.key().unwrap_or_default());
                 if !login.is_empty() {
-                    form.push("business_profile[url]", format!("https://twitch.tv/{login}"));
+                    form.push(
+                        "business_profile[url]",
+                        format!("https://twitch.tv/{login}"),
+                    );
                 }
-                let (status, v) = stripe(&self.env, Method::Post, "/accounts", None, Some(&form), None).await?;
+                let (status, v) = stripe(
+                    &self.env,
+                    Method::Post,
+                    "/accounts",
+                    None,
+                    Some(&form),
+                    None,
+                )
+                .await?;
                 if !(200..300).contains(&status) {
                     console_error!("Making a Stripe account failed: {}", stripe_error(&v));
                     return error(&format!("Stripe said: {}", stripe_error(&v)), 502);
@@ -1384,7 +1570,10 @@ impl ChannelDo {
                     ..AccountState::default()
                 };
                 self.save_account(&a)?;
-                let dir = self.env.durable_object("DIRECTORY")?.get_by_name("directory")?;
+                let dir = self
+                    .env
+                    .durable_object("DIRECTORY")?
+                    .get_by_name("directory")?;
                 crate::auth::post(
                     &dir,
                     "/stripe/link",
@@ -1402,7 +1591,15 @@ impl ChannelDo {
             .add("type", "account_onboarding")
             .add("refresh_url", format!("{origin}/app/tips?stripe=again"))
             .add("return_url", format!("{origin}/app/tips?stripe=back"));
-        let (status, v) = stripe(&self.env, Method::Post, "/account_links", None, Some(&form), None).await?;
+        let (status, v) = stripe(
+            &self.env,
+            Method::Post,
+            "/account_links",
+            None,
+            Some(&form),
+            None,
+        )
+        .await?;
         if !(200..300).contains(&status) {
             return error(&format!("Stripe said: {}", stripe_error(&v)), 502);
         }
@@ -1413,7 +1610,10 @@ impl ChannelDo {
     /// itself, its money and its history stay with the streamer on Stripe.
     pub(crate) async fn tips_disconnect(&self) -> Result<Response> {
         if let Some(a) = self.stripe_account()? {
-            let dir = self.env.durable_object("DIRECTORY")?.get_by_name("directory")?;
+            let dir = self
+                .env
+                .durable_object("DIRECTORY")?
+                .get_by_name("directory")?;
             crate::auth::post(
                 &dir,
                 "/stripe/unlink",
@@ -1424,7 +1624,8 @@ impl ChannelDo {
             )
             .await?;
         }
-        self.sql.exec("DELETE FROM config WHERE key = 'stripe_account'", None)?;
+        self.sql
+            .exec("DELETE FROM config WHERE key = 'stripe_account'", None)?;
         Response::ok("ok")
     }
 
@@ -1441,14 +1642,22 @@ impl ChannelDo {
                 self.release(&t).await?;
             }
             "reject" | "refund" => {
-                let ok_state = if action == "reject" { t.status == "held" } else { t.status == "shown" };
+                let ok_state = if action == "reject" {
+                    t.status == "held"
+                } else {
+                    t.status == "shown"
+                };
                 if !ok_state {
                     return error("This tip can't be refunded from here now.", 409);
                 }
                 if let Err(m) = self.refund(&t, false).await? {
                     return error(&format!("Stripe said: {m}"), 502);
                 }
-                let status = if action == "reject" { "rejected" } else { "refunded" };
+                let status = if action == "reject" {
+                    "rejected"
+                } else {
+                    "refunded"
+                };
                 self.set_tip(&t.id, "status = ?, release_at = NULL", vec![status.into()])?;
                 if t.status == "held" {
                     self.tips_changed()?;

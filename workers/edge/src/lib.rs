@@ -51,8 +51,8 @@ mod media;
 mod moderation;
 mod nuke;
 mod overlays;
-mod store;
 mod stats;
+mod store;
 mod streams;
 mod team;
 mod tips;
@@ -178,24 +178,28 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             Ok(ch) => tips::public_config(&req, &env, ch).await,
             Err(res) => Ok(res),
         },
-        (Method::Post, ["v1", "public", login, "tip"]) => match public_channel(&env, login).await? {
-            Ok(ch) => tips::public_create(req, &env, &ch.key).await,
-            Err(res) => Ok(res),
-        },
-        (Method::Get, ["v1", "public", login, "tip", id]) => match public_channel(&env, login).await? {
-            Ok(ch) if id.starts_with("tip_") && id.len() <= 40 => {
-                let mut res = stub(&env, &ch.key)?
-                    .fetch_with_str(&format!("https://channel/public/tips/{id}"))
-                    .await?;
-                let body = res.text().await?;
-                let mut out = Response::ok(body)?.with_status(res.status_code());
-                out.headers_mut().set("Content-Type", "application/json")?;
-                out.headers_mut().set("Cache-Control", "no-store")?;
-                Ok(out)
+        (Method::Post, ["v1", "public", login, "tip"]) => {
+            match public_channel(&env, login).await? {
+                Ok(ch) => tips::public_create(req, &env, &ch.key).await,
+                Err(res) => Ok(res),
             }
-            Ok(_) => Response::error("No such tip", 404),
-            Err(res) => Ok(res),
-        },
+        }
+        (Method::Get, ["v1", "public", login, "tip", id]) => {
+            match public_channel(&env, login).await? {
+                Ok(ch) if id.starts_with("tip_") && id.len() <= 40 => {
+                    let mut res = stub(&env, &ch.key)?
+                        .fetch_with_str(&format!("https://channel/public/tips/{id}"))
+                        .await?;
+                    let body = res.text().await?;
+                    let mut out = Response::ok(body)?.with_status(res.status_code());
+                    out.headers_mut().set("Content-Type", "application/json")?;
+                    out.headers_mut().set("Cache-Control", "no-store")?;
+                    Ok(out)
+                }
+                Ok(_) => Response::error("No such tip", 404),
+                Err(res) => Ok(res),
+            }
+        }
         (Method::Post, ["stripe", "webhook"]) => tips::webhook(req, &env).await,
         (Method::Get, [".well-known", "apple-developer-merchantid-domain-association"]) => {
             tips::apple_pay_file().await

@@ -211,10 +211,7 @@ impl ChannelDo {
             r.avg_viewers = r.avg_viewers.or(old.avg_viewers);
             self.sql.exec(
                 "UPDATE stream_recaps SET body = ? WHERE started_at = ?",
-                vec![
-                    serde_json::to_string(&r)?.into(),
-                    old.started_at.into(),
-                ],
+                vec![serde_json::to_string(&r)?.into(), old.started_at.into()],
             )?;
         }
         Ok(())

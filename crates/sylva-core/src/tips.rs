@@ -101,32 +101,122 @@ pub struct Currency {
 /// Currencies the tip page offers. The rates are approximate (late 2025)
 /// and only move limits and totals, so they do not need to be exact.
 pub const CURRENCIES: &[Currency] = &[
-    Currency { code: "USD", decimals: 2, usd: 1.0 },
-    Currency { code: "EUR", decimals: 2, usd: 1.16 },
-    Currency { code: "GBP", decimals: 2, usd: 1.33 },
-    Currency { code: "CAD", decimals: 2, usd: 0.72 },
-    Currency { code: "AUD", decimals: 2, usd: 0.65 },
-    Currency { code: "NZD", decimals: 2, usd: 0.57 },
-    Currency { code: "CHF", decimals: 2, usd: 1.24 },
-    Currency { code: "SEK", decimals: 2, usd: 0.105 },
-    Currency { code: "NOK", decimals: 2, usd: 0.099 },
-    Currency { code: "DKK", decimals: 2, usd: 0.155 },
-    Currency { code: "PLN", decimals: 2, usd: 0.27 },
-    Currency { code: "CZK", decimals: 2, usd: 0.047 },
-    Currency { code: "JPY", decimals: 0, usd: 0.0066 },
-    Currency { code: "SGD", decimals: 2, usd: 0.77 },
-    Currency { code: "HKD", decimals: 2, usd: 0.128 },
-    Currency { code: "MYR", decimals: 2, usd: 0.24 },
-    Currency { code: "THB", decimals: 2, usd: 0.031 },
-    Currency { code: "PHP", decimals: 2, usd: 0.017 },
-    Currency { code: "INR", decimals: 2, usd: 0.0113 },
-    Currency { code: "BRL", decimals: 2, usd: 0.19 },
-    Currency { code: "MXN", decimals: 2, usd: 0.054 },
-    Currency { code: "ZAR", decimals: 2, usd: 0.057 },
+    Currency {
+        code: "USD",
+        decimals: 2,
+        usd: 1.0,
+    },
+    Currency {
+        code: "EUR",
+        decimals: 2,
+        usd: 1.16,
+    },
+    Currency {
+        code: "GBP",
+        decimals: 2,
+        usd: 1.33,
+    },
+    Currency {
+        code: "CAD",
+        decimals: 2,
+        usd: 0.72,
+    },
+    Currency {
+        code: "AUD",
+        decimals: 2,
+        usd: 0.65,
+    },
+    Currency {
+        code: "NZD",
+        decimals: 2,
+        usd: 0.57,
+    },
+    Currency {
+        code: "CHF",
+        decimals: 2,
+        usd: 1.24,
+    },
+    Currency {
+        code: "SEK",
+        decimals: 2,
+        usd: 0.105,
+    },
+    Currency {
+        code: "NOK",
+        decimals: 2,
+        usd: 0.099,
+    },
+    Currency {
+        code: "DKK",
+        decimals: 2,
+        usd: 0.155,
+    },
+    Currency {
+        code: "PLN",
+        decimals: 2,
+        usd: 0.27,
+    },
+    Currency {
+        code: "CZK",
+        decimals: 2,
+        usd: 0.047,
+    },
+    Currency {
+        code: "JPY",
+        decimals: 0,
+        usd: 0.0066,
+    },
+    Currency {
+        code: "SGD",
+        decimals: 2,
+        usd: 0.77,
+    },
+    Currency {
+        code: "HKD",
+        decimals: 2,
+        usd: 0.128,
+    },
+    Currency {
+        code: "MYR",
+        decimals: 2,
+        usd: 0.24,
+    },
+    Currency {
+        code: "THB",
+        decimals: 2,
+        usd: 0.031,
+    },
+    Currency {
+        code: "PHP",
+        decimals: 2,
+        usd: 0.017,
+    },
+    Currency {
+        code: "INR",
+        decimals: 2,
+        usd: 0.0113,
+    },
+    Currency {
+        code: "BRL",
+        decimals: 2,
+        usd: 0.19,
+    },
+    Currency {
+        code: "MXN",
+        decimals: 2,
+        usd: 0.054,
+    },
+    Currency {
+        code: "ZAR",
+        decimals: 2,
+        usd: 0.057,
+    },
 ];
 
 pub fn currency(code: &str) -> Option<&'static Currency> {
-    CURRENCIES.iter().find(|c| c.code.eq_ignore_ascii_case(code))
+    CURRENCIES
+        .iter()
+        .find(|c| c.code.eq_ignore_ascii_case(code))
 }
 
 /// The currency a viewer in this country most likely pays in, if offered.
@@ -164,9 +254,9 @@ pub fn currency_for_country(country: &str) -> Option<&'static str> {
 /// Countries a streamer's Stripe account can be in (Stripe's supported
 /// countries for accounts with their own Stripe Dashboard).
 pub const STRIPE_COUNTRIES: &[&str] = &[
-    "AE", "AT", "AU", "BE", "BG", "BR", "CA", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI",
-    "FR", "GB", "GI", "GR", "HK", "HR", "HU", "IE", "IT", "JP", "LI", "LT", "LU", "LV", "MT",
-    "MX", "MY", "NL", "NO", "NZ", "PL", "PT", "RO", "SE", "SG", "SI", "SK", "TH", "US",
+    "AE", "AT", "AU", "BE", "BG", "BR", "CA", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR",
+    "GB", "GI", "GR", "HK", "HR", "HU", "IE", "IT", "JP", "LI", "LT", "LU", "LV", "MT", "MX", "MY",
+    "NL", "NO", "NZ", "PL", "PT", "RO", "SE", "SG", "SI", "SK", "TH", "US",
 ];
 
 /// Convert between currencies with the rough rates above.
@@ -325,7 +415,13 @@ impl TipSettings {
         // The smallest tip must be worth about a dollar, above Stripe's own minimums.
         let floor = nice(convert(1.0, "USD", cur.code), cur, true);
         let top = convert(10_000.0, "USD", cur.code);
-        let finite = [self.min, self.max, self.first_max, self.hold_over, self.tts_min];
+        let finite = [
+            self.min,
+            self.max,
+            self.first_max,
+            self.hold_over,
+            self.tts_min,
+        ];
         if finite.iter().any(|x| !x.is_finite() || *x < 0.0) {
             return bad("Amounts must be numbers of 0 or more.");
         }
@@ -426,7 +522,9 @@ pub fn precheck(s: &TipSettings, a: &Attempt) -> Result<(), String> {
 
 fn mismatched(a: &Attempt) -> bool {
     match (&a.ip_country, &a.card_country) {
-        (Some(ip), Some(card)) => !ip.is_empty() && !card.is_empty() && !ip.eq_ignore_ascii_case(card),
+        (Some(ip), Some(card)) => {
+            !ip.is_empty() && !card.is_empty() && !ip.eq_ignore_ascii_case(card)
+        }
         _ => false,
     }
 }
@@ -494,7 +592,13 @@ pub fn clean_name(name: &str) -> Result<String, String> {
 pub fn clean_message(message: &str) -> Result<String, String> {
     let m: String = message
         .chars()
-        .map(|c| if c == '\n' || c == '\r' || c == '\t' { ' ' } else { c })
+        .map(|c| {
+            if c == '\n' || c == '\r' || c == '\t' {
+                ' '
+            } else {
+                c
+            }
+        })
         .filter(|c| !c.is_control())
         .collect();
     let m = m.trim().to_string();
@@ -512,7 +616,12 @@ pub fn normalize_email(email: &str) -> Option<String> {
         return None;
     }
     let (user, domain) = e.split_once('@')?;
-    if user.is_empty() || domain.contains('@') || !domain.contains('.') || domain.starts_with('.') || domain.ends_with('.') {
+    if user.is_empty()
+        || domain.contains('@')
+        || !domain.contains('.')
+        || domain.starts_with('.')
+        || domain.ends_with('.')
+    {
         return None;
     }
     let user = user.split('+').next().unwrap_or(user);
@@ -524,7 +633,11 @@ pub fn normalize_email(email: &str) -> Option<String> {
     if user.is_empty() {
         return None;
     }
-    let domain = if domain == "googlemail.com" { "gmail.com" } else { domain };
+    let domain = if domain == "googlemail.com" {
+        "gmail.com"
+    } else {
+        domain
+    };
     Some(format!("{user}@{domain}"))
 }
 
@@ -548,7 +661,12 @@ pub fn ident_hash(pepper: &[u8], kind: &str, value: &str) -> String {
 
 /// Check a Stripe webhook's `Stripe-Signature` header. `now` and the
 /// tolerance are in seconds.
-pub fn verify_stripe(secret: &str, header: &str, body: &[u8], now: i64) -> Result<(), &'static str> {
+pub fn verify_stripe(
+    secret: &str,
+    header: &str,
+    body: &[u8],
+    now: i64,
+) -> Result<(), &'static str> {
     let mut t: Option<i64> = None;
     let mut sigs = Vec::new();
     for part in header.split(',') {
@@ -611,14 +729,62 @@ pub fn spoken_amount(amount: f64, code: &str) -> String {
     };
     let one = (amount - 1.0).abs() < 1e-9;
     let word = match code.to_ascii_uppercase().as_str() {
-        "USD" => if one { "dollar" } else { "dollars" },
-        "CAD" => if one { "Canadian dollar" } else { "Canadian dollars" },
-        "AUD" => if one { "Australian dollar" } else { "Australian dollars" },
-        "NZD" => if one { "New Zealand dollar" } else { "New Zealand dollars" },
-        "SGD" => if one { "Singapore dollar" } else { "Singapore dollars" },
-        "HKD" => if one { "Hong Kong dollar" } else { "Hong Kong dollars" },
-        "EUR" => if one { "euro" } else { "euros" },
-        "GBP" => if one { "pound" } else { "pounds" },
+        "USD" => {
+            if one {
+                "dollar"
+            } else {
+                "dollars"
+            }
+        }
+        "CAD" => {
+            if one {
+                "Canadian dollar"
+            } else {
+                "Canadian dollars"
+            }
+        }
+        "AUD" => {
+            if one {
+                "Australian dollar"
+            } else {
+                "Australian dollars"
+            }
+        }
+        "NZD" => {
+            if one {
+                "New Zealand dollar"
+            } else {
+                "New Zealand dollars"
+            }
+        }
+        "SGD" => {
+            if one {
+                "Singapore dollar"
+            } else {
+                "Singapore dollars"
+            }
+        }
+        "HKD" => {
+            if one {
+                "Hong Kong dollar"
+            } else {
+                "Hong Kong dollars"
+            }
+        }
+        "EUR" => {
+            if one {
+                "euro"
+            } else {
+                "euros"
+            }
+        }
+        "GBP" => {
+            if one {
+                "pound"
+            } else {
+                "pounds"
+            }
+        }
         "JPY" => "yen",
         "CHF" => "Swiss francs",
         "SEK" => "Swedish kronor",
@@ -691,54 +857,203 @@ mod tests {
     #[test]
     fn settings_validate() {
         assert!(TipSettings::default().validate().is_ok());
-        let s = TipSettings { min: 0.2, ..TipSettings::default() };
+        let s = TipSettings {
+            min: 0.2,
+            ..TipSettings::default()
+        };
         assert!(s.validate().is_err());
-        let s = TipSettings { currency: "XYZ".into(), ..TipSettings::default() };
+        let s = TipSettings {
+            currency: "XYZ".into(),
+            ..TipSettings::default()
+        };
         assert!(s.validate().is_err());
-        let s = TipSettings { suggested: vec![1000.0], ..TipSettings::default() };
+        let s = TipSettings {
+            suggested: vec![1000.0],
+            ..TipSettings::default()
+        };
         assert!(s.validate().is_err());
-        let s = TipSettings { first_max: 900.0, ..TipSettings::default() }.validate().unwrap();
+        let s = TipSettings {
+            first_max: 900.0,
+            ..TipSettings::default()
+        }
+        .validate()
+        .unwrap();
         assert_eq!(s.first_max, 500.0);
-        let s = TipSettings { currency: "jpy".into(), min: 200.0, max: 50_000.0, first_max: 5000.0, hold_over: 5000.0, suggested: vec![500.0], ..TipSettings::default() };
+        let s = TipSettings {
+            currency: "jpy".into(),
+            min: 200.0,
+            max: 50_000.0,
+            first_max: 5000.0,
+            hold_over: 5000.0,
+            suggested: vec![500.0],
+            ..TipSettings::default()
+        };
         assert_eq!(s.validate().unwrap().currency, "JPY");
     }
 
     #[test]
     fn prechecks() {
         let s = TipSettings::default();
-        let ok = Attempt { base: 5.0, known: false, ..Attempt::default() };
+        let ok = Attempt {
+            base: 5.0,
+            known: false,
+            ..Attempt::default()
+        };
         assert!(precheck(&s, &ok).is_ok());
-        assert!(precheck(&s, &Attempt { base: 0.5, ..ok.clone() }).is_err());
-        assert!(precheck(&s, &Attempt { base: 80.0, ..ok.clone() }).is_err());
-        assert!(precheck(&s, &Attempt { base: 80.0, known: true, ..ok.clone() }).is_ok());
-        assert!(precheck(&s, &Attempt { base: 501.0, known: true, ..ok.clone() }).is_err());
-        assert!(precheck(&s, &Attempt { blocked: true, ..ok.clone() }).is_err());
-        assert!(precheck(&s, &Attempt { recent_failures: 3, ..ok.clone() }).is_err());
-        let abroad = Attempt { card: true, ip_country: Some("DE".into()), card_country: Some("US".into()), ..ok.clone() };
+        assert!(precheck(
+            &s,
+            &Attempt {
+                base: 0.5,
+                ..ok.clone()
+            }
+        )
+        .is_err());
+        assert!(precheck(
+            &s,
+            &Attempt {
+                base: 80.0,
+                ..ok.clone()
+            }
+        )
+        .is_err());
+        assert!(precheck(
+            &s,
+            &Attempt {
+                base: 80.0,
+                known: true,
+                ..ok.clone()
+            }
+        )
+        .is_ok());
+        assert!(precheck(
+            &s,
+            &Attempt {
+                base: 501.0,
+                known: true,
+                ..ok.clone()
+            }
+        )
+        .is_err());
+        assert!(precheck(
+            &s,
+            &Attempt {
+                blocked: true,
+                ..ok.clone()
+            }
+        )
+        .is_err());
+        assert!(precheck(
+            &s,
+            &Attempt {
+                recent_failures: 3,
+                ..ok.clone()
+            }
+        )
+        .is_err());
+        let abroad = Attempt {
+            card: true,
+            ip_country: Some("DE".into()),
+            card_country: Some("US".into()),
+            ..ok.clone()
+        };
         assert!(precheck(&s, &abroad).is_err());
-        assert!(precheck(&s, &Attempt { card: false, ..abroad.clone() }).is_ok());
-        let allow = TipSettings { mismatch: Mismatch::Allow, ..TipSettings::default() };
+        assert!(precheck(
+            &s,
+            &Attempt {
+                card: false,
+                ..abroad.clone()
+            }
+        )
+        .is_ok());
+        let allow = TipSettings {
+            mismatch: Mismatch::Allow,
+            ..TipSettings::default()
+        };
         assert!(precheck(&allow, &abroad).is_ok());
     }
 
     #[test]
     fn holds() {
         let s = TipSettings::default();
-        let p = Paid { base: 5.0, card: true, verified: true, risk: "normal".into(), known: true, ..Paid::default() };
+        let p = Paid {
+            base: 5.0,
+            card: true,
+            verified: true,
+            risk: "normal".into(),
+            known: true,
+            ..Paid::default()
+        };
         assert_eq!(hold_reason(&s, &p), None);
-        assert!(hold_reason(&s, &Paid { known: false, ..p.clone() }).is_some());
-        assert!(hold_reason(&s, &Paid { base: 50.0, ..p.clone() }).is_some());
-        assert!(hold_reason(&s, &Paid { verified: false, ..p.clone() }).is_some());
-        assert!(hold_reason(&s, &Paid { verified: false, card: false, ..p.clone() }).is_none());
-        let off = TipSettings { hold: HoldMode::Off, ..TipSettings::default() };
-        assert_eq!(hold_reason(&off, &Paid { known: false, ..p.clone() }), None);
-        assert_eq!(hold_reason(&off, &Paid { risk: "elevated".into(), ..p.clone() }).map(|r| r.1), Some(true));
+        assert!(hold_reason(
+            &s,
+            &Paid {
+                known: false,
+                ..p.clone()
+            }
+        )
+        .is_some());
+        assert!(hold_reason(
+            &s,
+            &Paid {
+                base: 50.0,
+                ..p.clone()
+            }
+        )
+        .is_some());
+        assert!(hold_reason(
+            &s,
+            &Paid {
+                verified: false,
+                ..p.clone()
+            }
+        )
+        .is_some());
+        assert!(hold_reason(
+            &s,
+            &Paid {
+                verified: false,
+                card: false,
+                ..p.clone()
+            }
+        )
+        .is_none());
+        let off = TipSettings {
+            hold: HoldMode::Off,
+            ..TipSettings::default()
+        };
+        assert_eq!(
+            hold_reason(
+                &off,
+                &Paid {
+                    known: false,
+                    ..p.clone()
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            hold_reason(
+                &off,
+                &Paid {
+                    risk: "elevated".into(),
+                    ..p.clone()
+                }
+            )
+            .map(|r| r.1),
+            Some(true)
+        );
     }
 
     #[test]
     fn emails() {
-        assert_eq!(normalize_email(" A.B+x@GMail.com ").as_deref(), Some("ab@gmail.com"));
-        assert_eq!(normalize_email("a.b+x@proton.me").as_deref(), Some("a.b@proton.me"));
+        assert_eq!(
+            normalize_email(" A.B+x@GMail.com ").as_deref(),
+            Some("ab@gmail.com")
+        );
+        assert_eq!(
+            normalize_email("a.b+x@proton.me").as_deref(),
+            Some("a.b@proton.me")
+        );
         assert_eq!(normalize_email("nope"), None);
         assert_eq!(normalize_email("a@b"), None);
         assert_eq!(normalize_email("+x@b.com"), None);
@@ -764,7 +1079,10 @@ mod tests {
     fn form_and_speech() {
         let f = Form::new().add("a[b][]", "x y").add("n", 5);
         assert_eq!(f.encode(), "a%5Bb%5D%5B%5D=x%20y&n=5");
-        assert_eq!(speech("Ann", "5 dollars", "hi https://x.y there"), "Ann tipped 5 dollars. hi there");
+        assert_eq!(
+            speech("Ann", "5 dollars", "hi https://x.y there"),
+            "Ann tipped 5 dollars. hi there"
+        );
         assert_eq!(speech("Ann", "5 dollars", " "), "Ann tipped 5 dollars.");
         assert_eq!(spoken_amount(5.0, "USD"), "5 dollars");
         assert_eq!(spoken_amount(1.0, "EUR"), "1 euro");

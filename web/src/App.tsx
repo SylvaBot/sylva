@@ -12,6 +12,7 @@ import { navigate, usePath } from './router';
 import { Shell } from './Shell';
 import { PrivacyPage } from './site';
 import { PublicStorePage } from './store';
+import { PublicTipPage } from './tips';
 import { PageSkel, Skel } from './ui';
 
 const SIGNIN_ERRORS: Record<string, string> = {
@@ -48,13 +49,15 @@ export function App() {
   }, [inApp, me]);
 
   useEffect(() => {
-    if (!inApp && path !== '/device' && path !== '/privacy' && !path.startsWith('/s/') && !path.startsWith('/c/')) document.title = 'Sylva: alerts, overlays and activity for Twitch';
+    if (!inApp && path !== '/device' && path !== '/privacy' && !path.startsWith('/s/') && !path.startsWith('/c/') && !path.startsWith('/tip/')) document.title = 'Sylva: alerts, overlays and activity for Twitch';
   }, [inApp, path]);
 
   if (path === '/device') return <DevicePage me={me} />;
   if (path === '/privacy') return <PrivacyPage signedIn={!!me} />;
   const store = /^\/s\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
   if (store) return <PublicStorePage login={store[1].toLowerCase()} signedIn={!!me} />;
+  const tip = /^\/tip\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
+  if (tip) return <PublicTipPage login={tip[1].toLowerCase()} signedIn={!!me} />;
   const commands = /^\/c\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
   if (commands) return <PublicCommandsPage login={commands[1].toLowerCase()} signedIn={!!me} />;
   if (inApp) {

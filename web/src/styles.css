@@ -1535,3 +1535,36 @@ div.overlay-thumb { border-radius: var(--r-xl) var(--r-xl) 0 0; }
 .mult-field > span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--faint); font-size: 13px; pointer-events: none; }
 .game-fields .field input, .game-fields .field select { width: 100%; max-width: none; }
 .game-edit .cmd-alias, .types .cmd-name .cmd-alias { display: inline; }
+
+/* Tips (tips.tsx) */
+.tips-connect { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.tips-connect .field { min-width: 220px; }
+.tips-link { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px; }
+.tips-link a { color: var(--text); font-weight: 600; word-break: break-all; }
+.tips-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.tips-grid .wide { grid-column: 1 / -1; }
+.tips-grid .field.inline { align-self: auto; height: auto; min-height: 36px; }
+.tips-list { list-style: none; margin: 0; padding: 0 0 8px; }
+.tips-row { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--border); }
+.tips-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.tips-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tips-amount { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--tip, var(--text)); }
+.tips-msg { margin: 0; color: var(--text-2); font-size: 14px; overflow-wrap: anywhere; }
+.tips-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; flex-shrink: 0; }
+.tip-page { max-width: 560px; padding-top: 32px; padding-bottom: 48px; }
+.tip-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.tip-head h1 { margin: 2px 0 0; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.tip-form { margin-top: 20px; }
+.tip-amount-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 12px; }
+.tip-amount { font-size: 20px; font-weight: 600; height: 44px; }
+.tip-chips .chip { font-family: inherit; font-size: 13px; height: 30px; padding: 0 12px; }
+.tip-chips .chip[aria-pressed="true"] { border-color: var(--primary); color: var(--text); }
+.tip-pay { min-height: 1px; }
+.tip-agree { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--text-2); line-height: 1.5; }
+.tip-agree input { margin-top: 3px; }
+.tip-error { margin: 0; color: var(--danger); font-size: 13.5px; }
+.tip-submit { height: 44px; font-size: 15px; }
+.tip-done { text-align: center; padding: 32px 24px; }
+.tip-done svg { width: 32px; height: 32px; color: var(--ok); }
+.tip-done h2 { margin: 8px 0 6px; }
+@media (max-width: 640px) { .tips-row { flex-direction: column; } .tips-actions { justify-content: flex-start; } }

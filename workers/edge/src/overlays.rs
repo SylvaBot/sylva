@@ -57,8 +57,17 @@ pub(crate) struct Overlay {
 }
 
 const KINDS: [&str; 11] = [
-    "any", "follow", "subscriber", "giftedSub", "communityGift", "cheer", "tip", "redemption",
-    "raid", "chat", "alert",
+    "any",
+    "follow",
+    "subscriber",
+    "giftedSub",
+    "communityGift",
+    "cheer",
+    "tip",
+    "redemption",
+    "raid",
+    "chat",
+    "alert",
 ];
 
 /// Check a list sent by the dashboard, and make sure both built-ins are in it.
@@ -102,7 +111,11 @@ pub(crate) fn validated(mut list: Vec<Overlay>) -> std::result::Result<Vec<Overl
             if s.media.is_empty() || s.media.len() > 120 || s.media.contains('/') {
                 return Err("Pick a sound file".into());
             }
-            s.volume = if s.volume.is_finite() { s.volume.clamp(0.0, 1.0) } else { 1.0 };
+            s.volume = if s.volume.is_finite() {
+                s.volume.clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
         }
     }
     for b in BUILTINS.iter().rev() {
@@ -138,7 +151,10 @@ impl ChannelDo {
     }
 
     /// Save the list and send it to every overlay on screen.
-    pub(crate) fn save_overlays(&self, list: Vec<Overlay>) -> std::result::Result<Vec<Overlay>, String> {
+    pub(crate) fn save_overlays(
+        &self,
+        list: Vec<Overlay>,
+    ) -> std::result::Result<Vec<Overlay>, String> {
         let list = validated(list)?;
         let text = serde_json::to_string(&list).map_err(|e| e.to_string())?;
         self.set_config(KEY, &text).map_err(|e| e.to_string())?;
@@ -149,7 +165,9 @@ impl ChannelDo {
     /// For the widget data: `None` until the streamer saved something, so
     /// overlay pages keep their defaults.
     pub(crate) fn overlays_for_widgets(&self) -> Result<Option<Value>> {
-        Ok(self.config(KEY)?.and_then(|v| serde_json::from_str(&v).ok()))
+        Ok(self
+            .config(KEY)?
+            .and_then(|v| serde_json::from_str(&v).ok()))
     }
 }
 
@@ -183,7 +201,11 @@ mod tests {
         no_code.code = None;
         assert!(validated(vec![no_code]).is_err());
         let mut bad_sound = custom("y");
-        bad_sound.sounds.push(Sound { on: "nope".into(), media: "a.mp3".into(), volume: 1.0 });
+        bad_sound.sounds.push(Sound {
+            on: "nope".into(),
+            media: "a.mp3".into(),
+            volume: 1.0,
+        });
         assert!(validated(vec![bad_sound]).is_err());
     }
 }

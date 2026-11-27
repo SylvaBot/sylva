@@ -79,6 +79,13 @@ export function PrivacyPage({ signedIn }: { signedIn: boolean }) {
             your channel and removed when you delete your account.
           </li>
           <li>
+            <b>Tips, if a streamer takes them:</b> the tipper's name, message, amount, payment method type, country and
+            IP address, and a coded form of their email and card that cannot be turned back into them. Sylva uses these
+            to stop fraud and to answer chargebacks with evidence. Card details go only to Stripe; Sylva never sees them.
+            Someone who disputes a tip is blocked from tipping on every Sylva channel. Tip records are removed when the
+            streamer deletes their account.
+          </li>
+          <li>
             <b>Chat list permission, if you allow it:</b> a Twitch token that may read who is in your chat,
             encrypted the same way and used only to pay loyalty points to viewers who watch without chatting.
           </li>

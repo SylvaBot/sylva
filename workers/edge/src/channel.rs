@@ -38,8 +38,7 @@ pub const TEST_EVENT_TTL_MS: i64 = 30_000;
 
 /// Leaves out test events older than [`TEST_EVENT_TTL_MS`]. Takes one
 /// argument: the cutoff time.
-const NOT_OLD_TEST: &str =
-    "AND NOT (event_id LIKE 'sylva:test:%' AND received_at < ?)";
+const NOT_OLD_TEST: &str = "AND NOT (event_id LIKE 'sylva:test:%' AND received_at < ?)";
 
 /// Every stored event except the "Try it" tests, for use as `FROM {REAL_EVENTS}`.
 /// Stats, stream summaries, goals and top labels read from this, so a test
@@ -935,6 +934,8 @@ impl DurableObject for ChannelDo {
                     "redemptions",
                     "giveaways",
                     "giveaway_entries",
+                    "tips",
+                    "tts",
                 ] {
                     self.sql.exec(&format!("DELETE FROM {table}"), None)?;
                 }
@@ -1399,10 +1400,12 @@ impl ChannelDo {
         let rows = self
             .sql
             .exec(
-                &format!("SELECT kind, COUNT(*) AS n,
+                &format!(
+                    "SELECT kind, COUNT(*) AS n,
                         COALESCE(SUM(CASE WHEN kind = 'cheer'
                                      THEN json_extract(body, '$.amount') END), 0) AS amount
-                 FROM {REAL_EVENTS} WHERE received_at >= ? GROUP BY kind"),
+                 FROM {REAL_EVENTS} WHERE received_at >= ? GROUP BY kind"
+                ),
                 vec![since.into()],
             )?
             .to_array::<SummaryRow>()?;
@@ -1518,7 +1521,10 @@ impl ChannelDo {
                         "SELECT seq, received_at, body FROM events WHERE kind = ? {NOT_OLD_TEST}
                          ORDER BY seq DESC LIMIT 1"
                     ),
-                    vec![name.as_str().unwrap_or("other").into(), test_cutoff().into()],
+                    vec![
+                        name.as_str().unwrap_or("other").into(),
+                        test_cutoff().into(),
+                    ],
                 )?
                 .to_array::<EventRow>()?;
             latest.extend(Self::rows_to_events(rows)?);

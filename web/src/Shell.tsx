@@ -14,6 +14,7 @@ import { ActivityPage, AlertsPage, NotFoundPage, OverviewPage, SettingsPage } fr
 import { Command } from 'cmdk';
 import { Link, navigate } from './router';
 import { StatsPage } from './stats';
+import { TipsPage } from './tips';
 import { Avatar, Icon } from './ui';
 import { api } from './api';
 
@@ -23,6 +24,7 @@ const PAGES = [
   { path: '/app/activity', label: 'Activity', icon: 'activity', view: ActivityPage, group: 'Home' },
   { path: '/app/alerts', label: 'Alerts', icon: 'bell', view: AlertsPage, group: 'Stream' },
   { path: '/app/overlay', label: 'Overlays', icon: 'monitor', view: OverlayPage, group: 'Stream' },
+  { path: '/app/tips', label: 'Tips', icon: 'tip', view: TipsPage, group: 'Stream' },
   { path: '/app/bot', label: 'Chat bot', icon: 'bot', view: BotPage, group: 'Bot' },
   { path: '/app/chat-alerts', label: 'Chat alerts', icon: 'zap', view: ChatAlertsPage, group: 'Bot' },
   { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage, group: 'Bot' },

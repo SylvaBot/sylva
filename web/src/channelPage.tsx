@@ -3,7 +3,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { api, type ChatEmote, type ChatStats, type PublicCommands, type PublicProfile, type PublicSongs, type PublicStore } from './api';
-import { clock, SONG_WHO, usePosition } from './songs';
+import { clock, SONG_WHO, songLink, usePosition } from './songs';
 import { CommandsBody } from './commandsPage';
 import { Link, navigate } from './router';
 import { SiteFooter, SiteHeader } from './site';
@@ -184,10 +184,10 @@ function SongsTab({ p }: { p: PublicProfile }) {
     <div className="stack">
       <section className="card ch-songs-now" aria-labelledby="songs-now">
         <div className="card-head"><div><h2 id="songs-now">Now playing</h2>
-          <p>{d.enabled ? `Type !sr and a YouTube link or song name in ${p.name}’s chat. Open to ${who}.` : `${p.name} is not taking song requests right now.`}</p></div></div>
+          <p>{d.enabled ? `Type !sr and a song name or Spotify link in ${p.name}’s chat. Open to ${who}.` : `${p.name} is not taking song requests right now.`}</p></div></div>
         {d.current ? (
           <div className="card-body sr-pub-now">
-            <a className="t1 sr-title" href={`https://youtu.be/${d.current.videoId}`} target="_blank" rel="noreferrer">{d.current.title}</a>
+            <a className="t1 sr-title" href={songLink(d.current)} target="_blank" rel="noreferrer">{d.current.title}</a>
             <div className="t2">{d.current.author} · asked by {d.current.by}</div>
             <div className="sr-time">
               <span className="mono">{clock(Math.min(pos / 1000, d.current.durationS))}</span>
@@ -202,7 +202,7 @@ function SongsTab({ p }: { p: PublicProfile }) {
         {d.queue.length === 0 ? <p className="empty">The queue is empty.</p> : (
           <ol className="ch-queue">
             {d.queue.map((s, i) => (
-              <li key={s.videoId + i}>
+              <li key={(s.track || s.videoId) + i}>
                 <span className="ch-label"><span className="t1">{s.title}</span><span className="t2">{s.by}</span></span>
                 <span className="mono faint">{clock(s.durationS)}</span>
               </li>

@@ -308,11 +308,12 @@ export interface PublicCommands {
 }
 export type SongWho = 'everyone' | 'followers' | 'subscriber' | 'vip' | 'moderator';
 export interface SongSettings { enabled: boolean; who: SongWho; maxQueue: number; maxPerUser: number; maxDurationS: number; liveOnly: boolean }
-export interface Song { id: number; videoId: string; title: string; author: string; durationS: number; by: string; byId: string; at: number }
+export interface Song { id: number; track: string; videoId: string; title: string; author: string; durationS: number; by: string; byId: string; at: number }
 export interface Playback { songId: number | null; playing: boolean; positionMs: number; volume: number; status: string | null; at: number }
-export interface SongsView { settings: SongSettings; current: Song | null; queue: Song[]; playback: Playback; playerOnline: boolean; history: Song[] }
+export interface SpotifyLink { ready: boolean; name: string | null; premium: boolean }
+export interface SongsView { settings: SongSettings; current: Song | null; queue: Song[]; playback: Playback; playerOnline: boolean; history: Song[]; spotify: SpotifyLink }
 export type SongControl = { action: 'play' } | { action: 'pause' } | { action: 'seek'; positionMs: number } | { action: 'volume'; volume: number };
-export interface PublicSong { title: string; author: string; videoId: string; durationS: number; by: string }
+export interface PublicSong { title: string; author: string; track?: string; videoId: string; durationS: number; by: string }
 export interface PublicSongs { enabled: boolean; who: SongWho; current: PublicSong | null; queue: PublicSong[]; playing: boolean; positionMs: number; at: number }
 export interface PublicProfile {
   login: string; name: string; avatar: string; banner: string; description: string;
@@ -480,6 +481,8 @@ export const api = {
   clearSongs: (key: string) => request<SongsView>('POST', `${ch(key)}/songs/clear`),
   removeSong: (key: string, id: number) => request<SongsView>('POST', `${ch(key)}/songs/${id}/remove`),
   moveSong: (key: string, id: number, to: number) => request<SongsView>('POST', `${ch(key)}/songs/${id}/move`, { to }),
+  spotifyConnect: (key: string) => request<{ url: string }>('POST', `${ch(key)}/songs/spotify/connect`),
+  spotifyDisconnect: (key: string) => request<SongsView>('POST', `${ch(key)}/songs/spotify/disconnect`),
   songControl: (key: string, c: SongControl) => request<SongsView>('POST', `${ch(key)}/songs/control`, c),
   publicSongs: (login: string) => request<PublicSongs>('GET', `/v1/public/${encodeURIComponent(login)}/songs`),
   publicProfile: (login: string) => request<PublicProfile>('GET', `/v1/public/${encodeURIComponent(login)}/profile`),

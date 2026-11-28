@@ -76,12 +76,17 @@ An app cannot approve other apps or list or remove them; those need the streamer
 ## Song requests
 
 Viewers add songs with `!sr`; Sylva keeps the queue and the song up now, and
-Sylva Control plays the audio and reports what it is doing. Types are in
+Sylva Control plays them in the streamer's Spotify app (Spotify Premium) and
+reports what it is doing. Songs are found on Spotify with the streamer's own
+Spotify sign in; a YouTube link is searched on Spotify by its title. Types are in
 `crates/sylva-core/src/songs.rs`.
 
 | Route | Does |
 | --- | --- |
-| `GET songs` | `SongsView`: settings, `current`, `queue`, `playback`, `playerOnline`, `history` |
+| `GET songs` | `SongsView`: settings, `current`, `queue`, `playback`, `playerOnline`, `history`, `spotify` (`ready`, `name`, `premium`) |
+| `POST songs/spotify/connect` | Owner only. `{ url }`: the Spotify page to send the streamer to. Spotify returns them to `/auth/spotify/callback` |
+| `POST songs/spotify/disconnect` | Owner only. Forget the Spotify sign in |
+| `GET songs/spotify/token` | Owner only. `{ accessToken, expiresAt }` for Sylva Control to drive Spotify; 409 with words when Spotify is not connected |
 | `POST songs/settings` | Save `SongSettings` (editors and the owner) |
 | `POST songs/add` `{ query }` | Add a link or a search, as the streamer |
 | `POST songs/next` `{ from }` | Finish the song up now and start the next. `from` is the song id the caller thinks is up; a stale id does nothing, so a track end and a skip never skip twice |

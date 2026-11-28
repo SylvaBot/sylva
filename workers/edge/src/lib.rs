@@ -56,6 +56,7 @@ mod nuke;
 mod overlays;
 mod polly;
 mod songs;
+mod spotify;
 mod stats;
 mod store;
 mod streams;
@@ -132,6 +133,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         (Method::Get, ["auth", "twitch", "start"]) => auth::start(&req, &env).await,
         (Method::Get, ["auth", "twitch", "callback"]) => auth::callback(&req, &env).await,
         (Method::Get, ["auth", "twitch", "bot"]) => auth::bot_start(&req, &env).await,
+        (Method::Get, ["auth", "spotify", "callback"]) => spotify_callback(&req, &env).await,
         (Method::Post, ["auth", "sign-out"]) => auth::sign_out(&req, &env).await,
         (Method::Get, ["v1", "me"]) => match auth::caller(&req, &env).await? {
             Some(s) => no_store(Response::from_json(&s.me)?),
@@ -347,6 +349,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Get, ["tips"])
                 | (Method::Get, ["tips", "held"])
                 | (Method::Get, ["songs"])
+                | (Method::Get, ["songs", "spotify", "token"])
                 | (Method::Post, ["songs", ..])
                 | (Method::Post, ["tips", ..])
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,
@@ -542,6 +545,29 @@ async fn public_commands(env: &Env, login: &str) -> Result<Response> {
     out.headers_mut()
         .set("Cache-Control", "public, max-age=15")?;
     Ok(out)
+}
+
+/// `GET /auth/spotify/callback`: Spotify sends the streamer back here after
+/// they connect it on the Song requests page. The state names the channel.
+async fn spotify_callback(req: &Request, env: &Env) -> Result<Response> {
+    let q: std::collections::HashMap<String, String> = req.url()?.query_pairs().into_owned().collect();
+    let state = q.get("state").cloned().unwrap_or_default();
+    let key = state.rsplit_once('.').map(|(k, _)| k).unwrap_or("");
+    let go = |to: &str| -> Result<Response> {
+        let mut res = Response::empty()?.with_status(302);
+        res.headers_mut().set("Location", to)?;
+        res.headers_mut().set("Cache-Control", "no-store")?;
+        Ok(res)
+    };
+    let code = match q.get("code") {
+        Some(c) if valid_key(key) => c,
+        _ => return go("/app/songs?spotify=failed"),
+    };
+    let mut url = Url::parse("https://channel/spotify-callback")?;
+    url.query_pairs_mut().append_pair("code", code).append_pair("state", &state);
+    let mut res = stub(env, key)?.fetch_with_str(url.as_str()).await?;
+    let v: serde_json::Value = res.json().await.unwrap_or_default();
+    go(v["location"].as_str().unwrap_or("/app/songs?spotify=failed"))
 }
 
 /// `GET /v1/public/{login}/songs`: the song queue on the channel page.

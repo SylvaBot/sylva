@@ -66,6 +66,9 @@ SYLVA_BOT_LOGIN = "sylva_bot"
 # Twitch ids of whoever runs Sylva (comma separated). Their Moderation page
 # shows how to set up Sylva_Bot when its sign in is missing.
 SYLVA_OPERATOR_IDS = "122720786"
+# Not secret: the public client id of Sylva's Spotify app (song requests).
+# Its redirect URI is {site}/auth/spotify/callback. Empty turns Spotify off.
+SPOTIFY_CLIENT_ID = ""
 # Leave empty. The end to end tests point the public services that some chat
 # commands read (jokes, facts, dictionaries, emotes) at a local stand-in.
 SYLVA_LOOKUP_URL = ""

@@ -65,6 +65,8 @@ pub fn allows(role: Role, post: bool, rest: &[&str]) -> bool {
         ["tips", "connect" | "disconnect" | "settings"] => false,
         // `!ask` spends the owner's own AI credit.
         ["bot", "ask"] => false,
+        // The Spotify sign in plays on the owner's own account.
+        ["songs", "spotify", ..] => false,
         _ if !post => true,
         _ if role == Role::Editor => true,
         _ if role == Role::Moderator => matches!(

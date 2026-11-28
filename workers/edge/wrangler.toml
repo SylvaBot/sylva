@@ -68,7 +68,7 @@ SYLVA_BOT_LOGIN = "sylva_bot"
 SYLVA_OPERATOR_IDS = "122720786"
 # Not secret: the public client id of Sylva's Spotify app (song requests).
 # Its redirect URI is {site}/auth/spotify/callback. Empty turns Spotify off.
-SPOTIFY_CLIENT_ID = ""
+SPOTIFY_CLIENT_ID = "4e4f7df038aa4fe3872c5b19afd0a858"
 # Leave empty. The end to end tests point the public services that some chat
 # commands read (jokes, facts, dictionaries, emotes) at a local stand-in.
 SYLVA_LOOKUP_URL = ""

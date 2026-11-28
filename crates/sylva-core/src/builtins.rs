@@ -25,6 +25,8 @@ pub enum Group {
     Quotes,
     Stream,
     Moderation,
+    /// Song requests, also listed on the Song requests page.
+    Music,
 }
 
 /// A permission the streamer gives on the Bot page before a command works.
@@ -663,6 +665,62 @@ pub const BUILTINS: &[Builtin] = &[
             0,
         )
     },
+    Builtin {
+        aliases: &["songrequest", "request"],
+        ..b(
+            "sr",
+            Music,
+            "Adds a YouTube song to the queue, from a link or a search",
+            "!sr never gonna give you up",
+            Everyone,
+            0,
+        )
+    },
+    Builtin {
+        aliases: &["currentsong", "nowplaying", "np"],
+        ..b(
+            "song",
+            Music,
+            "Says which song is playing and who asked for it",
+            "!song",
+            Everyone,
+            10,
+        )
+    },
+    Builtin {
+        aliases: &["queue", "songs", "sl"],
+        ..b(
+            "songlist",
+            Music,
+            "Says the next songs and links to the full queue",
+            "!songlist",
+            Everyone,
+            10,
+        )
+    },
+    Builtin {
+        aliases: &["removesong", "oops"],
+        ..b(
+            "wrongsong",
+            Music,
+            "Takes your newest request out of the queue",
+            "!wrongsong",
+            Everyone,
+            0,
+        )
+    },
+    Builtin {
+        aliases: &["skip", "nextsong"],
+        min: UserLevel::Vip,
+        ..b(
+            "skipsong",
+            Music,
+            "Skips the song that is playing",
+            "!skipsong",
+            Moderator,
+            0,
+        )
+    },
 ];
 
 /// The built-in command a trigger names, by name or alias.
@@ -1173,18 +1231,19 @@ mod tests {
             assert!(b.level >= b.min, "{}", b.name);
             assert!(!b.about.contains('\u{2014}'), "{}", b.name);
         }
-        for media in [
-            "sr",
-            "song",
-            "songqueue",
-            "skip",
-            "clear",
-            "volume",
-            "voteskip",
-            "wrongsong",
+        // Song requests (Josh asked for them on 2026-11-27).
+        for (word, name) in [
+            ("sr", "sr"),
+            ("songrequest", "sr"),
+            ("np", "song"),
+            ("queue", "songlist"),
+            ("wrongsong", "wrongsong"),
+            ("skip", "skipsong"),
         ] {
-            assert!(builtin(media).is_none(), "{media}");
+            assert_eq!(builtin(word).unwrap().name, name, "{word}");
+            assert_eq!(builtin(word).unwrap().group, Music);
         }
+        assert!(builtin("volume").is_none());
         assert_eq!(builtin("delquote").unwrap().name, "deletequote");
     }
 

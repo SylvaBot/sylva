@@ -349,6 +349,9 @@ impl ChannelDo {
                 }
             }
             "weather" => self.weather(args).await,
+            "sr" | "song" | "songlist" | "wrongsong" | "skipsong" => {
+                self.song_command(name, args, ask, who).await?
+            }
             "ask" => self.ask_reply(args, ask, who).await?,
             "dictionary" => {
                 let Some(word) = args.first().map(|w| w.to_lowercase()) else {
@@ -692,7 +695,7 @@ impl ChannelDo {
 
     /// The streamer's token for clips, title, category and followers, or the
     /// words that tell chat it is missing.
-    async fn commands_token(&self) -> Result<std::result::Result<String, String>> {
+    pub(crate) async fn commands_token(&self) -> Result<std::result::Result<String, String>> {
         Ok(match self.user_token("commands").await? {
             Token::Ok(t) => Ok(t),
             Token::No(Permission::Expired) => Err(

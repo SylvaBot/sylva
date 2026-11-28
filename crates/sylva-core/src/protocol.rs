@@ -21,6 +21,10 @@
 //!   when it connects, and again whenever the widget settings change.
 //! * `stop { alertId }` tells overlays to hide an alert that was skipped.
 //! * `state { ... }` whenever pause, mute or the current alert changes.
+//! * `songs { ... }` (feeds) whenever the song request queue, the song up now
+//!   or Sylva Control's playback changes (see [`crate::songs::SongsView`]).
+//! * `songControl { control }` (feeds) a play, pause, seek or volume press
+//!   from the dashboard or chat, for Sylva Control's player.
 
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +122,10 @@ pub enum ServerFrame {
     /// which then read `GET tips/held`).
     Tips {
         held: u32,
+    },
+    Songs(Box<crate::songs::SongsView>),
+    SongControl {
+        control: crate::songs::SongControl,
     },
     #[serde(rename_all = "camelCase")]
     Error {

@@ -64,7 +64,7 @@ export function App() {
   if (path === '/c' || path === '/c/') return <ChatStatsHome signedIn={!!me} />;
   const stats = /^\/c\/([A-Za-z0-9_]{1,25})\/?$/.exec(path);
   if (stats) return <ChatStatsPage login={stats[1].toLowerCase()} signedIn={!!me} />;
-  const channel = /^\/([A-Za-z0-9_]{1,25})(?:\/(leaderboard|commands))?\/?$/.exec(path);
+  const channel = /^\/([A-Za-z0-9_]{1,25})(?:\/(leaderboard|commands|songs))?\/?$/.exec(path);
   if (channel && !RESERVED.has(channel[1].toLowerCase())) {
     return <ChannelPage login={channel[1].toLowerCase()} tab={(channel[2] || 'profile') as ChannelTab} signedIn={!!me} />;
   }

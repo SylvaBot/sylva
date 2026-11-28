@@ -21,6 +21,7 @@ pub mod migrate;
 pub mod moderation;
 pub mod protocol;
 pub mod scene;
+pub mod songs;
 pub mod speech;
 pub mod store;
 pub mod team;

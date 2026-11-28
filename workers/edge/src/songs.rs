@@ -6,17 +6,18 @@
 //! Sylva Control plays the audio and reports its playback here; the
 //! dashboard's buttons reach it as `songControl` frames on its socket.
 //!
-//! Songs are looked up with YouTube's own web API (`youtubei/v1`), the same
-//! one its apps use. It needs no key, but YouTube can change it; a lookup
-//! that fails tells chat to try a link instead.
+//! Songs are looked up on Spotify with the streamer's own Spotify sign in
+//! (see `spotify.rs`), and Sylva Control plays them in their Spotify app.
+//! A YouTube link in `!sr` is turned into a Spotify search for its title,
+//! read from YouTube's official oEmbed endpoint.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sylva_core::bot::UserLevel;
 use sylva_core::protocol::{Role, ServerFrame};
 use sylva_core::songs::{
-    self as core, clock, Found, Playback, Song, SongControl, SongSettings, SongWho, SongsView,
-    HISTORY, PLAYER_FRESH_MS,
+    self as core, clock, song_link, Found, Playback, Song, SongControl, SongSettings, SongWho,
+    SongsView, HISTORY, PLAYER_FRESH_MS,
 };
 use worker::*;
 
@@ -26,11 +27,6 @@ use crate::community::Ask;
 use crate::twitch_api::App;
 
 const LOOKUP_TIMEOUT_MS: u32 = 6_000;
-/// YouTube's Android VR app: its answers carry the length and whether the
-/// video may play, and it is the client Sylva Control plays with.
-const VR_VERSION: &str = "1.65.10";
-const VR_AGENT: &str = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
-const WEB_VERSION: &str = "2.20251120.01.00";
 
 #[derive(Deserialize)]
 struct MoveBody {
@@ -84,11 +80,12 @@ impl ChannelDo {
             playback,
             player_online: online,
             history: self.json_config("song_history")?,
+            spotify: self.spotify_link()?,
         })
     }
 
     /// Tell the dashboard and Sylva Control what changed.
-    fn songs_changed(&self) -> Result<SongsView> {
+    pub(crate) fn songs_changed(&self) -> Result<SongsView> {
         let view = self.songs_view()?;
         let text = serde_json::to_string(&ServerFrame::Songs(Box::new(view.clone())))?;
         for ws in self.sockets(Role::Feed) {
@@ -137,6 +134,7 @@ impl ChannelDo {
     fn push_song(&self, found: Found, by: &str, by_id: &str) -> Result<(Song, usize)> {
         let song = Song {
             id: self.next_song_id()?,
+            track: found.track,
             video_id: found.video_id,
             title: found.title,
             author: found.author,
@@ -158,6 +156,12 @@ impl ChannelDo {
     /// `/songs/...` from the dashboard, team and Sylva Control.
     pub(crate) async fn songs_route(&self, mut req: Request, rest: &[&str]) -> Result<Response> {
         let post = req.method() == Method::Post;
+        if let ["spotify", tail @ ..] = rest {
+            if let Some(res) = self.spotify_route(&req, post, tail).await? {
+                return Ok(res);
+            }
+            return Response::from_json(&self.songs_changed()?);
+        }
         match (post, rest) {
             (false, []) => return Response::from_json(&self.songs_view()?),
             (true, ["settings"]) => {
@@ -171,7 +175,7 @@ impl ChannelDo {
             }
             (true, ["add"]) => {
                 let Ok(b) = req.json::<AddBody>().await else {
-                    return Response::error("Type a YouTube link or a song name", 400);
+                    return Response::error("Type a song name or a Spotify link", 400);
                 };
                 let found = match self.find_song(&b.query).await? {
                     Ok(f) => f,
@@ -258,7 +262,7 @@ impl ChannelDo {
     /// What `/{login}/songs` shows: no viewer ids.
     pub(crate) fn songs_public(&self) -> Result<Value> {
         let v = self.songs_view()?;
-        let strip = |s: &Song| json!({ "title": s.title, "author": s.author, "videoId": s.video_id, "durationS": s.duration_s, "by": s.by });
+        let strip = |s: &Song| json!({ "title": s.title, "author": s.author, "videoId": s.video_id, "track": s.track, "durationS": s.duration_s, "by": s.by });
         Ok(json!({
             "enabled": v.settings.enabled,
             "who": v.settings.who,
@@ -270,61 +274,61 @@ impl ChannelDo {
         }))
     }
 
-    async fn youtube(&self, path: &str, body: Value, agent: &str, client: (&str, &str)) -> Option<Value> {
-        let headers = Headers::new();
-        let _ = headers.set("Content-Type", "application/json");
-        let _ = headers.set("User-Agent", agent);
-        let _ = headers.set("X-Youtube-Client-Name", client.0);
-        let _ = headers.set("X-Youtube-Client-Version", client.1);
+    /// A YouTube video's title, from YouTube's official oEmbed endpoint.
+    async fn youtube_title(&self, id: &str) -> Option<String> {
         let base = self
             .var("SYLVA_LOOKUP_URL")
+            .filter(|b| !b.is_empty())
             .map(|b| format!("{b}/youtube"))
             .unwrap_or_else(|| "https://www.youtube.com".into());
-        let mut init = RequestInit::new();
-        init.with_method(Method::Post)
-            .with_headers(headers)
-            .with_body(Some(body.to_string().into()));
-        let req = Request::new_with_init(&format!("{base}/youtubei/v1/{path}?prettyPrint=false"), &init).ok()?;
+        let url = format!("{base}/oembed?format=json&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D{id}");
+        let req = Request::new(&url, Method::Get).ok()?;
         let signal = AbortSignal::from(web_sys::AbortSignal::timeout_with_u32(LOOKUP_TIMEOUT_MS));
         let mut res = Fetch::Request(req).send_with_signal(&signal).await.ok()?;
         if res.status_code() != 200 {
             return None;
         }
-        res.json().await.ok()
+        let v: Value = res.json().await.ok()?;
+        v["title"].as_str().map(core::search_words)
     }
 
-    /// A link or a search, as one YouTube video. `Err` is worded for chat.
+    /// A link or a search, as one Spotify track. `Err` is worded for chat.
     pub(crate) async fn find_song(&self, query: &str) -> Result<std::result::Result<Found, String>> {
         let query = query.trim();
         if query.is_empty() {
-            return Ok(Err("Add a YouTube link or a song name, such as !sr never gonna give you up".into()));
+            return Ok(Err("Add a song name or a Spotify link, such as !sr never gonna give you up".into()));
         }
-        if let Some(id) = core::video_id(query) {
-            let body = json!({
-                "context": { "client": {
-                    "clientName": "ANDROID_VR", "clientVersion": VR_VERSION, "deviceMake": "Oculus",
-                    "deviceModel": "Quest 3", "androidSdkVersion": 32, "osName": "Android",
-                    "osVersion": "12L", "hl": "en", "gl": "US"
-                } },
-                "videoId": id, "contentCheckOk": true, "racyCheckOk": true
-            });
-            return Ok(match self.youtube("player", body, VR_AGENT, ("28", VR_VERSION)).await {
-                Some(v) => core::parse_player(&v),
-                None => Err("YouTube did not answer. Try again in a minute.".into()),
+        if let Some(id) = core::spotify_track(query) {
+            return Ok(match self.spotify_get(&format!("/tracks/{id}?market=from_token")).await? {
+                Ok(v) if v["is_playable"].as_bool() == Some(false) => {
+                    Err("That song can't play on Spotify here.".into())
+                }
+                Ok(v) => core::parse_spotify_track(&v).ok_or_else(|| "Spotify has no such song.".to_string()),
+                Err(m) => Err(m),
             });
         }
-        if query.starts_with("http") || query.contains("://") {
-            return Ok(Err("Only YouTube links work for song requests.".into()));
-        }
-        let body = json!({
-            "context": { "client": { "clientName": "WEB", "clientVersion": WEB_VERSION, "hl": "en", "gl": "US" } },
-            // Videos only.
-            "query": query, "params": "EgIQAQ%3D%3D"
-        });
-        let agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-        Ok(match self.youtube("search", body, agent, ("1", WEB_VERSION)).await {
-            Some(v) => core::parse_search(&v).ok_or_else(|| format!("No song on YouTube matches {query}.")),
-            None => Err("YouTube search did not answer. Try a link instead.".into()),
+        let words = match core::video_id(query).filter(|_| query.contains("youtu")) {
+            Some(id) => match self.youtube_title(&id).await {
+                Some(t) => t,
+                None => return Ok(Err("That YouTube video could not be found. Try the song name.".into())),
+            },
+            None if query.starts_with("http") || query.contains("://") => {
+                return Ok(Err("Use a song name, a Spotify link or a YouTube link.".into()))
+            }
+            None => query.to_string(),
+        };
+        let mut q = Url::parse("https://x/").expect("a valid address");
+        q.query_pairs_mut()
+            .append_pair("q", &words)
+            .append_pair("type", "track")
+            .append_pair("limit", "1")
+            .append_pair("market", "from_token");
+        Ok(match self.spotify_get(&format!("/search?{}", q.query().unwrap_or(""))).await? {
+            Ok(v) => v["tracks"]["items"]
+                .get(0)
+                .and_then(core::parse_spotify_track)
+                .ok_or_else(|| format!("No song on Spotify matches {words}.")),
+            Err(m) => Err(m),
         })
     }
 
@@ -412,7 +416,7 @@ impl ChannelDo {
                 })
             }
             "song" => Ok(match self.song_current()? {
-                Some(s) => format!("Now playing: {} (requested by {}) https://youtu.be/{}", s.title, s.by, s.video_id),
+                Some(s) => format!("Now playing: {} by {} (requested by {}) {}", s.title, s.author, s.by, song_link(&s)),
                 None => "No song is playing.".into(),
             }),
             "songlist" => {

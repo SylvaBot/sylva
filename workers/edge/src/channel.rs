@@ -441,6 +441,7 @@ impl DurableObject for ChannelDo {
                 | ["public", "chatstats"]
                 | ["public", "profile"]
                 | ["public", "songs"]
+                | ["spotify-callback"]
                 | ["public", "media", _]
                 | ["public", "tips"]
                 | ["public", "tips", _]
@@ -639,6 +640,14 @@ impl DurableObject for ChannelDo {
                 }
             }
             (Method::Get, ["public", "songs"]) => Response::from_json(&self.songs_public()?),
+            (Method::Get, ["spotify-callback"]) => {
+                let code = q.get("code").cloned().unwrap_or_default();
+                let state = q.get("state").cloned().unwrap_or_default();
+                let location = self.spotify_callback(&code, &state).await?;
+                // The dashboard and Sylva Control show the new connection at once.
+                self.songs_changed()?;
+                Response::from_json(&serde_json::json!({ "location": location }))
+            }
             (_, ["songs", rest @ ..]) => self.songs_route(req, rest).await,
             (Method::Get, ["public", "chatstats"]) => Response::from_json(&self.chat_stats()?),
             (Method::Get, ["public", "profile"]) => Response::from_json(&self.public_profile().await?),

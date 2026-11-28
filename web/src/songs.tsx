@@ -1,5 +1,5 @@
 // The Song requests page: what is playing, the queue, and the rules for !sr.
-// Sylva Control plays the audio; this page drives it through Sylva, and the
+// Sylva Control plays them in Spotify; this page drives it through Sylva, and the
 // rules match crates/sylva-core/src/songs.rs.
 
 import { useCallback, useEffect, useState } from 'react';
@@ -27,6 +27,11 @@ const CMD_WHO: { id: UserLevel; label: string }[] = [
 const ORDER: UserLevel[] = ['everyone', 'subscriber', 'vip', 'moderator', 'broadcaster'];
 const LENGTHS = [180, 300, 420, 600, 900, 1200, 1800, 3600];
 const CONTROL_URL = 'https://github.com/SylvaBot/sylva-control/releases/latest';
+
+/** Where a song lives: Spotify, or YouTube for songs queued before Spotify. */
+export function songLink(s: { track?: string; videoId: string }): string {
+  return s.track ? `https://open.spotify.com/track/${s.track}` : `https://youtu.be/${s.videoId}`;
+}
 
 export function clock(secs: number): string {
   const s = Math.max(0, Math.floor(secs));
@@ -75,7 +80,7 @@ export function SongsPage() {
 
   return (
     <div className="page">
-      <PageHead title="Song requests" desc="Viewers ask for songs with !sr. Sylva Control plays the audio on your PC, so only you choose what reaches the stream.">
+      <PageHead title="Song requests" desc="Viewers ask for songs with !sr. Sylva Control plays them in Spotify on your PC, so only you choose what reaches the stream.">
         {view && (
           <label className="sr-master">
             <span>{view.settings.enabled ? 'Taking requests' : 'Requests off'}</span>
@@ -88,9 +93,10 @@ export function SongsPage() {
       {!view && !failed && <SkelCard rows={4} />}
       {view && (
         <div className="stack">
+          <SpotifyCard view={view} onRun={run} />
           {!view.playerOnline && (
             <div className="notice">
-              <span>Sylva Control plays the songs. Open it on your streaming PC and the queue starts there.</span>
+              <span>Sylva Control plays the songs in Spotify. Open both on your streaming PC and the queue starts there.</span>
               <a className="btn sm" href={CONTROL_URL} target="_blank" rel="noreferrer"><Icon id="download" />Get Sylva Control</a>
             </div>
           )}
@@ -100,6 +106,57 @@ export function SongsPage() {
           <SongCommands />
           {view.history.length > 0 && <History list={view.history} />}
         </div>
+      )}
+    </div>
+  );
+}
+
+function SpotifyCard({ view, onRun }: { view: SongsView; onRun(p: Promise<SongsView>, done?: string): void }) {
+  const ch = useChannel();
+  const toast = useToast();
+  const sp = view.spotify;
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const u = new URL(location.href);
+    const r = u.searchParams.get('spotify');
+    if (!r) return;
+    if (r === 'connected') toast('Spotify connected');
+    else toast(r === 'expired' ? 'That Spotify sign in took too long. Try again.' : 'Spotify did not connect. Try again.', true);
+    u.searchParams.delete('spotify');
+    history.replaceState(null, '', u.pathname + u.search);
+  }, [toast]);
+
+  const connect = async () => {
+    setBusy(true);
+    try {
+      location.href = (await api.spotifyConnect(ch.key)).url;
+    } catch (x) {
+      toast(errorText(x), true);
+      setBusy(false);
+    }
+  };
+
+  if (sp.name && sp.premium) {
+    return (
+      <div className="notice">
+        <span>Songs play in Spotify as {sp.name}.</span>
+        {ch.can.own && <button className="btn sm" type="button" onClick={() => onRun(api.spotifyDisconnect(ch.key), 'Spotify disconnected')}>Disconnect</button>}
+      </div>
+    );
+  }
+  const text = !sp.ready
+    ? 'Spotify is not set up on this Sylva server yet, so songs cannot be found or played.'
+    : sp.name
+      ? `${sp.name} is not on Spotify Premium. Spotify only lets apps play songs for Premium accounts.`
+      : 'Connect Spotify to take requests. Songs are found on Spotify and play in your Spotify app. Spotify Premium is needed.';
+  return (
+    <div className="notice">
+      <span>{text}</span>
+      {sp.ready && ch.can.own && (
+        <button className="btn sm primary" type="button" disabled={busy} onClick={() => void connect()}>
+          {busy ? 'Opening Spotify' : sp.name ? 'Connect again' : 'Connect Spotify'}
+        </button>
       )}
     </div>
   );
@@ -127,7 +184,7 @@ function NowPlaying({ view, onRun }: { view: SongsView; onRun(p: Promise<SongsVi
             <div className="sr-now-row">
               <span className="tile" aria-hidden="true"><Icon id="music" /></span>
               <div className="sr-now-text">
-                <a className="t1 sr-title" href={`https://youtu.be/${s.videoId}`} target="_blank" rel="noreferrer">{s.title}</a>
+                <a className="t1 sr-title" href={songLink(s)} target="_blank" rel="noreferrer">{s.title}</a>
                 <div className="t2">{[s.author, `asked by ${s.by}`].filter(Boolean).join(' · ')}</div>
               </div>
               <div className="sr-ctl">
@@ -151,7 +208,7 @@ function NowPlaying({ view, onRun }: { view: SongsView; onRun(p: Promise<SongsVi
               <span className="mono">{total ? clock(total / 1000) : '-'}</span>
             </div>
             <div className="sr-foot">
-              <span className="t2">{!view.playerOnline ? 'Waiting for Sylva Control' : p.status ? p.status : playing ? 'Playing in Sylva Control' : loaded ? 'Paused' : 'Loading in Sylva Control'}</span>
+              <span className="t2">{!view.playerOnline ? 'Waiting for Sylva Control' : p.status ? p.status : playing ? 'Playing in Spotify' : loaded ? 'Paused' : 'Press play to start it in Spotify'}</span>
               <span className="slider">
                 <Icon id="vol" />
                 <input type="range" min={0} max={100} step={5} aria-label="Volume" value={p.volume} disabled={!can || !view.playerOnline}
@@ -189,7 +246,7 @@ function Queue({ view, onRun }: { view: SongsView; onRun(p: Promise<SongsView>, 
         <form className="sr-add" onSubmit={(e) => { e.preventDefault(); if (query.trim()) void add(); }}>
           <label className="search sr-add-field">
             <Icon id="search" /><span className="sr-only">Add a song</span>
-            <input className="input" placeholder="YouTube link or song name" value={query} maxLength={200} onChange={(e) => setQuery(e.target.value)} />
+            <input className="input" placeholder="Song name or Spotify link" value={query} maxLength={200} onChange={(e) => setQuery(e.target.value)} />
           </label>
           <button className="btn" type="submit" disabled={busy || !query.trim()}><Icon id="plus" />{busy ? 'Adding' : 'Add'}</button>
         </form>
@@ -199,7 +256,7 @@ function Queue({ view, onRun }: { view: SongsView; onRun(p: Promise<SongsView>, 
         {q.map((s, i) => (
           <div className="gr sr-row" key={s.id}>
             <div className="gr-main">
-              <a className="t1 sr-title" href={`https://youtu.be/${s.videoId}`} target="_blank" rel="noreferrer">{s.title}</a>
+              <a className="t1 sr-title" href={songLink(s)} target="_blank" rel="noreferrer">{s.title}</a>
               <div className="t2">{s.by} · {clock(s.durationS)}</div>
             </div>
             {can && (
@@ -302,7 +359,7 @@ function History({ list }: { list: Song[] }) {
         {list.slice(0, 10).map((s) => (
           <div className="gr" key={s.id}>
             <div className="gr-main">
-              <a className="t1 sr-title" href={`https://youtu.be/${s.videoId}`} target="_blank" rel="noreferrer">{s.title}</a>
+              <a className="t1 sr-title" href={songLink(s)} target="_blank" rel="noreferrer">{s.title}</a>
               <div className="t2">{s.by} · {clock(s.durationS)}</div>
             </div>
           </div>

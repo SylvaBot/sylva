@@ -1,5 +1,5 @@
-//! Song requests: viewers ask for a YouTube song with `!sr`, Sylva keeps the
-//! queue, and Sylva Control plays the audio.
+//! Song requests: viewers ask for a song with `!sr`, Sylva keeps the queue,
+//! and Sylva Control plays it in the streamer's Spotify app.
 //!
 //! Who owns what:
 //! * The queue and the song that is up now live in the channel's Durable
@@ -7,8 +7,11 @@
 //! * Playback (playing or paused, the position, the volume) belongs to
 //!   Sylva Control, which reports it here so every page shows the truth.
 //!
-//! Nothing here touches the network. The Worker looks songs up on YouTube
-//! and hands the answers to [`parse_player`] and [`parse_search`].
+//! Nothing here touches the network. The Worker looks songs up on Spotify
+//! (with the streamer's own Spotify sign in) and hands the answers to
+//! [`parse_spotify_track`]. YouTube links still work in `!sr`: their title
+//! is searched on Spotify. Songs queued before Spotify carry only a
+//! `video_id`, and [`parse_player`] and [`parse_search`] read YouTube.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -104,10 +107,14 @@ impl SongSettings {
 pub struct Song {
     /// Given by the server, never reused in a channel.
     pub id: u64,
-    /// The YouTube video id, 11 characters.
+    /// The Spotify track id (22 characters).
+    #[serde(default)]
+    pub track: String,
+    /// The YouTube video id, only on songs queued before Spotify.
+    #[serde(default)]
     pub video_id: String,
     pub title: String,
-    /// The YouTube channel that posted it.
+    /// The artists.
     #[serde(default)]
     pub author: String,
     pub duration_s: u32,
@@ -159,6 +166,21 @@ pub struct SongsView {
     /// Recently finished or skipped, newest first.
     #[serde(default)]
     pub history: Vec<Song>,
+    #[serde(default)]
+    pub spotify: SpotifyLink,
+}
+
+/// The streamer's Spotify connection, as pages show it. Tokens never leave
+/// the server except to the owner's own Sylva Control.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotifyLink {
+    /// This Sylva server has a Spotify app set up.
+    pub ready: bool,
+    /// The Spotify account's display name, when connected.
+    pub name: Option<String>,
+    /// Spotify Premium, which playback through Spotify's API needs.
+    pub premium: bool,
 }
 
 /// A remote control press from the dashboard or chat, sent to Sylva Control.
@@ -198,7 +220,13 @@ pub fn refusal(
     if queue.len() as u32 >= settings.max_queue {
         return Some("The song queue is full. Try again later.".into());
     }
-    let dup = queue.iter().chain(current).any(|s| s.video_id == found.video_id);
+    let dup = queue.iter().chain(current).any(|s| {
+        if found.track.is_empty() {
+            s.video_id == found.video_id
+        } else {
+            s.track == found.track
+        }
+    });
     if dup {
         return Some("That song is already in the queue.".into());
     }
@@ -285,10 +313,13 @@ pub fn video_id(input: &str) -> Option<String> {
     is_id(&candidate).then_some(candidate)
 }
 
-/// A song found on YouTube, before it joins the queue.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A song found on Spotify (or, before Spotify, YouTube), before it joins the queue.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Found {
+    #[serde(default)]
+    pub track: String,
+    #[serde(default)]
     pub video_id: String,
     pub title: String,
     pub author: String,
@@ -314,6 +345,7 @@ pub fn parse_player(v: &Value) -> Result<Found, String> {
         return Err("That video's owner does not let it play outside YouTube.".into());
     }
     Ok(Found {
+        track: String::new(),
         video_id: id.into(),
         title: d["title"].as_str().unwrap_or("Untitled").into(),
         author: d["author"].as_str().unwrap_or("").into(),
@@ -364,12 +396,97 @@ fn renderer(r: &Value) -> Option<Found> {
     let length = text(&r["lengthText"]);
     let duration_s = parse_clock(&length).unwrap_or(0);
     Some(Found {
+        track: String::new(),
         video_id: id.into(),
         title: text(&r["title"]),
         author: text(&r["ownerText"]),
         duration_s,
         live: length.is_empty(),
     })
+}
+
+fn is_track(s: &str) -> bool {
+    s.len() == 22 && s.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+/// The track id in a Spotify link (open.spotify.com/track/..., with or
+/// without an `intl-xx` part) or a `spotify:track:` address.
+pub fn spotify_track(input: &str) -> Option<String> {
+    let t = input.trim().trim_start_matches('<').trim_end_matches('>');
+    if let Some(id) = t.strip_prefix("spotify:track:") {
+        return is_track(id).then(|| id.to_string());
+    }
+    let rest = t
+        .strip_prefix("https://")
+        .or_else(|| t.strip_prefix("http://"))
+        .unwrap_or(t);
+    let (host, path) = rest.split_once('/')?;
+    if !host.eq_ignore_ascii_case("open.spotify.com") {
+        return None;
+    }
+    let path = path.split(['?', '#']).next().unwrap_or("");
+    let mut segs = path.split('/').filter(|s| !s.starts_with("intl-"));
+    match (segs.next(), segs.next()) {
+        (Some("track"), Some(id)) if is_track(id) => Some(id.to_string()),
+        _ => None,
+    }
+}
+
+/// Read a Spotify track object (`/v1/tracks/{id}`, or one search result).
+pub fn parse_spotify_track(v: &Value) -> Option<Found> {
+    let id = v["id"].as_str().filter(|s| is_track(s))?;
+    let author = v["artists"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x["name"].as_str()).collect::<Vec<_>>().join(", "))
+        .unwrap_or_default();
+    Some(Found {
+        track: id.into(),
+        video_id: String::new(),
+        title: v["name"].as_str().unwrap_or("Untitled").into(),
+        author,
+        duration_s: (v["duration_ms"].as_u64().unwrap_or(0) / 1000) as u32,
+        live: false,
+    })
+}
+
+/// A YouTube title as Spotify search words: drops the bits in brackets
+/// that YouTube adds ("(Official Video)", "[Lyrics]", "| 4K").
+pub fn search_words(title: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0;
+    for c in title.split('|').next().unwrap_or(title).chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' if depth > 0 => depth -= 1,
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    let words: Vec<&str> = out.split_whitespace().filter(|w| *w != "-" && !w.eq_ignore_ascii_case("ft.") && !w.eq_ignore_ascii_case("feat.")).collect();
+    if words.is_empty() {
+        title.trim().to_string()
+    } else {
+        words.join(" ")
+    }
+}
+
+/// The link chat and pages show for a song.
+pub fn song_link(s: &Song) -> String {
+    if s.track.is_empty() {
+        format!("https://youtu.be/{}", s.video_id)
+    } else {
+        format!("https://open.spotify.com/track/{}", s.track)
+    }
+}
+
+/// The PKCE challenge for a verifier: base64url (no padding) of its SHA-256.
+pub fn pkce_challenge(verifier: &str) -> String {
+    use sha2::{Digest, Sha256};
+    crate::media::b64_encode(&Sha256::digest(verifier.as_bytes()))
+        .replace('+', "-")
+        .replace('/', "_")
+        .trim_end_matches('=')
+        .to_string()
 }
 
 #[cfg(test)]
@@ -408,6 +525,7 @@ mod tests {
     fn song(id: u64, by: &str) -> Song {
         Song {
             id,
+            track: String::new(),
             video_id: format!("vid{id:08}"),
             title: format!("Song {id}"),
             author: String::new(),
@@ -419,7 +537,7 @@ mod tests {
     }
 
     fn found(id: &str, secs: u32) -> Found {
-        Found { video_id: id.into(), title: "T".into(), author: "A".into(), duration_s: secs, live: false }
+        Found { track: String::new(), video_id: id.into(), title: "T".into(), author: "A".into(), duration_s: secs, live: false }
     }
 
     #[test]
@@ -470,5 +588,28 @@ mod tests {
         let c: SongControl = serde_json::from_str(r#"{"action":"seek","positionMs":5000}"#).unwrap();
         assert_eq!(c, SongControl::Seek { position_ms: 5000 });
         assert_eq!(serde_json::to_string(&SongControl::Pause).unwrap(), r#"{"action":"pause"}"#);
+    }
+
+    #[test]
+    fn reads_spotify() {
+        let id = Some("4uLU6hMCjMI75M1A2tKUQC".to_string());
+        for link in [
+            "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC",
+            "https://open.spotify.com/intl-de/track/4uLU6hMCjMI75M1A2tKUQC?si=abc",
+            "open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC",
+            "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+        ] {
+            assert_eq!(spotify_track(link), id, "{link}");
+        }
+        assert_eq!(spotify_track("https://open.spotify.com/album/4uLU6hMCjMI75M1A2tKUQC"), None);
+        let f = parse_spotify_track(&json!({
+            "id": "4uLU6hMCjMI75M1A2tKUQC", "name": "Never Gonna Give You Up",
+            "duration_ms": 213573, "artists": [{ "name": "Rick Astley" }]
+        }))
+        .unwrap();
+        assert_eq!((f.duration_s, f.author.as_str()), (213, "Rick Astley"));
+        assert_eq!(search_words("Rick Astley - Never Gonna Give You Up (Official Video) [4K]"), "Rick Astley Never Gonna Give You Up");
+        // RFC 7636 appendix B.
+        assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
     }
 }

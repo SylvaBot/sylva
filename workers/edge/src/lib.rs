@@ -55,6 +55,7 @@ mod moderation;
 mod nuke;
 mod overlays;
 mod polly;
+mod songs;
 mod stats;
 mod store;
 mod streams;
@@ -220,6 +221,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         (Method::Get, ["v1", "chatstats", "top"]) => chat_top(&env).await,
         (Method::Get, ["v1", "public", login, "chatstats"]) => public_chat_stats(&env, login).await,
         (Method::Get, ["v1", "public", login, "profile"]) => public_profile(&env, login).await,
+        (Method::Get, ["v1", "public", login, "songs"]) => public_songs(&env, login).await,
         (Method::Get, ["v1", "chat-assets", key]) => {
             if !valid_key(key) {
                 return Response::error("Unknown channel", 404);
@@ -344,6 +346,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 | (Method::Post, ["import", "other"])
                 | (Method::Get, ["tips"])
                 | (Method::Get, ["tips", "held"])
+                | (Method::Get, ["songs"])
+                | (Method::Post, ["songs", ..])
                 | (Method::Post, ["tips", ..])
                 | (Method::Post, ["alerts", ..]) => forward(req, &env, key, rest, None).await,
                 _ => Response::error("Not found", 404),
@@ -537,6 +541,22 @@ async fn public_commands(env: &Env, login: &str) -> Result<Response> {
     out.headers_mut().set("Content-Type", "application/json")?;
     out.headers_mut()
         .set("Cache-Control", "public, max-age=15")?;
+    Ok(out)
+}
+
+/// `GET /v1/public/{login}/songs`: the song queue on the channel page.
+async fn public_songs(env: &Env, login: &str) -> Result<Response> {
+    let key = match public_key(env, login).await? {
+        Ok(k) => k,
+        Err(res) => return Ok(res),
+    };
+    let mut res = stub(env, &key)?
+        .fetch_with_str("https://channel/public/songs")
+        .await?;
+    let body = res.text().await?;
+    let mut out = Response::ok(body)?;
+    out.headers_mut().set("Content-Type", "application/json")?;
+    out.headers_mut().set("Cache-Control", "public, max-age=5")?;
     Ok(out)
 }
 

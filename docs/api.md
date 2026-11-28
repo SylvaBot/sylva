@@ -72,3 +72,23 @@ Send `Authorization: Bearer sylva_...` on every request. API tokens do not expir
 | `GET /v1/channels/{key}/ws` | The live socket. Send `{"type":"hello","role":"feed","lastSeq":N}` first; see `crates/sylva-core/src/protocol.rs`. |
 
 An app cannot approve other apps or list or remove them; those need the streamer in the browser.
+
+## Song requests
+
+Viewers add songs with `!sr`; Sylva keeps the queue and the song up now, and
+Sylva Control plays the audio and reports what it is doing. Types are in
+`crates/sylva-core/src/songs.rs`.
+
+| Route | Does |
+| --- | --- |
+| `GET songs` | `SongsView`: settings, `current`, `queue`, `playback`, `playerOnline`, `history` |
+| `POST songs/settings` | Save `SongSettings` (editors and the owner) |
+| `POST songs/add` `{ query }` | Add a link or a search, as the streamer |
+| `POST songs/next` `{ from }` | Finish the song up now and start the next. `from` is the song id the caller thinks is up; a stale id does nothing, so a track end and a skip never skip twice |
+| `POST songs/{id}/remove`, `POST songs/{id}/move` `{ to }`, `POST songs/clear` | Change the queue. Removing the song up now skips it |
+| `POST songs/control` | A `SongControl` (`play`, `pause`, `seek`, `volume`) for the player, sent to every feed socket as `songControl` |
+| `POST songs/player` | The player's `Playback`: `songId`, `playing`, `positionMs`, `volume`, `status`. Send it on every change and every 10 seconds while open; `playerOnline` turns false 45 seconds after the last one |
+
+Feed sockets also get `songs` frames (a `SongsView`) whenever any of it
+changes. `GET /v1/public/{login}/songs` is the queue for the public channel
+page, without viewer ids.

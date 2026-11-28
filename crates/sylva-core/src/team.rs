@@ -77,6 +77,9 @@ pub fn allows(role: Role, post: bool, rest: &[&str]) -> bool {
                 // Moderators can let a held tip through or turn it back.
                 | ["tips", _, "approve" | "reject"]
                 | ["bot", "quotes", ..]
+                // Moderators run the song queue; settings stay with editors.
+                | ["songs", "next" | "control" | "add" | "clear"]
+                | ["songs", _, "remove" | "move"]
                 | ["bot", "counters", _, "set"]
                 // Trying a message changes nothing.
                 | ["bot", "try"]

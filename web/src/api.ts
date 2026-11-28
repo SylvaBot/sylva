@@ -190,7 +190,7 @@ export interface BotSettings {
   enabled: boolean; commands: BotCommand[]; timers: BotTimer[]; counters: BotCounter[]; quotes: QuoteSettings;
   builtins: BuiltinSetting[];
 }
-export type BuiltinGroup = 'info' | 'fun' | 'commands' | 'quotes' | 'stream' | 'moderation';
+export type BuiltinGroup = 'info' | 'fun' | 'commands' | 'quotes' | 'stream' | 'moderation' | 'music';
 export interface Builtin {
   name: string; aliases: string[]; group: BuiltinGroup; about: string; usage: string;
   level: UserLevel; min: UserLevel; cooldown: number; on: boolean; needs: 'nothing' | 'commands' | 'moderation';
@@ -306,6 +306,14 @@ export interface PublicCommand {
 export interface PublicCommands {
   channel: string; login: string; commands: PublicCommand[]; counters: BotCounter[];
 }
+export type SongWho = 'everyone' | 'followers' | 'subscriber' | 'vip' | 'moderator';
+export interface SongSettings { enabled: boolean; who: SongWho; maxQueue: number; maxPerUser: number; maxDurationS: number; liveOnly: boolean }
+export interface Song { id: number; videoId: string; title: string; author: string; durationS: number; by: string; byId: string; at: number }
+export interface Playback { songId: number | null; playing: boolean; positionMs: number; volume: number; status: string | null; at: number }
+export interface SongsView { settings: SongSettings; current: Song | null; queue: Song[]; playback: Playback; playerOnline: boolean; history: Song[] }
+export type SongControl = { action: 'play' } | { action: 'pause' } | { action: 'seek'; positionMs: number } | { action: 'volume'; volume: number };
+export interface PublicSong { title: string; author: string; videoId: string; durationS: number; by: string }
+export interface PublicSongs { enabled: boolean; who: SongWho; current: PublicSong | null; queue: PublicSong[]; playing: boolean; positionMs: number; at: number }
 export interface PublicProfile {
   login: string; name: string; avatar: string; banner: string; description: string;
   bot: boolean; points: boolean; tips: boolean; live: boolean;
@@ -465,6 +473,15 @@ export const api = {
     request<{ id: string; status: string; clientSecret?: string }>('POST', `/v1/public/${encodeURIComponent(login)}/tip`, body),
   tipStatus: (login: string, id: string) =>
     request<{ status: 'pending' | 'paid' | 'failed' | 'closed'; note?: string }>('GET', `/v1/public/${encodeURIComponent(login)}/tip/${encodeURIComponent(id)}`),
+  songs: (key: string) => request<SongsView>('GET', `${ch(key)}/songs`),
+  saveSongSettings: (key: string, s: SongSettings) => request<SongsView>('POST', `${ch(key)}/songs/settings`, s),
+  addSong: (key: string, query: string) => request<SongsView>('POST', `${ch(key)}/songs/add`, { query }),
+  nextSong: (key: string, from: number | null) => request<SongsView>('POST', `${ch(key)}/songs/next`, { from }),
+  clearSongs: (key: string) => request<SongsView>('POST', `${ch(key)}/songs/clear`),
+  removeSong: (key: string, id: number) => request<SongsView>('POST', `${ch(key)}/songs/${id}/remove`),
+  moveSong: (key: string, id: number, to: number) => request<SongsView>('POST', `${ch(key)}/songs/${id}/move`, { to }),
+  songControl: (key: string, c: SongControl) => request<SongsView>('POST', `${ch(key)}/songs/control`, c),
+  publicSongs: (login: string) => request<PublicSongs>('GET', `/v1/public/${encodeURIComponent(login)}/songs`),
   publicProfile: (login: string) => request<PublicProfile>('GET', `/v1/public/${encodeURIComponent(login)}/profile`),
   chatTop: () => request<ChatTopRow[]>('GET', '/v1/chatstats/top'),
   chatStats: (login: string) => request<ChatStats>('GET', `/v1/public/${encodeURIComponent(login)}/chatstats`),

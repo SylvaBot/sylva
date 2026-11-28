@@ -2,7 +2,8 @@
 // Commands tabs; /c/{login} is the chat stats page that !chatstats links to.
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { api, type ChatEmote, type ChatStats, type PublicCommands, type PublicProfile, type PublicStore } from './api';
+import { api, type ChatEmote, type ChatStats, type PublicCommands, type PublicProfile, type PublicSongs, type PublicStore } from './api';
+import { clock, SONG_WHO, usePosition } from './songs';
 import { CommandsBody } from './commandsPage';
 import { Link, navigate } from './router';
 import { SiteFooter, SiteHeader } from './site';
@@ -76,6 +77,7 @@ const TABS = [
   { id: 'profile', label: 'Profile', path: '' },
   { id: 'leaderboard', label: 'Leaderboard', path: '/leaderboard' },
   { id: 'commands', label: 'Commands', path: '/commands' },
+  { id: 'songs', label: 'Song requests', path: '/songs' },
 ] as const;
 export type ChannelTab = (typeof TABS)[number]['id'];
 
@@ -85,7 +87,7 @@ export function ChannelPage({ login, tab, signedIn }: { login: string; tab: Chan
 
   useEffect(() => {
     const who = typeof profile === 'object' && profile ? profile.name : login;
-    const what = tab === 'profile' ? '' : tab === 'leaderboard' ? ' leaderboard' : ' chat commands';
+    const what = tab === 'profile' ? '' : tab === 'leaderboard' ? ' leaderboard' : tab === 'songs' ? ' song requests' : ' chat commands';
     document.title = `${who}${what} · Sylva`;
   }, [profile, login, tab]);
 
@@ -111,6 +113,7 @@ export function ChannelPage({ login, tab, signedIn }: { login: string; tab: Chan
         {tab === 'profile' && <ProfileTab p={p} />}
         {tab === 'leaderboard' && <LeaderboardTab p={p} />}
         {tab === 'commands' && <CommandsTab p={p} />}
+        {tab === 'songs' && <SongsTab p={p} />}
       </main>
     </Frame>
   );
@@ -161,6 +164,54 @@ function CommandsTab({ p }: { p: PublicProfile }) {
     return <section className="card"><p className="empty">The commands could not be loaded. Refresh to try again.</p></section>;
   }
   return <CommandsBody data={data} />;
+}
+
+function SongsTab({ p }: { p: PublicProfile }) {
+  const [data, setData] = useState<Load<PublicSongs>>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => api.publicSongs(p.login).then((d) => live && setData(d)).catch(() => live && setData((d) => (typeof d === 'object' && d ? d : 'failed')));
+    load();
+    const t = setInterval(() => { if (!document.hidden) load(); }, 10_000);
+    return () => { live = false; clearInterval(t); };
+  }, [p.login]);
+  const d = typeof data === 'object' && data ? data : null;
+  const pos = usePosition(d?.positionMs ?? 0, d?.at ?? 0, !!d?.playing);
+  if (data === null) return <section className="card"><SkelRows n={5} tile={false} /></section>;
+  if (!d) return <section className="card"><p className="empty">The song queue could not be loaded. Refresh to try again.</p></section>;
+  const who = SONG_WHO.find((w) => w.id === d.who)?.label.toLowerCase() ?? 'everyone';
+  return (
+    <div className="stack">
+      <section className="card ch-songs-now" aria-labelledby="songs-now">
+        <div className="card-head"><div><h2 id="songs-now">Now playing</h2>
+          <p>{d.enabled ? `Type !sr and a YouTube link or song name in ${p.name}’s chat. Open to ${who}.` : `${p.name} is not taking song requests right now.`}</p></div></div>
+        {d.current ? (
+          <div className="card-body sr-pub-now">
+            <a className="t1 sr-title" href={`https://youtu.be/${d.current.videoId}`} target="_blank" rel="noreferrer">{d.current.title}</a>
+            <div className="t2">{d.current.author} · asked by {d.current.by}</div>
+            <div className="sr-time">
+              <span className="mono">{clock(Math.min(pos / 1000, d.current.durationS))}</span>
+              <span className="sr-bar" aria-hidden="true"><span style={{ width: `${d.current.durationS ? Math.min(100, pos / 10 / d.current.durationS) : 0}%` }} /></span>
+              <span className="mono">{clock(d.current.durationS)}</span>
+            </div>
+          </div>
+        ) : <p className="empty">Nothing is playing.</p>}
+      </section>
+      <section className="card" aria-labelledby="songs-next">
+        <div className="card-head"><div><h2 id="songs-next">Up next</h2></div></div>
+        {d.queue.length === 0 ? <p className="empty">The queue is empty.</p> : (
+          <ol className="ch-queue">
+            {d.queue.map((s, i) => (
+              <li key={s.videoId + i}>
+                <span className="ch-label"><span className="t1">{s.title}</span><span className="t2">{s.by}</span></span>
+                <span className="mono faint">{clock(s.durationS)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+    </div>
+  );
 }
 
 /** A ranked list with a bar sized against the first row. */

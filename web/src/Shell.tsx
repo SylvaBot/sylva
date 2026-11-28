@@ -19,6 +19,7 @@ import { PointsPage } from './points';
 import { Link, navigate } from './router';
 import { SettingsWindow, type SettingsSection } from './settings';
 import { TipsPage } from './tipsAdmin';
+import { SongsPage } from './songs';
 import { Avatar, errorText, Icon, Leaf, useToast } from './ui';
 import { Select } from './dropdown';
 
@@ -30,6 +31,7 @@ const PAGES: Page[] = [
   { path: '/app/alerts', label: 'Alerts', icon: 'bell', view: AlertsPage, group: 'Stream' },
   { path: '/app/overlays', label: 'Overlays', icon: 'layers', view: OverlayPage, group: 'Stream' },
   { path: '/app/tips', label: 'Tips', icon: 'tip', view: TipsPage, group: 'Stream' },
+  { path: '/app/songs', label: 'Song requests', icon: 'music', view: SongsPage, group: 'Stream' },
   { path: '/app/commands', label: 'Commands', icon: 'terminal', view: CommandsPage, group: 'Chat' },
   { path: '/app/moderation', label: 'Moderation', icon: 'shield', view: ModerationPage, group: 'Chat' },
   { path: '/app/points', label: 'Points', icon: 'gem', view: PointsPage, group: 'Community' },

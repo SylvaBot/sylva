@@ -440,6 +440,7 @@ impl DurableObject for ChannelDo {
                 | ["public", "commands"]
                 | ["public", "chatstats"]
                 | ["public", "profile"]
+                | ["public", "songs"]
                 | ["public", "media", _]
                 | ["public", "tips"]
                 | ["public", "tips", _]
@@ -637,6 +638,8 @@ impl DurableObject for ChannelDo {
                     Err(m) => Response::error(m, 400),
                 }
             }
+            (Method::Get, ["public", "songs"]) => Response::from_json(&self.songs_public()?),
+            (_, ["songs", rest @ ..]) => self.songs_route(req, rest).await,
             (Method::Get, ["public", "chatstats"]) => Response::from_json(&self.chat_stats()?),
             (Method::Get, ["public", "profile"]) => Response::from_json(&self.public_profile().await?),
             (Method::Get, ["public", "commands"]) => match self.public_commands()? {
